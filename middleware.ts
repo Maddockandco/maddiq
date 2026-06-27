@@ -25,29 +25,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
-
-  // Protect dashboard routes
-  if (
-    pathname.startsWith('/dashboard') ||
-    pathname.startsWith('/clients') ||
-    pathname.startsWith('/tasks') ||
-    pathname.startsWith('/deadlines') ||
-    pathname.startsWith('/documents') ||
-    pathname.startsWith('/settings')
-  ) {
-    if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url))
-    }
-  }
-
-  // Redirect logged in users away from login/signup
-  if (pathname === '/login' || pathname === '/signup') {
-    if (user) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  }
+  await supabase.auth.getUser()
 
   return supabaseResponse
 }
