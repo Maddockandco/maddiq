@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 export default function TaskTable({ tasks }: { tasks: any[] }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
@@ -16,7 +18,11 @@ export default function TaskTable({ tasks }: { tasks: any[] }) {
         <tbody>
           {tasks.map((task, index) => (
             <tr key={task.id} className={`border-b border-gray-100 hover:bg-amber-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-              <td className="px-6 py-4"><span className="font-medium text-brand-dark text-sm">{task.title}</span></td>
+              <td className="px-6 py-4">
+                <Link href={`/tasks/${task.id}`} className="font-medium text-brand-dark hover:text-brand-gold transition-colors text-sm">
+                  {task.title}
+                </Link>
+              </td>
               <td className="px-6 py-4"><span className="text-sm text-gray-500">{task.clients?.name || '—'}</span></td>
               <td className="px-6 py-4">
                 <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
@@ -35,7 +41,9 @@ export default function TaskTable({ tasks }: { tasks: any[] }) {
                 }`}>{task.status.replace('_', ' ')}</span>
               </td>
               <td className="px-6 py-4">
-                <span className="text-sm text-gray-500">{task.due_date ? new Date(task.due_date).toLocaleDateString('en-GB') : '—'}</span>
+                <span className="text-sm text-gray-500">
+                  {task.due_date ? new Date(task.due_date).toLocaleDateString('en-GB') : '—'}
+                </span>
               </td>
             </tr>
           ))}
