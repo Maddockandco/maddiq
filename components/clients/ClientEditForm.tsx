@@ -2,44 +2,74 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { Field, Toggle, Section } from '@/components/clients/TaxSections'
 
-export default function ClientEditForm({ clientId }: { clientId: string }) {
-  const [name, setName] = useState('')
-  const [type, setType] = useState('company')
-  const [status, setStatus] = useState('prospect')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [industry, setIndustry] = useState('')
-  const [companyNumber, setCompanyNumber] = useState('')
-  const [vatRegistered, setVatRegistered] = useState(false)
-  const [vatNumber, setVatNumber] = useState('')
-  const [yearEndDate, setYearEndDate] = useState('')
-  const [notes, setNotes] = useState('')
+export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const supabase = createClient()
 
+  const [chAuthCode, setChAuthCode] = useState('')
+  const [sicCode, setSicCode] = useState('')
+  const [incorporationDate, setIncorporationDate] = useState('')
+  const [accountingReferenceDate, setAccountingReferenceDate] = useState('')
+  const [registeredAddress, setRegisteredAddress] = useState('')
+  const [tradingAddress, setTradingAddress] = useState('')
+  const [ctUtr, setCtUtr] = useState('')
+  const [ctPaymentReference, setCtPaymentReference] = useState('')
+  const [vatScheme, setVatScheme] = useState('')
+  const [vatRegistrationDate, setVatRegistrationDate] = useState('')
+  const [vatFlatRate, setVatFlatRate] = useState('')
+  const [payeReference, setPayeReference] = useState('')
+  const [accountsOfficeReference, setAccountsOfficeReference] = useState('')
+  const [numberOfEmployees, setNumberOfEmployees] = useState('')
+  const [payrollFrequency, setPayrollFrequency] = useState('')
+  const [cisRegistered, setCisRegistered] = useState(false)
+  const [cisUtr, setCisUtr] = useState('')
+  const [autoEnrolment, setAutoEnrolment] = useState(false)
+  const [pensionProvider, setPensionProvider] = useState('')
+  const [pensionStagingDate, setPensionStagingDate] = useState('')
+  const [bankName, setBankName] = useState('')
+  const [sortCode, setSortCode] = useState('')
+  const [accountNumber, setAccountNumber] = useState('')
+  const [monthlyFee, setMonthlyFee] = useState('')
+  const [hourlyRate, setHourlyRate] = useState('')
+  const [billingDay, setBillingDay] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+
   useEffect(() => {
     async function fetchClient() {
-      const { data } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', clientId)
-        .single()
+      const { data } = await supabase.from('clients').select('*').eq('id', clientId).single()
       if (data) {
-        setName(data.name || '')
-        setType(data.type || 'company')
-        setStatus(data.status || 'prospect')
-        setEmail(data.email || '')
-        setPhone(data.phone || '')
-        setIndustry(data.industry || '')
-        setCompanyNumber(data.company_number || '')
-        setVatRegistered(data.vat_registered || false)
-        setVatNumber(data.vat_number || '')
-        setYearEndDate(data.year_end_date || '')
-        setNotes(data.notes || '')
+        setChAuthCode(data.ch_authentication_code || '')
+        setSicCode(data.sic_code || '')
+        setIncorporationDate(data.incorporation_date || '')
+        setAccountingReferenceDate(data.accounting_reference_date || '')
+        setRegisteredAddress(data.registered_address || '')
+        setTradingAddress(data.trading_address || '')
+        setCtUtr(data.ct_utr || '')
+        setCtPaymentReference(data.ct_payment_reference || '')
+        setVatScheme(data.vat_scheme || '')
+        setVatRegistrationDate(data.vat_registration_date || '')
+        setVatFlatRate(data.vat_flat_rate_percentage || '')
+        setPayeReference(data.paye_reference || '')
+        setAccountsOfficeReference(data.accounts_office_reference || '')
+        setNumberOfEmployees(data.number_of_employees || '')
+        setPayrollFrequency(data.payroll_frequency || '')
+        setCisRegistered(data.cis_registered || false)
+        setCisUtr(data.cis_utr || '')
+        setAutoEnrolment(data.auto_enrolment || false)
+        setPensionProvider(data.pension_provider || '')
+        setPensionStagingDate(data.pension_staging_date || '')
+        setBankName(data.bank_name || '')
+        setSortCode(data.bank_sort_code || '')
+        setAccountNumber(data.bank_account_number || '')
+        setMonthlyFee(data.monthly_fee || '')
+        setHourlyRate(data.hourly_rate || '')
+        setBillingDay(data.billing_day || '')
+        setPaymentMethod(data.payment_method || '')
       }
       setLoading(false)
     }
@@ -50,225 +80,136 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
     setSuccess(false)
-
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({
-        name,
-        type,
-        status,
-        email: email || null,
-        phone: phone || null,
-        industry: industry || null,
-        company_number: companyNumber || null,
-        vat_registered: vatRegistered,
-        vat_number: vatNumber || null,
-        year_end_date: yearEndDate || null,
-        notes: notes || null,
-      })
-      .eq('id', clientId)
-
-    if (updateError) {
-      setError(updateError.message)
-    } else {
-      setSuccess(true)
-    }
+    const { error: updateError } = await supabase.from('clients').update({
+      ch_authentication_code: chAuthCode || null,
+      sic_code: sicCode || null,
+      incorporation_date: incorporationDate || null,
+      accounting_reference_date: accountingReferenceDate || null,
+      registered_address: registeredAddress || null,
+      trading_address: tradingAddress || null,
+      ct_utr: ctUtr || null,
+      ct_payment_reference: ctPaymentReference || null,
+      vat_scheme: vatScheme || null,
+      vat_registration_date: vatRegistrationDate || null,
+      vat_flat_rate_percentage: vatFlatRate || null,
+      paye_reference: payeReference || null,
+      accounts_office_reference: accountsOfficeReference || null,
+      number_of_employees: numberOfEmployees || null,
+      payroll_frequency: payrollFrequency || null,
+      cis_registered: cisRegistered,
+      cis_utr: cisUtr || null,
+      auto_enrolment: autoEnrolment,
+      pension_provider: pensionProvider || null,
+      pension_staging_date: pensionStagingDate || null,
+      bank_name: bankName || null,
+      bank_sort_code: sortCode || null,
+      bank_account_number: accountNumber || null,
+      monthly_fee: monthlyFee || null,
+      hourly_rate: hourlyRate || null,
+      billing_day: billingDay || null,
+      payment_method: paymentMethod || null,
+    }).eq('id', clientId)
+    if (updateError) { setError(updateError.message) } else { setSuccess(true) }
     setSaving(false)
   }
 
-  async function handleDelete() {
-    if (!confirm('Are you sure you want to delete this client? This cannot be undone.')) return
-
-    const { error: deleteError } = await supabase
-      .from('clients')
-      .delete()
-      .eq('id', clientId)
-
-    if (deleteError) {
-      setError(deleteError.message)
-    } else {
-      window.location.href = '/clients'
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
-        <p className="text-gray-500 text-sm">Loading client...</p>
-      </div>
-    )
-  }
+  if (loading) return <div className="bg-white rounded-2xl p-8 text-center border border-gray-200"><p className="text-gray-500 text-sm">Loading...</p></div>
 
   return (
-    <div className="max-w-2xl space-y-6">
-      {error && (
-        <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>
-      )}
-      {success && (
-        <div className="bg-green-50 text-green-600 text-sm rounded-lg px-4 py-3">Client updated successfully!</div>
-      )}
+    <div className="space-y-6">
+      {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
+      {success && <div className="bg-green-50 text-green-600 text-sm rounded-lg px-4 py-3">Tax info saved!</div>}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
-        <h2 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Edit Client</h2>
-
-        {/* Type */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-2">Client type</label>
-          <div className="flex gap-4">
-            {['company', 'individual'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setType(t)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition ${
-                  type === t ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+      <Section title="🏢 Companies House">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="CH Authentication Code" value={chAuthCode} setter={setChAuthCode} placeholder="6 digit code" />
+          <Field label="SIC Code" value={sicCode} setter={setSicCode} placeholder="62012" />
+          <Field label="Incorporation Date" value={incorporationDate} setter={setIncorporationDate} type="date" />
+          <Field label="Accounting Reference Date" value={accountingReferenceDate} setter={setAccountingReferenceDate} type="date" />
+          <Field label="Registered Address" value={registeredAddress} setter={setRegisteredAddress} />
+          <Field label="Trading Address" value={tradingAddress} setter={setTradingAddress} />
         </div>
+      </Section>
 
-        {/* Name */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">
-            {type === 'company' ? 'Company name' : 'Full name'} *
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
+      <Section title="💼 Corporation Tax">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="CT UTR" value={ctUtr} setter={setCtUtr} placeholder="1234567890" />
+          <Field label="CT Payment Reference" value={ctPaymentReference} setter={setCtPaymentReference} />
         </div>
+      </Section>
 
-        {/* Company Number */}
-        {type === 'company' && (
+      <Section title="🧾 VAT">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Companies House number</label>
-            <input
-              type="text"
-              value={companyNumber}
-              onChange={(e) => setCompanyNumber(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
+            <label className="block text-sm font-medium text-brand-dark mb-1">VAT Scheme</label>
+            <select value={vatScheme} onChange={(e) => setVatScheme(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+              <option value="">Select scheme</option>
+              <option value="standard">Standard</option>
+              <option value="flat_rate">Flat Rate</option>
+              <option value="cash_accounting">Cash Accounting</option>
+              <option value="annual">Annual Accounting</option>
+            </select>
           </div>
-        )}
-
-        {/* Status */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          >
-            <option value="prospect">Prospect</option>
-            <option value="onboarding">Onboarding</option>
-            <option value="active">Active</option>
-            <option value="offboarded">Offboarded</option>
-          </select>
+          <Field label="VAT Registration Date" value={vatRegistrationDate} setter={setVatRegistrationDate} type="date" />
+          <Field label="Flat Rate %" value={vatFlatRate} setter={setVatFlatRate} type="number" placeholder="12.5" />
         </div>
+      </Section>
 
-        {/* Email */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
-        </div>
-
-        {/* Phone */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
-          <input
-            type="text"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
-        </div>
-
-        {/* Industry */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
-          <input
-            type="text"
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
-        </div>
-
-        {/* Year End */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Year end date</label>
-          <input
-            type="date"
-            value={yearEndDate}
-            onChange={(e) => setYearEndDate(e.target.value)}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
-        </div>
-
-        {/* VAT */}
-        <div>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={vatRegistered}
-              onChange={(e) => setVatRegistered(e.target.checked)}
-              className="w-4 h-4 accent-brand-dark"
-            />
-            <span className="text-sm font-medium text-brand-dark">VAT registered</span>
-          </label>
-        </div>
-
-        {vatRegistered && (
+      <Section title="👥 PAYE & Payroll">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="PAYE Reference" value={payeReference} setter={setPayeReference} placeholder="123/AB456" />
+          <Field label="Accounts Office Reference" value={accountsOfficeReference} setter={setAccountsOfficeReference} placeholder="123PA00012345" />
+          <Field label="Number of Employees" value={numberOfEmployees} setter={setNumberOfEmployees} type="number" />
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
-            <input
-              type="text"
-              value={vatNumber}
-              onChange={(e) => setVatNumber(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
+            <label className="block text-sm font-medium text-brand-dark mb-1">Payroll Frequency</label>
+            <select value={payrollFrequency} onChange={(e) => setPayrollFrequency(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+              <option value="">Select frequency</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="four_weekly">Four Weekly</option>
+            </select>
           </div>
-        )}
-
-        {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium text-brand-dark mb-1">Notes</label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={4}
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
+          <Toggle label="Auto Enrolment" value={autoEnrolment} setter={setAutoEnrolment} />
+          <Field label="Pension Provider" value={pensionProvider} setter={setPensionProvider} />
+          <Field label="Pension Staging Date" value={pensionStagingDate} setter={setPensionStagingDate} type="date" />
         </div>
+      </Section>
 
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm"
-        >
-          {saving ? 'Saving...' : 'Save changes'}
-        </button>
-      </div>
+      <Section title="🏗️ CIS">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Toggle label="CIS Registered" value={cisRegistered} setter={setCisRegistered} />
+          <Field label="CIS UTR" value={cisUtr} setter={setCisUtr} placeholder="1234567890" />
+        </div>
+      </Section>
 
-      {/* Danger Zone */}
-      <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-6">
-        <h3 className="text-sm font-semibold text-red-600 uppercase tracking-wider mb-4">Danger Zone</h3>
-        <button
-          onClick={handleDelete}
-          className="w-full bg-red-50 text-red-600 font-semibold py-3 rounded-lg hover:bg-red-100 transition text-sm"
-        >
-          Delete client
-        </button>
-      </div>
+      <Section title="🏦 Banking">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Bank Name" value={bankName} setter={setBankName} placeholder="Barclays" />
+          <Field label="Sort Code" value={sortCode} setter={setSortCode} placeholder="00-00-00" />
+          <Field label="Account Number" value={accountNumber} setter={setAccountNumber} placeholder="12345678" />
+        </div>
+      </Section>
+
+      <Section title="💳 Billing">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Monthly Fee (£)" value={monthlyFee} setter={setMonthlyFee} type="number" placeholder="250" />
+          <Field label="Hourly Rate (£)" value={hourlyRate} setter={setHourlyRate} type="number" placeholder="150" />
+          <Field label="Billing Day" value={billingDay} setter={setBillingDay} type="number" placeholder="1" />
+          <div>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Payment Method</label>
+            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+              <option value="">Select method</option>
+              <option value="dd">Direct Debit</option>
+              <option value="bacs">BACS</option>
+              <option value="card">Card</option>
+            </select>
+          </div>
+        </div>
+      </Section>
+
+      <button onClick={handleSave} disabled={saving} className="w-full bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
+        {saving ? 'Saving...' : 'Save tax info'}
+      </button>
     </div>
   )
 }
