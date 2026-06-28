@@ -35,11 +35,11 @@ export default function Sidebar() {
   return (
     <aside className="fixed top-0 left-0 h-full w-64 bg-brand-dark flex flex-col z-50">
 
-      {/* Logo */}
-      <div className="px-6 py-6 border-b border-white/10">
+      {/* Logo — clicking takes you to dashboard */}
+      <Link href="/dashboard" className="px-6 py-6 border-b border-white/10 hover:bg-white/5 transition">
         <h1 className="text-2xl font-bold text-white">Maddiq</h1>
         <p className="text-xs text-brand-gold mt-0.5">AI-native accounting</p>
-      </div>
+      </Link>
 
       {/* Nav Items */}
       <nav className="flex-1 px-4 py-6 space-y-1">
