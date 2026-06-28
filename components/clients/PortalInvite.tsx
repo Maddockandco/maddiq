@@ -16,19 +16,18 @@ export default function PortalInvite({ clientId, clientName }: { clientId: strin
     setError('')
 
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setError('Not authenticated'); setSending(false); return }
+    if (!user) { setError('Step 1 failed: Not authenticated'); setSending(false); return }
 
-    const { data: firmUser } = await supabase
+    const { data: firmUser, error: firmError } = await supabase
       .from('firm_users')
       .select('firm_id, firms(name)')
       .eq('user_id', user.id)
       .single()
 
-    if (!firmUser) { setError('Could not find your firm'); setSending(false); return }
+    if (!firmUser) { setError(`Step 2 failed: ${firmError?.message}`); setSending(false); return }
 
     const firmName = (firmUser.firms as any)?.name || 'Your accountant'
 
-    // Create portal user record
     const { error: portalError } = await supabase
       .from('client_portal_users')
       .upsert({
@@ -39,28 +38,17 @@ export default function PortalInvite({ clientId, clientName }: { clientId: strin
         invited_at: new Date().toISOString(),
       }, { onConflict: 'client_id,email' })
 
-    if (portalError) { setError(portalError.message); setSending(false); return }
+    if (portalError) { setError(`Step 3 failed: ${portalError.message}`); setSending(false); return }
 
-    // Get session token to pass to API
-    const { data: { session } } = await supabase.auth.getSession()
-
-    // Send invite email
     const response = await fetch('/api/portal/invite', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId, email, clientName, firmName }),
     })
 
     const data = await response.json()
 
-    if (!response.ok) {
-      setError(data.error || 'Failed to send invite email')
-      setSending(false)
-      return
-    }
+    if (!response.ok) { setError(`Step 4 failed: ${data.error}`); setSending(false); return }
 
     setSuccess(true)
     setShowing(false)
