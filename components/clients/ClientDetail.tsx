@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 type Client = {
   id: string
@@ -61,14 +62,22 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             <h2 className="text-2xl font-bold">{client.name}</h2>
             <p className="text-white/60 text-sm mt-1 capitalize">{client.type}</p>
           </div>
-          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize ${
-            client.status === 'active' ? 'bg-green-400/20 text-green-300' :
-            client.status === 'prospect' ? 'bg-blue-400/20 text-blue-300' :
-            client.status === 'onboarding' ? 'bg-amber-400/20 text-amber-300' :
-            'bg-gray-400/20 text-gray-300'
-          }`}>
-            {client.status}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize ${
+              client.status === 'active' ? 'bg-green-400/20 text-green-300' :
+              client.status === 'prospect' ? 'bg-blue-400/20 text-blue-300' :
+              client.status === 'onboarding' ? 'bg-amber-400/20 text-amber-300' :
+              'bg-gray-400/20 text-gray-300'
+            }`}>
+              {client.status}
+            </span>
+            <Link
+              href={`/clients/${client.id}/edit`}
+              className="px-4 py-1.5 rounded-full text-xs font-semibold bg-brand-gold text-brand-dark hover:bg-opacity-90 transition"
+            >
+              ✏️ Edit
+            </Link>
+          </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-8">
           <div>
@@ -92,8 +101,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
 
       {/* Details Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* Company Info */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Company Info</h3>
           <div className="space-y-3">
@@ -112,7 +119,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
           </div>
         </div>
 
-        {/* Quick Actions */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Quick Actions</h3>
           <div className="space-y-2">
@@ -130,7 +136,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             </a>
           </div>
         </div>
-
       </div>
 
       {/* Notes */}
