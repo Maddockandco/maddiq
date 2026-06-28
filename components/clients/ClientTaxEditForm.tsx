@@ -30,15 +30,6 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [autoEnrolment, setAutoEnrolment] = useState(false)
   const [pensionProvider, setPensionProvider] = useState('')
   const [pensionStagingDate, setPensionStagingDate] = useState('')
-  const [personalUtr, setPersonalUtr] = useState('')
-  const [niNumber, setNiNumber] = useState('')
-  const [dateOfBirth, setDateOfBirth] = useState('')
-  const [saStatus, setSaStatus] = useState('')
-  const [studentLoan, setStudentLoan] = useState(false)
-  const [studentLoanPlan, setStudentLoanPlan] = useState('')
-  const [marriageAllowance, setMarriageAllowance] = useState(false)
-  const [childBenefit, setChildBenefit] = useState(false)
-  const [foreignIncome, setForeignIncome] = useState(false)
   const [bankName, setBankName] = useState('')
   const [sortCode, setSortCode] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
@@ -75,15 +66,6 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         setAutoEnrolment(data.auto_enrolment || false)
         setPensionProvider(data.pension_provider || '')
         setPensionStagingDate(data.pension_staging_date || '')
-        setPersonalUtr(data.personal_utr || '')
-        setNiNumber(data.national_insurance_number || '')
-        setDateOfBirth(data.date_of_birth || '')
-        setSaStatus(data.sa_status || '')
-        setStudentLoan(data.student_loan || false)
-        setStudentLoanPlan(data.student_loan_plan || '')
-        setMarriageAllowance(data.marriage_allowance || false)
-        setChildBenefit(data.child_benefit || false)
-        setForeignIncome(data.foreign_income || false)
         setBankName(data.bank_name || '')
         setSortCode(data.bank_sort_code || '')
         setAccountNumber(data.bank_account_number || '')
@@ -125,15 +107,6 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         auto_enrolment: autoEnrolment,
         pension_provider: pensionProvider || null,
         pension_staging_date: pensionStagingDate || null,
-        personal_utr: personalUtr || null,
-        national_insurance_number: niNumber || null,
-        date_of_birth: dateOfBirth || null,
-        sa_status: saStatus || null,
-        student_loan: studentLoan,
-        student_loan_plan: studentLoanPlan || null,
-        marriage_allowance: marriageAllowance,
-        child_benefit: childBenefit,
-        foreign_income: foreignIncome,
         bank_name: bankName || null,
         bank_sort_code: sortCode || null,
         bank_account_number: accountNumber || null,
@@ -261,71 +234,8 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         </div>
       </Section>
 
-      <Section title="📊 Self Assessment">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Personal UTR" value={personalUtr} setter={setPersonalUtr} placeholder="1234567890" />
-          <Field label="National Insurance Number" value={niNumber} setter={setNiNumber} placeholder="AB123456C" />
-          <Field label="Date of Birth" value={dateOfBirth} setter={setDateOfBirth} type="date" />
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">SA Status</label>
-            <select value={saStatus} onChange={(e) => setSaStatus(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select status</option>
-              <option value="active">Active</option>
-              <option value="not_required">Not Required</option>
-              <option value="dormant">Dormant</option>
-            </select>
-          </div>
-          <Toggle label="Student Loan" value={studentLoan} setter={setStudentLoan} />
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Student Loan Plan</label>
-            <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select plan</option>
-              <option value="plan_1">Plan 1</option>
-              <option value="plan_2">Plan 2</option>
-              <option value="plan_4">Plan 4</option>
-            </select>
-          </div>
-          <Toggle label="Marriage Allowance" value={marriageAllowance} setter={setMarriageAllowance} />
-          <Toggle label="Child Benefit / High Income Charge" value={childBenefit} setter={setChildBenefit} />
-          <Toggle label="Foreign Income" value={foreignIncome} setter={setForeignIncome} />
-        </div>
-      </Section>
-
       <Section title="🏦 Banking">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Bank Name" value={bankName} setter={setBankName} placeholder="Barclays" />
           <Field label="Sort Code" value={sortCode} setter={setSortCode} placeholder="00-00-00" />
           <Field label="Account Number" value={accountNumber} setter={setAccountNumber} placeholder="12345678" />
-        </div>
-      </Section>
-
-      <Section title="💳 Billing">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Monthly Fee (£)" value={monthlyFee} setter={setMonthlyFee} type="number" placeholder="250" />
-          <Field label="Hourly Rate (£)" value={hourlyRate} setter={setHourlyRate} type="number" placeholder="150" />
-          <Field label="Billing Day" value={billingDay} setter={setBillingDay} type="number" placeholder="1" />
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Payment Method</label>
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select method</option>
-              <option value="dd">Direct Debit</option>
-              <option value="bacs">BACS</option>
-              <option value="card">Card</option>
-            </select>
-          </div>
-        </div>
-      </Section>
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm"
-      >
-        {saving ? 'Saving...' : 'Save tax info'}
-      </button>
-    </div>
-  )
-}
