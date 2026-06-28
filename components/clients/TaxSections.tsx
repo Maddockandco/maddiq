@@ -37,3 +37,20 @@ export function Section({ title, children }: { title: string; children: React.Re
     </div>
   )
 }
+
+export function SelectField({ label, value, setter, options }: any) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-brand-dark mb-1">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => setter(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+      >
+        {options.map((opt: any) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
