@@ -105,19 +105,6 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">📊 Self Assessment</h3>
-          <InfoRow label="Personal UTR" value={client.personal_utr} />
-          <InfoRow label="National Insurance No." value={client.national_insurance_number} />
-          <InfoRow label="Date of Birth" value={client.date_of_birth} />
-          <InfoRow label="SA Status" value={client.sa_status} />
-          <BoolRow label="Student Loan" value={client.student_loan} />
-          <InfoRow label="Student Loan Plan" value={client.student_loan_plan} />
-          <BoolRow label="Marriage Allowance" value={client.marriage_allowance} />
-          <BoolRow label="Child Benefit" value={client.child_benefit} />
-          <BoolRow label="Foreign Income" value={client.foreign_income} />
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">🏦 Banking</h3>
           <InfoRow label="Bank Name" value={client.bank_name} />
           <InfoRow label="Sort Code" value={client.bank_sort_code} />
