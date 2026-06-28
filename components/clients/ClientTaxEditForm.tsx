@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { Field, Toggle, Section } from '@/components/clients/TaxSections'
 
 export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
@@ -40,11 +41,7 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
 
   useEffect(() => {
     async function fetchClient() {
-      const { data } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', clientId)
-        .single()
+      const { data } = await supabase.from('clients').select('*').eq('id', clientId).single()
       if (data) {
         setChAuthCode(data.ch_authentication_code || '')
         setSicCode(data.sic_code || '')
@@ -83,92 +80,45 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
     setSuccess(false)
-
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({
-        ch_authentication_code: chAuthCode || null,
-        sic_code: sicCode || null,
-        incorporation_date: incorporationDate || null,
-        accounting_reference_date: accountingReferenceDate || null,
-        registered_address: registeredAddress || null,
-        trading_address: tradingAddress || null,
-        ct_utr: ctUtr || null,
-        ct_payment_reference: ctPaymentReference || null,
-        vat_scheme: vatScheme || null,
-        vat_registration_date: vatRegistrationDate || null,
-        vat_flat_rate_percentage: vatFlatRate || null,
-        paye_reference: payeReference || null,
-        accounts_office_reference: accountsOfficeReference || null,
-        number_of_employees: numberOfEmployees || null,
-        payroll_frequency: payrollFrequency || null,
-        cis_registered: cisRegistered,
-        cis_utr: cisUtr || null,
-        auto_enrolment: autoEnrolment,
-        pension_provider: pensionProvider || null,
-        pension_staging_date: pensionStagingDate || null,
-        bank_name: bankName || null,
-        bank_sort_code: sortCode || null,
-        bank_account_number: accountNumber || null,
-        monthly_fee: monthlyFee || null,
-        hourly_rate: hourlyRate || null,
-        billing_day: billingDay || null,
-        payment_method: paymentMethod || null,
-      })
-      .eq('id', clientId)
-
-    if (updateError) {
-      setError(updateError.message)
-    } else {
-      setSuccess(true)
-    }
+    const { error: updateError } = await supabase.from('clients').update({
+      ch_authentication_code: chAuthCode || null,
+      sic_code: sicCode || null,
+      incorporation_date: incorporationDate || null,
+      accounting_reference_date: accountingReferenceDate || null,
+      registered_address: registeredAddress || null,
+      trading_address: tradingAddress || null,
+      ct_utr: ctUtr || null,
+      ct_payment_reference: ctPaymentReference || null,
+      vat_scheme: vatScheme || null,
+      vat_registration_date: vatRegistrationDate || null,
+      vat_flat_rate_percentage: vatFlatRate || null,
+      paye_reference: payeReference || null,
+      accounts_office_reference: accountsOfficeReference || null,
+      number_of_employees: numberOfEmployees || null,
+      payroll_frequency: payrollFrequency || null,
+      cis_registered: cisRegistered,
+      cis_utr: cisUtr || null,
+      auto_enrolment: autoEnrolment,
+      pension_provider: pensionProvider || null,
+      pension_staging_date: pensionStagingDate || null,
+      bank_name: bankName || null,
+      bank_sort_code: sortCode || null,
+      bank_account_number: accountNumber || null,
+      monthly_fee: monthlyFee || null,
+      hourly_rate: hourlyRate || null,
+      billing_day: billingDay || null,
+      payment_method: paymentMethod || null,
+    }).eq('id', clientId)
+    if (updateError) { setError(updateError.message) } else { setSuccess(true) }
     setSaving(false)
   }
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
-        <p className="text-gray-500 text-sm">Loading...</p>
-      </div>
-    )
-  }
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-      <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">{title}</h3>
-      {children}
-    </div>
-  )
-
-  const Field = ({ label, value, setter, type = 'text', placeholder = '' }: any) => (
-    <div>
-      <label className="block text-sm font-medium text-brand-dark mb-1">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => setter(e.target.value)}
-        placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-      />
-    </div>
-  )
-
-  const Toggle = ({ label, value, setter }: any) => (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={value}
-        onChange={(e) => setter(e.target.checked)}
-        className="w-4 h-4 accent-brand-dark"
-      />
-      <span className="text-sm font-medium text-brand-dark">{label}</span>
-    </label>
-  )
+  if (loading) return <div className="bg-white rounded-2xl p-8 text-center border border-gray-200"><p className="text-gray-500 text-sm">Loading...</p></div>
 
   return (
     <div className="space-y-6">
       {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
-      {success && <div className="bg-green-50 text-green-600 text-sm rounded-lg px-4 py-3">Tax info saved successfully!</div>}
+      {success && <div className="bg-green-50 text-green-600 text-sm rounded-lg px-4 py-3">Tax info saved!</div>}
 
       <Section title="🏢 Companies House">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -192,8 +142,7 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-1">VAT Scheme</label>
-            <select value={vatScheme} onChange={(e) => setVatScheme(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+            <select value={vatScheme} onChange={(e) => setVatScheme(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
               <option value="">Select scheme</option>
               <option value="standard">Standard</option>
               <option value="flat_rate">Flat Rate</option>
@@ -213,8 +162,7 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
           <Field label="Number of Employees" value={numberOfEmployees} setter={setNumberOfEmployees} type="number" />
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-1">Payroll Frequency</label>
-            <select value={payrollFrequency} onChange={(e) => setPayrollFrequency(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+            <select value={payrollFrequency} onChange={(e) => setPayrollFrequency(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
               <option value="">Select frequency</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
@@ -239,3 +187,29 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
           <Field label="Bank Name" value={bankName} setter={setBankName} placeholder="Barclays" />
           <Field label="Sort Code" value={sortCode} setter={setSortCode} placeholder="00-00-00" />
           <Field label="Account Number" value={accountNumber} setter={setAccountNumber} placeholder="12345678" />
+        </div>
+      </Section>
+
+      <Section title="💳 Billing">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Monthly Fee (£)" value={monthlyFee} setter={setMonthlyFee} type="number" placeholder="250" />
+          <Field label="Hourly Rate (£)" value={hourlyRate} setter={setHourlyRate} type="number" placeholder="150" />
+          <Field label="Billing Day" value={billingDay} setter={setBillingDay} type="number" placeholder="1" />
+          <div>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Payment Method</label>
+            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
+              <option value="">Select method</option>
+              <option value="dd">Direct Debit</option>
+              <option value="bacs">BACS</option>
+              <option value="card">Card</option>
+            </select>
+          </div>
+        </div>
+      </Section>
+
+      <button onClick={handleSave} disabled={saving} className="w-full bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
+        {saving ? 'Saving...' : 'Save tax info'}
+      </button>
+    </div>
+  )
+}
