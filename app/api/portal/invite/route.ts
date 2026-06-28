@@ -1,12 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { Resend } from 'resend'
 
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
     }
@@ -53,13 +52,13 @@ export async function POST(request: Request) {
           <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 40px 20px;">
             <h1 style="color: #343b46; font-size: 24px;">You have been invited!</h1>
             <p style="color: #666; font-size: 15px; line-height: 1.6;">
-              ${firmName} has invited you to access your secure client portal on Maddiq, 
+              ${firmName} has invited you to access your secure client portal on Maddiq,
               where you can view and download your documents.
             </p>
             <p style="color: #666; font-size: 15px; line-height: 1.6;">
               Click the button below to access your portal.
             </p>
-            <a href="${process.env.NEXT_PUBLIC_APP_URL}/portal/login" 
+            <a href="${process.env.NEXT_PUBLIC_APP_URL}/portal/login"
                style="display: inline-block; background: #343b46; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0;">
               Access your portal
             </a>
