@@ -32,7 +32,7 @@ export default function NoteReply({ noteId, clientId, firmId, currentUserId, onR
       firm_id: firmId,
       content: content.trim(),
       created_by: firmUser?.id,
-      engagement_id: null,
+      parent_id: noteId,
     })
 
     setContent('')
