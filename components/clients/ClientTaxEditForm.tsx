@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Field, Toggle, Section } from '@/components/clients/TaxSections'
+import { Field, Toggle, Section, SelectField } from '@/components/clients/TaxSections'
 
 export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
@@ -28,6 +28,8 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [payrollFrequency, setPayrollFrequency] = useState('')
   const [cisRegistered, setCisRegistered] = useState(false)
   const [cisUtr, setCisUtr] = useState('')
+  const [cisStatus, setCisStatus] = useState('')
+  const [cisGrossPayment, setCisGrossPayment] = useState(false)
   const [autoEnrolment, setAutoEnrolment] = useState(false)
   const [pensionProvider, setPensionProvider] = useState('')
   const [pensionStagingDate, setPensionStagingDate] = useState('')
@@ -60,6 +62,8 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         setPayrollFrequency(data.payroll_frequency || '')
         setCisRegistered(data.cis_registered || false)
         setCisUtr(data.cis_utr || '')
+        setCisStatus(data.cis_status || '')
+        setCisGrossPayment(data.cis_gross_payment_status || false)
         setAutoEnrolment(data.auto_enrolment || false)
         setPensionProvider(data.pension_provider || '')
         setPensionStagingDate(data.pension_staging_date || '')
@@ -98,6 +102,8 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
       payroll_frequency: payrollFrequency || null,
       cis_registered: cisRegistered,
       cis_utr: cisUtr || null,
+      cis_status: cisStatus || null,
+      cis_gross_payment_status: cisGrossPayment,
       auto_enrolment: autoEnrolment,
       pension_provider: pensionProvider || null,
       pension_staging_date: pensionStagingDate || null,
@@ -113,7 +119,11 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
     setSaving(false)
   }
 
-  if (loading) return <div className="bg-white rounded-2xl p-8 text-center border border-gray-200"><p className="text-gray-500 text-sm">Loading...</p></div>
+  if (loading) return (
+    <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+      <p className="text-gray-500 text-sm">Loading...</p>
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -140,16 +150,18 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
 
       <Section title="🧾 VAT">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">VAT Scheme</label>
-            <select value={vatScheme} onChange={(e) => setVatScheme(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select scheme</option>
-              <option value="standard">Standard</option>
-              <option value="flat_rate">Flat Rate</option>
-              <option value="cash_accounting">Cash Accounting</option>
-              <option value="annual">Annual Accounting</option>
-            </select>
-          </div>
+          <SelectField
+            label="VAT Scheme"
+            value={vatScheme}
+            setter={setVatScheme}
+            options={[
+              { value: '', label: 'Select scheme' },
+              { value: 'standard', label: 'Standard' },
+              { value: 'flat_rate', label: 'Flat Rate' },
+              { value: 'cash_accounting', label: 'Cash Accounting' },
+              { value: 'annual', label: 'Annual Accounting' },
+            ]}
+          />
           <Field label="VAT Registration Date" value={vatRegistrationDate} setter={setVatRegistrationDate} type="date" />
           <Field label="Flat Rate %" value={vatFlatRate} setter={setVatFlatRate} type="number" placeholder="12.5" />
         </div>
@@ -160,15 +172,17 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
           <Field label="PAYE Reference" value={payeReference} setter={setPayeReference} placeholder="123/AB456" />
           <Field label="Accounts Office Reference" value={accountsOfficeReference} setter={setAccountsOfficeReference} placeholder="123PA00012345" />
           <Field label="Number of Employees" value={numberOfEmployees} setter={setNumberOfEmployees} type="number" />
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Payroll Frequency</label>
-            <select value={payrollFrequency} onChange={(e) => setPayrollFrequency(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select frequency</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="four_weekly">Four Weekly</option>
-            </select>
-          </div>
+          <SelectField
+            label="Payroll Frequency"
+            value={payrollFrequency}
+            setter={setPayrollFrequency}
+            options={[
+              { value: '', label: 'Select frequency' },
+              { value: 'weekly', label: 'Weekly' },
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'four_weekly', label: 'Four Weekly' },
+            ]}
+          />
           <Toggle label="Auto Enrolment" value={autoEnrolment} setter={setAutoEnrolment} />
           <Field label="Pension Provider" value={pensionProvider} setter={setPensionProvider} />
           <Field label="Pension Staging Date" value={pensionStagingDate} setter={setPensionStagingDate} type="date" />
@@ -178,6 +192,18 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
       <Section title="🏗️ CIS">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Toggle label="CIS Registered" value={cisRegistered} setter={setCisRegistered} />
+          <SelectField
+            label="CIS Status"
+            value={cisStatus}
+            setter={setCisStatus}
+            options={[
+              { value: '', label: 'Select CIS status' },
+              { value: 'contractor', label: 'Contractor' },
+              { value: 'subcontractor', label: 'Subcontractor' },
+              { value: 'both', label: 'Both Contractor & Subcontractor' },
+            ]}
+          />
+          <Toggle label="Gross Payment Status" value={cisGrossPayment} setter={setCisGrossPayment} />
           <Field label="CIS UTR" value={cisUtr} setter={setCisUtr} placeholder="1234567890" />
         </div>
       </Section>
@@ -195,15 +221,17 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
           <Field label="Monthly Fee (£)" value={monthlyFee} setter={setMonthlyFee} type="number" placeholder="250" />
           <Field label="Hourly Rate (£)" value={hourlyRate} setter={setHourlyRate} type="number" placeholder="150" />
           <Field label="Billing Day" value={billingDay} setter={setBillingDay} type="number" placeholder="1" />
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Payment Method</label>
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-              <option value="">Select method</option>
-              <option value="dd">Direct Debit</option>
-              <option value="bacs">BACS</option>
-              <option value="card">Card</option>
-            </select>
-          </div>
+          <SelectField
+            label="Payment Method"
+            value={paymentMethod}
+            setter={setPaymentMethod}
+            options={[
+              { value: '', label: 'Select method' },
+              { value: 'dd', label: 'Direct Debit' },
+              { value: 'bacs', label: 'BACS' },
+              { value: 'card', label: 'Card' },
+            ]}
+          />
         </div>
       </Section>
 
