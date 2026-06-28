@@ -4,6 +4,7 @@ import { useState } from 'react'
 import ClientDetail from '@/components/clients/ClientDetail'
 import ClientTaxInfo from '@/components/clients/ClientTaxInfo'
 import ClientContacts from '@/components/clients/ClientContacts'
+import ClientNotes from '@/components/clients/ClientNotes'
 import ClientDocumentList from '@/components/documents/ClientDocumentList'
 import DocumentUpload from '@/components/documents/DocumentUpload'
 
@@ -38,19 +39,10 @@ export default function ClientTabs({ clientId }: { clientId: string }) {
         ))}
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && (
-        <ClientDetail clientId={clientId} />
-      )}
-
-      {activeTab === 'tax' && (
-        <ClientTaxInfo clientId={clientId} />
-      )}
-
-      {activeTab === 'directors' && (
-        <ClientContacts clientId={clientId} />
-      )}
-
+      {activeTab === 'overview' && <ClientDetail clientId={clientId} />}
+      {activeTab === 'tax' && <ClientTaxInfo clientId={clientId} />}
+      {activeTab === 'directors' && <ClientContacts clientId={clientId} />}
+      {activeTab === 'notes' && <ClientNotes clientId={clientId} />}
       {activeTab === 'documents' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1">
@@ -67,12 +59,6 @@ export default function ClientTabs({ clientId }: { clientId: string }) {
               <ClientDocumentList clientId={clientId} refresh={docRefresh} />
             </div>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'notes' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center">
-          <p className="text-gray-500 text-sm">Notes coming soon</p>
         </div>
       )}
     </div>
