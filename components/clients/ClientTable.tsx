@@ -2,50 +2,41 @@
 
 import Link from 'next/link'
 
-type Client = {
-  id: string
-  name: string
-  type: string
-  status: string
-  industry: string | null
-  email: string | null
-}
-
-export default function ClientTable({ clients }: { clients: Client[] }) {
+export default function ClientTable({ clients }: { clients: any[] }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden border border-gray-200">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-gray-100 bg-gray-50">
-            <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-            <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-            <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-            <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Industry</th>
-            <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+          <tr className="bg-brand-dark">
+            <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Name</th>
+            <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Type</th>
+            <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+            <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Industry</th>
+            <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Email</th>
           </tr>
         </thead>
         <tbody>
           {clients.map((client, index) => (
             <tr
               key={client.id}
-              className={`border-b border-gray-50 hover:bg-brand-light transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+              className={`border-b border-gray-100 hover:bg-amber-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
             >
               <td className="px-6 py-4">
-                <Link href={`/clients/${client.id}`} className="font-medium text-brand-dark hover:text-brand-gold transition-colors">
+                <Link href={`/clients/${client.id}`} className="font-semibold text-brand-dark hover:text-brand-gold transition-colors">
                   {client.name}
                 </Link>
               </td>
               <td className="px-6 py-4"><span className="text-sm text-gray-500 capitalize">{client.type}</span></td>
               <td className="px-6 py-4">
                 <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
-                  client.status === 'active' ? 'bg-green-50 text-green-600' :
-                  client.status === 'prospect' ? 'bg-blue-50 text-blue-600' :
-                  client.status === 'onboarding' ? 'bg-amber-50 text-amber-600' :
-                  'bg-gray-50 text-gray-500'
+                  client.status === 'active' ? 'bg-green-100 text-green-700' :
+                  client.status === 'prospect' ? 'bg-blue-100 text-blue-700' :
+                  client.status === 'onboarding' ? 'bg-amber-100 text-amber-700' :
+                  'bg-gray-100 text-gray-500'
                 }`}>{client.status}</span>
               </td>
-              <td className="px-6 py-4"><span className="text-sm text-gray-500">{client.industry || '—'}</span></td>
-              <td className="px-6 py-4"><span className="text-sm text-gray-500">{client.email || '—'}</span></td>
+              <td className="px-6 py-4"><span className="text-sm text-gray-600">{client.industry || '—'}</span></td>
+              <td className="px-6 py-4"><span className="text-sm text-gray-600">{client.email || '—'}</span></td>
             </tr>
           ))}
         </tbody>
