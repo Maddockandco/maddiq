@@ -9,25 +9,61 @@ export default function PortalInvite({ clientId, clientName }: { clientId: strin
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
   const [showing, setShowing] = useState(false)
+  const supabase = createClient()
 
   async function handleInvite() {
     setSending(true)
     setError('')
 
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setError('Not authenticated'); setSending(false); return }
+
+    const { data: firmUser } = await supabase
+      .from('firm_users')
+      .select('firm_id, firms(name)')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!firmUser) { setError('Could not find your firm'); setSending(false); return }
+
+    const firmName = (firmUser.firms as any)?.name || 'Your accountant'
+
+    // Create portal user record
+    const { error: portalError } = await supabase
+      .from('client_portal_users')
+      .upsert({
+        client_id: clientId,
+        firm_id: firmUser.firm_id,
+        email,
+        status: 'invited',
+        invited_at: new Date().toISOString(),
+      }, { onConflict: 'client_id,email' })
+
+    if (portalError) { setError(portalError.message); setSending(false); return }
+
+    // Get session token to pass to API
+    const { data: { session } } = await supabase.auth.getSession()
+
+    // Send invite email
     const response = await fetch('/api/portal/invite', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, email, clientName }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({ clientId, email, clientName, firmName }),
     })
 
     const data = await response.json()
 
     if (!response.ok) {
-      setError(data.error || 'Failed to send invite')
-    } else {
-      setSuccess(true)
-      setShowing(false)
+      setError(data.error || 'Failed to send invite email')
+      setSending(false)
+      return
     }
+
+    setSuccess(true)
+    setShowing(false)
     setSending(false)
   }
 
