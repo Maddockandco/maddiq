@@ -1,43 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { clientId, email, clientName, firmName } = await request.json()
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-    }
-
-    const { clientId, email, clientName } = await request.json()
-
-    const { data: firmUser } = await supabase
-      .from('firm_users')
-      .select('firm_id, firms(name)')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!firmUser) {
-      return NextResponse.json({ error: 'Firm not found' }, { status: 404 })
-    }
-
-    const firmName = (firmUser.firms as any)?.name || 'Your accountant'
-
-    const { error: portalError } = await supabase
-      .from('client_portal_users')
-      .upsert({
-        client_id: clientId,
-        firm_id: firmUser.firm_id,
-        email,
-        status: 'invited',
-        invited_at: new Date().toISOString(),
-      }, { onConflict: 'client_id,email' })
-
-    if (portalError) {
-      return NextResponse.json({ error: portalError.message }, { status: 500 })
-    }
-
+    // Send invite email via Resend
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
