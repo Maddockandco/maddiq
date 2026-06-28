@@ -34,7 +34,7 @@ export default function ClientList() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+      <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-100">
         <p className="text-gray-500 text-sm">Loading clients...</p>
       </div>
     )
@@ -42,7 +42,7 @@ export default function ClientList() {
 
   if (clients.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+      <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-100">
         <h2 className="text-lg font-semibold text-brand-dark mb-2">
           No clients yet
         </h2>
@@ -60,10 +60,10 @@ export default function ClientList() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-gray-100">
+          <tr className="border-b border-gray-100 bg-gray-50">
             <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
             <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
             <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
@@ -72,42 +72,11 @@ export default function ClientList() {
           </tr>
         </thead>
         <tbody>
-          {clients.map((client) => (
+          {clients.map((client, index) => (
             <tr
               key={client.id}
-              className="border-b border-gray-50 hover:bg-brand-light transition-colors"
+              className={`border-b border-gray-50 hover:bg-brand-light transition-colors ${
+                index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+              }`}
             >
-              <td className="px-6 py-4">
-                <Link
-                  href={`/clients/${client.id}`}
-                  className="font-medium text-brand-dark hover:text-brand-gold transition-colors"
-                >
-                  {client.name}
-                </Link>
-              </td>
-              <td className="px-6 py-4">
-                <span className="text-sm text-gray-500 capitalize">{client.type}</span>
-              </td>
-              <td className="px-6 py-4">
-                <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
-                  client.status === 'active' ? 'bg-green-50 text-green-600' :
-                  client.status === 'prospect' ? 'bg-blue-50 text-blue-600' :
-                  client.status === 'onboarding' ? 'bg-amber-50 text-amber-600' :
-                  'bg-gray-50 text-gray-500'
-                }`}>
-                  {client.status}
-                </span>
-              </td>
-              <td className="px-6 py-4">
-                <span className="text-sm text-gray-500">{client.industry || '—'}</span>
-              </td>
-              <td className="px-6 py-4">
-                <span className="text-sm text-gray-500">{client.email || '—'}</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+              <td
