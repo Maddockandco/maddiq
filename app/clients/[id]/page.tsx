@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import ClientDetail from '@/components/clients/ClientDetail'
+import ClientTabs from '@/components/clients/ClientTabs'
 
 export default function ClientPage({ params }: { params: { id: string } }) {
   return (
@@ -9,7 +9,7 @@ export default function ClientPage({ params }: { params: { id: string } }) {
           ← Back to clients
         </Link>
       </div>
-      <ClientDetail clientId={params.id} />
+      <ClientTabs clientId={params.id} />
     </div>
   )
 }
