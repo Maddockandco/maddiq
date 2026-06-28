@@ -50,7 +50,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
     <div className="space-y-6">
       <div className="flex justify-end">
         <Link
-          href={`/clients/${clientId}/edit`}
+          href={`/clients/${clientId}/tax`}
           className="text-xs px-3 py-1.5 rounded-lg bg-brand-dark text-white hover:bg-opacity-90 transition"
         >
           ✏️ Edit tax info
@@ -59,11 +59,8 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-        {/* Companies House */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            🏢 Companies House
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">🏢 Companies House</h3>
           <InfoRow label="Company Number" value={client.company_number} />
           <InfoRow label="CH Authentication Code" value={client.ch_authentication_code} />
           <InfoRow label="SIC Code" value={client.sic_code} />
@@ -73,21 +70,15 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <InfoRow label="Trading Address" value={client.trading_address} />
         </div>
 
-        {/* Corporation Tax */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            💼 Corporation Tax
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">💼 Corporation Tax</h3>
           <InfoRow label="CT UTR" value={client.ct_utr} />
           <InfoRow label="CT Payment Reference" value={client.ct_payment_reference} />
           <InfoRow label="Year End Date" value={client.year_end_date} />
         </div>
 
-        {/* VAT */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            🧾 VAT
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">🧾 VAT</h3>
           <BoolRow label="VAT Registered" value={client.vat_registered} />
           <InfoRow label="VAT Number" value={client.vat_number} />
           <InfoRow label="VAT Scheme" value={client.vat_scheme} />
@@ -96,11 +87,8 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <InfoRow label="Flat Rate %" value={client.vat_flat_rate_percentage ? `${client.vat_flat_rate_percentage}%` : null} />
         </div>
 
-        {/* PAYE & Payroll */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            👥 PAYE & Payroll
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">👥 PAYE & Payroll</h3>
           <InfoRow label="PAYE Reference" value={client.paye_reference} />
           <InfoRow label="Accounts Office Reference" value={client.accounts_office_reference} />
           <InfoRow label="Number of Employees" value={client.number_of_employees} />
@@ -110,20 +98,14 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <InfoRow label="Pension Staging Date" value={client.pension_staging_date} />
         </div>
 
-        {/* CIS */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            🏗️ CIS
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">🏗️ CIS</h3>
           <BoolRow label="CIS Registered" value={client.cis_registered} />
           <InfoRow label="CIS UTR" value={client.cis_utr} />
         </div>
 
-        {/* Self Assessment (for individuals) */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            📊 Self Assessment
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">📊 Self Assessment</h3>
           <InfoRow label="Personal UTR" value={client.personal_utr} />
           <InfoRow label="National Insurance No." value={client.national_insurance_number} />
           <InfoRow label="Date of Birth" value={client.date_of_birth} />
@@ -135,21 +117,15 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <BoolRow label="Foreign Income" value={client.foreign_income} />
         </div>
 
-        {/* Banking */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            🏦 Banking
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">🏦 Banking</h3>
           <InfoRow label="Bank Name" value={client.bank_name} />
           <InfoRow label="Sort Code" value={client.bank_sort_code} />
           <InfoRow label="Account Number" value={client.bank_account_number} />
         </div>
 
-        {/* Billing */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
-            💳 Billing
-          </h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">💳 Billing</h3>
           <InfoRow label="Monthly Fee" value={client.monthly_fee ? `£${client.monthly_fee}` : null} />
           <InfoRow label="Hourly Rate" value={client.hourly_rate ? `£${client.hourly_rate}/hr` : null} />
           <InfoRow label="Billing Day" value={client.billing_day ? `${client.billing_day}th of month` : null} />
