@@ -8,22 +8,33 @@ import { useRole } from '@/hooks/useRole'
 export default function ClientDeadlines({ clientId }: { clientId: string }) {
   const [deadlines, setDeadlines] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const { can } = useRole()
+  const { can, role, loading: roleLoading } = useRole()
   const supabase = createClient()
 
-  useEffect(() => { fetchDeadlines() }, [clientId])
+  const isPayrollOnly = role === 'payroll_manager'
+  const payrollDeadlineTypes = ['payroll', 'paye', 'cis']
+
+  useEffect(() => {
+    if (!roleLoading) fetchDeadlines()
+  }, [clientId, roleLoading, role])
 
   async function fetchDeadlines() {
-    const { data } = await supabase
+    let query = supabase
       .from('statutory_deadlines')
       .select('id, type, period_end, due_date, status, notes')
       .eq('client_id', clientId)
       .order('due_date', { ascending: true })
+
+    if (isPayrollOnly) {
+      query = query.in('type', payrollDeadlineTypes)
+    }
+
+    const { data } = await query
     if (data) setDeadlines(data)
     setLoading(false)
   }
 
-  if (loading) return (
+  if (loading || roleLoading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading deadlines...</p>
     </div>
@@ -39,8 +50,12 @@ export default function ClientDeadlines({ clientId }: { clientId: string }) {
 
       {deadlines.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm mb-4">No deadlines generated yet</p>
-          <p className="text-gray-400 text-xs">Click "Generate deadlines" to create statutory deadlines for this client</p>
+          <p className="text-gray-500 text-sm mb-4">
+            {isPayrollOnly ? 'No payroll or CIS deadlines found' : 'No deadlines generated yet'}
+          </p>
+          {!isPayrollOnly && (
+            <p className="text-gray-400 text-xs">Click "Generate deadlines" to create statutory deadlines for this client</p>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
