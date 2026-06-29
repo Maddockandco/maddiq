@@ -3,7 +3,10 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Maddiq',
-  description: 'AI-native CRM and accounting platform',
+  description: 'AI-native CRM and accounting platform for UK accounting firms',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export default function RootLayout({
