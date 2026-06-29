@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import PortalInvite from '@/components/clients/PortalInvite'
+import AssignClient from '@/components/clients/AssignClient'
 import { useRole } from '@/hooks/useRole'
 
 type Client = {
@@ -19,6 +20,7 @@ type Client = {
   vat_number: string | null
   year_end_date: string | null
   notes: string | null
+  assigned_to: string | null
 }
 
 export default function ClientDetail({ clientId }: { clientId: string }) {
@@ -115,6 +117,12 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
               <span className="text-sm text-gray-500">Year End</span>
               <span className="text-sm text-brand-dark font-medium">{client.year_end_date || '—'}</span>
             </div>
+            {can.manageTeam && (
+              <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+                <span className="text-sm text-gray-500">Assigned to</span>
+                <AssignClient clientId={client.id} currentAssignedTo={client.assigned_to} />
+              </div>
+            )}
           </div>
         </div>
 
