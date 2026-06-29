@@ -12,11 +12,9 @@ export default function ClientDetailLayout({
         <Sidebar />
       </div>
       <MobileHeader />
-      <div className="lg:ml-64">
-        <main className="p-4 lg:p-8 pt-20 lg:pt-8">
-          {children}
-        </main>
-      </div>
+      <main className="pt-20 lg:pt-8 lg:pl-64 p-4 lg:p-8">
+        {children}
+      </main>
     </div>
   )
 }
