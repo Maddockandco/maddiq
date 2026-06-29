@@ -11,6 +11,9 @@ export const permissions = {
   canViewAllClients: (role: Role) =>
     ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'].includes(role),
 
+  canAddClient: (role: Role) =>
+    ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'].includes(role),
+
   canEditClientDetails: (role: Role) =>
     ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff', 'payroll_manager'].includes(role),
 
