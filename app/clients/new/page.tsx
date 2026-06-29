@@ -368,3 +368,89 @@ export default function NewClientPage() {
                       <option value="not_required">Not Required</option>
                       <option value="dormant">Dormant</option>
                     </select>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={studentLoan} onChange={(e) => setStudentLoan(e.target.checked)}
+                        className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Student loan</span>
+                    </label>
+                    {studentLoan && (
+                      <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)} className={selectClass}>
+                        <option value="">Select plan</option>
+                        <option value="plan_1">Plan 1</option>
+                        <option value="plan_2">Plan 2</option>
+                        <option value="plan_4">Plan 4</option>
+                      </select>
+                    )}
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={marriageAllowance} onChange={(e) => setMarriageAllowance(e.target.checked)}
+                        className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Marriage allowance</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={childBenefit} onChange={(e) => setChildBenefit(e.target.checked)}
+                        className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Child benefit / high income charge</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={foreignIncome} onChange={(e) => setForeignIncome(e.target.checked)}
+                        className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Foreign income</span>
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
+                  <option value="prospect">Prospect</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="active">Active</option>
+                  <option value="offboarded">Offboarded</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  placeholder="contact@example.com" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
+                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)}
+                  placeholder="07700 900000" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
+                <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)}
+                  placeholder="Hospitality, Construction, Retail..." className={inputClass} />
+              </div>
+
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)}
+                    className="w-4 h-4 accent-brand-dark" />
+                  <span className="text-sm font-medium text-brand-dark">VAT registered</span>
+                </label>
+              </div>
+              {vatRegistered && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
+                  <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)}
+                    placeholder="GB123456789" className={inputClass} />
+                </div>
+              )}
+
+              <button onClick={handleSubmit} disabled={loading}
+                className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
+                {loading ? 'Saving...' : 'Save client'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
