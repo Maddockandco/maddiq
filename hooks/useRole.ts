@@ -35,6 +35,7 @@ export function useRole() {
     loading,
     can: {
       viewAllClients: role ? permissions.canViewAllClients(role) : false,
+      addClient: role ? permissions.canAddClient(role) : false,
       editClientDetails: role ? permissions.canEditClientDetails(role) : false,
       deleteClient: role ? permissions.canDeleteClient(role) : false,
       viewTaxInfo: role ? permissions.canViewTaxInfo(role) : false,
