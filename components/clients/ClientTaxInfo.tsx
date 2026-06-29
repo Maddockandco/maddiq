@@ -11,9 +11,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
-  useEffect(() => {
-    fetchClient()
-  }, [clientId])
+  useEffect(() => { fetchClient() }, [clientId])
 
   async function fetchClient() {
     const { data } = await supabase
@@ -57,16 +55,10 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <InfoRow label="Company Number" value={client.company_number} />
           <InfoRow label="CH Authentication Code" value={client.ch_authentication_code} />
           <InfoRow label="SIC Code" value={client.sic_code} />
-          <InfoRow label="Incorporation Date" value={client.incorporation_date
-            ? new Date(client.incorporation_date).toLocaleDateString('en-GB')
-            : null} />
+          <InfoRow label="Incorporation Date" value={client.incorporation_date ? new Date(client.incorporation_date).toLocaleDateString('en-GB') : null} />
           <InfoRow label="Accounting Reference Date" value={client.accounting_reference_date} />
-          <InfoRow label="Next Accounts Due" value={client.next_accounts_due
-            ? new Date(client.next_accounts_due).toLocaleDateString('en-GB')
-            : null} />
-          <InfoRow label="Next Confirmation Due" value={client.next_confirmation_due
-            ? new Date(client.next_confirmation_due).toLocaleDateString('en-GB')
-            : null} />
+          <InfoRow label="Next Accounts Due" value={client.next_accounts_due ? new Date(client.next_accounts_due).toLocaleDateString('en-GB') : null} />
+          <InfoRow label="Next Confirmation Statement Due" value={client.next_confirmation_due ? new Date(client.next_confirmation_due).toLocaleDateString('en-GB') : null} />
           <InfoRow label="Registered Address" value={client.registered_address} />
           <InfoRow label="Trading Address" value={client.trading_address} />
         </TaxCard>
@@ -74,9 +66,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
         <TaxCard title="Corporation Tax">
           <InfoRow label="CT UTR" value={client.ct_utr} />
           <InfoRow label="CT Payment Reference" value={client.ct_payment_reference} />
-          <InfoRow label="Year End Date" value={client.year_end_date
-            ? new Date(client.year_end_date).toLocaleDateString('en-GB')
-            : null} />
+          <InfoRow label="Year End Date" value={client.year_end_date ? new Date(client.year_end_date).toLocaleDateString('en-GB') : null} />
         </TaxCard>
 
         <TaxCard title="VAT">
