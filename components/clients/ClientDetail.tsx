@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import PortalInvite from '@/components/clients/PortalInvite'
+import { useRole } from '@/hooks/useRole'
 
 type Client = {
   id: string
@@ -23,6 +24,7 @@ type Client = {
 export default function ClientDetail({ clientId }: { clientId: string }) {
   const [client, setClient] = useState<Client | null>(null)
   const [loading, setLoading] = useState(true)
+  const { can } = useRole()
   const supabase = createClient()
 
   useEffect(() => {
@@ -38,21 +40,17 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
     fetchClient()
   }, [clientId])
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
-        <p className="text-gray-500 text-sm">Loading client...</p>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
+      <p className="text-gray-500 text-sm">Loading client...</p>
+    </div>
+  )
 
-  if (!client) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
-        <p className="text-gray-500 text-sm">Client not found</p>
-      </div>
-    )
-  }
+  if (!client) return (
+    <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
+      <p className="text-gray-500 text-sm">Client not found</p>
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -71,12 +69,14 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             }`}>
               {client.status}
             </span>
-            <Link
-              href={`/clients/${client.id}/edit`}
-              className="px-4 py-1.5 rounded-full text-xs font-semibold bg-brand-gold text-brand-dark hover:bg-opacity-90 transition"
-            >
-              ✏️ Edit
-            </Link>
+            {can.editClientDetails && (
+              <Link
+                href={`/clients/${client.id}/edit`}
+                className="px-4 py-1.5 rounded-full text-xs font-semibold bg-brand-gold text-brand-dark hover:bg-opacity-90 transition"
+              >
+                Edit
+              </Link>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-8">
@@ -121,19 +121,29 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Quick Actions</h3>
           <div className="space-y-2">
-            <a href={`/clients/${client.id}/tasks`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
-              Add Task
-            </a>
-            <a href={`/clients/${client.id}/documents`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
-              Upload Document
-            </a>
-            <a href={`/clients/${client.id}/notes`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
-              Add Note
-            </a>
-            <a href={`/clients/${client.id}/engagements`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
-              Add Engagement
-            </a>
-            <PortalInvite clientId={client.id} clientName={client.name} />
+            {can.createTasks && (
+              <a href={`/clients/${client.id}/tasks`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
+                Add Task
+              </a>
+            )}
+            {can.uploadDocuments && (
+              <a href={`/clients/${client.id}/documents`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
+                Upload Document
+              </a>
+            )}
+            {can.addNotes && (
+              <a href={`/clients/${client.id}/notes`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
+                Add Note
+              </a>
+            )}
+            {can.manageEngagements && (
+              <a href={`/clients/${client.id}/engagements`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
+                Add Engagement
+              </a>
+            )}
+            {can.inviteToPortal && (
+              <PortalInvite clientId={client.id} clientName={client.name} />
+            )}
           </div>
         </div>
       </div>
