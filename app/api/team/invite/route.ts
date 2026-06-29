@@ -19,7 +19,7 @@ export async function POST(request: Request) {
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'onboarding@resend.dev',
+        from: 'Maddiq <hello@maddockandco.com>',
         to: email,
         subject: `You've been invited to join ${firmName} on Maddiq`,
         html: `
