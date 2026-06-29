@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -14,23 +13,22 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SearchBar from '@/components/layout/SearchBar'
-
-const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Clients', href: '/clients', icon: Users },
-  { label: 'Tasks', href: '/tasks', icon: CheckSquare },
-  { label: 'Deadlines', href: '/deadlines', icon: Calendar },
-  { label: 'Documents', href: '/documents', icon: FileText },
-  { label: 'Pipeline', href: '/pipeline', icon: TrendingUp },
-]
+import { useRole } from '@/hooks/useRole'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const supabase = createClient()
+  const { can, role } = useRole()
+
+  const isRestricted = ['bookkeeper', 'payroll_manager'].includes(role || '')
 
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  function handleNavClick(href: string) {
+    window.location.href = href
   }
 
   function isActive(href: string) {
@@ -38,14 +36,18 @@ export default function Sidebar() {
     return pathname === href || pathname.startsWith(href + '/')
   }
 
-  function handleNavClick(href: string) {
-    window.location.href = href
-  }
+  const navItems = [
+    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
+    { label: 'Clients', href: '/clients', icon: Users, show: true },
+    { label: 'Tasks', href: '/tasks', icon: CheckSquare, show: true },
+    { label: 'Deadlines', href: '/deadlines', icon: Calendar, show: true },
+    { label: 'Documents', href: '/documents', icon: FileText, show: true },
+    { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
+  ].filter(item => item.show)
 
   return (
     <aside style={{ width: '256px', minWidth: '256px' }} className="fixed top-0 left-0 h-full bg-brand-dark flex flex-col z-50">
 
-      {/* Logo */}
       <div
         onClick={() => handleNavClick('/dashboard')}
         className="px-6 py-6 border-b border-white/10 hover:bg-white/5 transition block cursor-pointer"
@@ -54,12 +56,10 @@ export default function Sidebar() {
         <p className="text-xs text-brand-gold mt-0.5">AI-native accounting</p>
       </div>
 
-      {/* Search */}
       <div className="px-4 py-3 border-b border-white/10">
         <SearchBar />
       </div>
 
-      {/* Nav Items */}
       <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -76,15 +76,12 @@ export default function Sidebar() {
             >
               <Icon size={18} />
               {item.label}
-              {active && (
-                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-dark" />
-              )}
+              {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-dark" />}
             </div>
           )
         })}
       </nav>
 
-      {/* Current page indicator */}
       <div className="px-6 py-3 bg-white/5 border-t border-white/10">
         <p className="text-xs text-white/40 uppercase tracking-wider">Current page</p>
         <p className="text-xs text-white/70 font-medium mt-0.5 capitalize">
@@ -92,7 +89,6 @@ export default function Sidebar() {
         </p>
       </div>
 
-      {/* Bottom — Settings + Logout */}
       <div className="px-4 py-4 border-t border-white/10 space-y-1">
         <div
           onClick={() => handleNavClick('/settings')}
@@ -114,7 +110,6 @@ export default function Sidebar() {
           Sign out
         </button>
       </div>
-
     </aside>
   )
 }
