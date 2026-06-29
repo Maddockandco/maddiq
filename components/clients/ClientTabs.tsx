@@ -10,13 +10,13 @@ import ClientDocumentList from '@/components/documents/ClientDocumentList'
 import DocumentUpload from '@/components/documents/DocumentUpload'
 
 const tabs = [
-  { id: 'overview', label: '📋 Overview' },
-  { id: 'tax', label: '💰 Tax Info' },
-  { id: 'directors', label: '👤 Directors' },
-  { id: 'engagements', label: '📋 Engagements' },
-  { id: 'deadlines', label: '📅 Deadlines' },
-  { id: 'documents', label: '📄 Documents' },
-  { id: 'notes', label: '📝 Notes' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'tax', label: 'Tax Info' },
+  { id: 'directors', label: 'Directors' },
+  { id: 'engagements', label: 'Engagements' },
+  { id: 'deadlines', label: 'Deadlines' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'notes', label: 'Notes' },
 ]
 
 export default function ClientTabs({ clientId }: { clientId: string }) {
