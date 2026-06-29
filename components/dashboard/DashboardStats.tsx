@@ -29,9 +29,10 @@ export default function DashboardStats() {
       if (!firmUser) return
       setRole(firmUser.role)
 
-      const isRestricted = ['bookkeeper', 'payroll_manager'].includes(firmUser.role)
+      // Only these roles see their own clients only
+      const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
 
-      // Clients count — restricted users only see assigned clients
+      // Clients
       let clientQuery = supabase
         .from('clients')
         .select('id', { count: 'exact', head: true })
@@ -43,7 +44,7 @@ export default function DashboardStats() {
 
       const { count: clientCount } = await clientQuery
 
-      // Tasks — restricted users only see their tasks
+      // Tasks
       let taskQuery = supabase
         .from('tasks')
         .select('id', { count: 'exact', head: true })
@@ -56,22 +57,20 @@ export default function DashboardStats() {
 
       const { count: taskCount } = await taskQuery
 
-      // Deadlines — upcoming only
+      // Deadlines — always firm-wide
       const { count: deadlineCount } = await supabase
         .from('statutory_deadlines')
         .select('id', { count: 'exact', head: true })
         .eq('firm_id', firmUser.firm_id)
         .eq('status', 'upcoming')
 
-      // Pipeline leads — restricted by role
-      let leadsQuery = supabase
+      // Pipeline leads — always firm-wide
+      const { count: leadsCount } = await supabase
         .from('pipeline_leads')
         .select('id', { count: 'exact', head: true })
         .eq('firm_id', firmUser.firm_id)
         .not('stage', 'eq', 'won')
         .not('stage', 'eq', 'lost')
-
-      const { count: leadsCount } = await leadsQuery
 
       setStats({
         clients: clientCount || 0,
@@ -84,16 +83,18 @@ export default function DashboardStats() {
     fetchStats()
   }, [])
 
+  const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(role)
+
   const cards = [
     {
-      label: role === 'bookkeeper' || role === 'payroll_manager' ? 'My Clients' : 'Total Clients',
+      label: isRestricted ? 'My Clients' : 'Total Clients',
       value: stats.clients,
       href: '/clients',
       colour: 'bg-brand-dark',
       textColour: 'text-white',
     },
     {
-      label: role === 'bookkeeper' || role === 'payroll_manager' ? 'My Tasks' : 'Open Tasks',
+      label: isRestricted ? 'My Tasks' : 'Open Tasks',
       value: stats.tasks,
       href: '/tasks',
       colour: 'bg-brand-gold',
