@@ -25,6 +25,8 @@ export default function NewClientPage() {
   const [directorsToCreate, setDirectorsToCreate] = useState<string[]>([])
   const [chFound, setChFound] = useState(false)
   const [existingClientId, setExistingClientId] = useState<string | null>(null)
+
+  // Individual fields
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [niNumber, setNiNumber] = useState('')
   const [personalUtr, setPersonalUtr] = useState('')
@@ -34,6 +36,11 @@ export default function NewClientPage() {
   const [marriageAllowance, setMarriageAllowance] = useState(false)
   const [childBenefit, setChildBenefit] = useState(false)
   const [foreignIncome, setForeignIncome] = useState(false)
+
+  // Partnership fields
+  const [partnershipType, setPartnershipType] = useState('general')
+  const [partnershipUtr, setPartnershipUtr] = useState('')
+
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
@@ -171,6 +178,8 @@ export default function NewClientPage() {
         marriage_allowance: marriageAllowance,
         child_benefit: childBenefit,
         foreign_income: foreignIncome,
+        partnership_type: type === 'partnership' ? partnershipType : null,
+        partnership_utr: type === 'partnership' ? partnershipUtr : null,
       })
       .select()
       .single()
@@ -199,7 +208,7 @@ export default function NewClientPage() {
         client_id: client.id,
         firm_id: firmUser.firm_id,
         name: director.name,
-        role: 'director',
+        role: type === 'partnership' ? 'partner' : 'director',
         appointment_date: director.appointment_date || null,
         is_primary: directors.indexOf(director) === 0,
         linked_client_id: linkedClientId,
@@ -227,30 +236,36 @@ export default function NewClientPage() {
 
         <div className="bg-white rounded-2xl shadow-sm p-8 space-y-6">
 
+          {/* Client Type */}
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-2">Client type</label>
-            <div className="flex gap-4">
-              {['company', 'individual'].map((t) => (
-                <button key={t} onClick={() => setType(t)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition ${
-                    type === t ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            <div className="flex gap-3 flex-wrap">
+              {[
+                { value: 'company', label: 'Company' },
+                { value: 'individual', label: 'Individual' },
+                { value: 'partnership', label: 'Partnership' },
+              ].map((t) => (
+                <button key={t.value} onClick={() => setType(t.value)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    type === t.value ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  {t}
+                  {t.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {type === 'company' && <CompanyLookup onFound={handleCompanyFound} />}
+          {/* CH Lookup — companies and LLPs */}
+          {(type === 'company' || (type === 'partnership' && partnershipType === 'llp')) && (
+            <CompanyLookup onFound={handleCompanyFound} />
+          )}
 
           {/* Existing company warning */}
           {existingClientId && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
               <p className="text-sm font-semibold text-amber-700">⚠️ This company already exists in Maddiq</p>
-              <p className="text-xs text-amber-600">
-                <strong>{name}</strong> is already a client. You can import directors only instead of creating a duplicate.
-              </p>
+              <p className="text-xs text-amber-600"><strong>{name}</strong> is already a client. You can import directors only instead of creating a duplicate.</p>
               {directors.length > 0 && (
                 <>
                   <p className="text-xs text-amber-600 font-medium">Select directors to import:</p>
@@ -287,18 +302,19 @@ export default function NewClientPage() {
 
           {!existingClientId && (
             <>
+              {/* Directors found */}
               {chFound && directors.length > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
                   <p className="text-sm font-semibold text-green-700">
                     ✅ {directors.length} director{directors.length > 1 ? 's' : ''} found
                   </p>
                   {nextAccountsDue && (
-                    <p className="text-xs text-green-600">📅 Next accounts due: <strong>{new Date(nextAccountsDue).toLocaleDateString('en-GB')}</strong> (from Companies House)</p>
+                    <p className="text-xs text-green-600">📅 Next accounts due: <strong>{new Date(nextAccountsDue).toLocaleDateString('en-GB')}</strong></p>
                   )}
                   {nextConfirmationDue && (
-                    <p className="text-xs text-green-600">📅 Next confirmation due: <strong>{new Date(nextConfirmationDue).toLocaleDateString('en-GB')}</strong> (from Companies House)</p>
+                    <p className="text-xs text-green-600">📅 Next confirmation due: <strong>{new Date(nextConfirmationDue).toLocaleDateString('en-GB')}</strong></p>
                   )}
-                  <p className="text-xs text-green-600">Tick any directors to also create as individual client records:</p>
+                  <p className="text-xs text-green-600">Tick any to also create as individual client records:</p>
                   {directors.map((d, i) => {
                     const nameParts = d.name.split(', ')
                     const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : d.name
@@ -322,135 +338,18 @@ export default function NewClientPage() {
                 </div>
               )}
 
+              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-brand-dark mb-1">
-                  {type === 'company' ? 'Company name' : 'Full legal name'} *
+                  {type === 'company' ? 'Company name' : type === 'partnership' ? 'Partnership name' : 'Full legal name'} *
                 </label>
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder={type === 'company' ? 'Acme Ltd' : 'John Smith'} className={inputClass} />
+                  placeholder={type === 'company' ? 'Acme Ltd' : type === 'partnership' ? 'Smith & Jones Partnership' : 'John Smith'}
+                  className={inputClass} />
               </div>
 
+              {/* Company specific */}
               {type === 'company' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">Companies House number</label>
-                    <input type="text" value={companyNumber} onChange={(e) => setCompanyNumber(e.target.value)}
-                      placeholder="12345678" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">Year end date</label>
-                    <input type="date" value={yearEndDate} onChange={(e) => setYearEndDate(e.target.value)} className={inputClass} />
-                  </div>
-                </>
-              )}
-
-              {type === 'individual' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">Date of birth</label>
-                    <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">National Insurance number</label>
-                    <input type="text" value={niNumber} onChange={(e) => setNiNumber(e.target.value)}
-                      placeholder="AB123456C" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">Personal UTR</label>
-                    <input type="text" value={personalUtr} onChange={(e) => setPersonalUtr(e.target.value)}
-                      placeholder="1234567890" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-brand-dark mb-1">Self Assessment status</label>
-                    <select value={saStatus} onChange={(e) => setSaStatus(e.target.value)} className={selectClass}>
-                      <option value="">Select status</option>
-                      <option value="active">Active</option>
-                      <option value="not_required">Not Required</option>
-                      <option value="dormant">Dormant</option>
-                    </select>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={studentLoan} onChange={(e) => setStudentLoan(e.target.checked)}
-                        className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Student loan</span>
-                    </label>
-                    {studentLoan && (
-                      <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)} className={selectClass}>
-                        <option value="">Select plan</option>
-                        <option value="plan_1">Plan 1</option>
-                        <option value="plan_2">Plan 2</option>
-                        <option value="plan_4">Plan 4</option>
-                      </select>
-                    )}
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={marriageAllowance} onChange={(e) => setMarriageAllowance(e.target.checked)}
-                        className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Marriage allowance</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={childBenefit} onChange={(e) => setChildBenefit(e.target.checked)}
-                        className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Child benefit / high income charge</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={foreignIncome} onChange={(e) => setForeignIncome(e.target.checked)}
-                        className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Foreign income</span>
-                    </label>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
-                  <option value="prospect">Prospect</option>
-                  <option value="onboarding">Onboarding</option>
-                  <option value="active">Active</option>
-                  <option value="offboarded">Offboarded</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  placeholder="contact@example.com" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
-                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)}
-                  placeholder="07700 900000" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
-                <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)}
-                  placeholder="Hospitality, Construction, Retail..." className={inputClass} />
-              </div>
-
-              <div>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)}
-                    className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">VAT registered</span>
-                </label>
-              </div>
-              {vatRegistered && (
-                <div>
-                  <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
-                  <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)}
-                    placeholder="GB123456789" className={inputClass} />
-                </div>
-              )}
-
-              <button onClick={handleSubmit} disabled={loading}
-                className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
-                {loading ? 'Saving...' : 'Save client'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
+                    <label className="block text-sm
