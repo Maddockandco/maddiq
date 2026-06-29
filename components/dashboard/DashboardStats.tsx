@@ -29,7 +29,6 @@ export default function DashboardStats() {
       if (!firmUser) return
       setRole(firmUser.role)
 
-      // Only these roles see their own clients only
       const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
 
       // Clients
@@ -57,12 +56,34 @@ export default function DashboardStats() {
 
       const { count: taskCount } = await taskQuery
 
-      // Deadlines — always firm-wide
-      const { count: deadlineCount } = await supabase
-        .from('statutory_deadlines')
-        .select('id', { count: 'exact', head: true })
-        .eq('firm_id', firmUser.firm_id)
-        .eq('status', 'upcoming')
+      // Deadlines — restricted users only see deadlines for their assigned clients
+      let deadlineCount = 0
+
+      if (isRestricted) {
+        // Get assigned client IDs first
+        const { data: assignedClients } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('firm_id', firmUser.firm_id)
+          .eq('assigned_to', firmUser.id)
+
+        if (assignedClients && assignedClients.length > 0) {
+          const clientIds = assignedClients.map(c => c.id)
+          const { count } = await supabase
+            .from('statutory_deadlines')
+            .select('id', { count: 'exact', head: true })
+            .in('client_id', clientIds)
+            .eq('status', 'upcoming')
+          deadlineCount = count || 0
+        }
+      } else {
+        const { count } = await supabase
+          .from('statutory_deadlines')
+          .select('id', { count: 'exact', head: true })
+          .eq('firm_id', firmUser.firm_id)
+          .eq('status', 'upcoming')
+        deadlineCount = count || 0
+      }
 
       // Pipeline leads — always firm-wide
       const { count: leadsCount } = await supabase
@@ -101,7 +122,7 @@ export default function DashboardStats() {
       textColour: 'text-brand-dark',
     },
     {
-      label: 'Upcoming Deadlines',
+      label: isRestricted ? 'My Deadlines' : 'Upcoming Deadlines',
       value: stats.deadlines,
       href: '/deadlines',
       colour: 'bg-white',
