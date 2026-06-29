@@ -10,9 +10,7 @@ const roleLabels: Record<string, string> = {
 
 export async function POST(request: Request) {
   try {
-    const { email, role, firmName, token } = await request.json()
-
-    const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/accept?token=${token}`
+    const { email, role, firmName, inviteUrl } = await request.json()
 
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -28,7 +26,8 @@ export async function POST(request: Request) {
           <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 40px 20px;">
             <h1 style="color: #343b46; font-size: 24px;">You've been invited!</h1>
             <p style="color: #666; font-size: 15px; line-height: 1.6;">
-              <strong>${firmName}</strong> has invited you to join their practice on Maddiq as a <strong>${roleLabels[role] || role}</strong>.
+              <strong>${firmName}</strong> has invited you to join their practice on Maddiq as a
+              <strong>${roleLabels[role] || role}</strong>.
             </p>
             <p style="color: #666; font-size: 15px; line-height: 1.6;">
               Click the button below to accept your invitation and set up your account.
@@ -38,7 +37,7 @@ export async function POST(request: Request) {
               Accept invitation
             </a>
             <p style="color: #999; font-size: 13px; margin-top: 30px;">
-              If you weren't expecting this invitation, you can ignore this email.
+              If you weren't expecting this invitation you can ignore this email.
             </p>
           </div>
         `,
@@ -46,7 +45,8 @@ export async function POST(request: Request) {
     })
 
     if (!emailResponse.ok) {
-      return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
+      const emailError = await emailResponse.json()
+      return NextResponse.json({ error: emailError.message || 'Failed to send email' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
