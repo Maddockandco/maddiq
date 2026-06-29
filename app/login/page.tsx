@@ -14,81 +14,94 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    if (error) {
-      setError(error.message)
+    if (signInError) {
+      setError('Invalid email or password')
       setLoading(false)
       return
     }
 
-    window.location.href = '/dashboard'
+    if (data.user) {
+      // Check if this is a portal user trying to access the firm CRM
+      const { data: portalUser } = await supabase
+        .from('client_portal_users')
+        .select('id')
+        .eq('user_id', data.user.id)
+        .single()
+
+      if (portalUser) {
+        await supabase.auth.signOut()
+        setError('This is a client portal account. Please use the client portal login below.')
+        setLoading(false)
+        return
+      }
+
+      window.location.href = '/dashboard'
+    }
   }
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-brand-light">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
 
-        {/* Logo */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-brand-dark">Maddiq</h1>
           <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-4">
             {error}
           </div>
         )}
 
-        {/* Email */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-brand-dark mb-1">
-            Email address
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+            />
+          </div>
         </div>
 
-        {/* Password */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-brand-dark mb-1">
-            Password
-          </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-          />
-        </div>
-
-        {/* Button */}
         <button
           onClick={handleLogin}
           disabled={loading}
-          className="w-full bg-brand-dark text-white font-semibold py-2.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+          className="w-full bg-brand-dark text-white font-semibold py-2.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 mt-6 text-sm"
         >
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
 
-        {/* Signup link */}
-        <p className="text-center text-sm text-gray-500 mt-6">
-          Don't have an account?{' '}
-          <a href="/signup" className="text-brand-gold font-medium hover:underline">
-            Sign up
-          </a>
-        </p>
+        <div className="mt-6 space-y-2 text-center">
+          <p className="text-sm text-gray-500">
+            Don't have an account?{' '}
+            <a href="/signup" className="text-brand-gold font-medium hover:underline">Sign up</a>
+          </p>
+          <p className="text-sm text-gray-500">
+            Are you a client?{' '}
+            <a href="/portal/login" className="text-brand-gold font-medium hover:underline">
+              Access client portal →
+            </a>
+          </p>
+        </div>
 
       </div>
     </main>
