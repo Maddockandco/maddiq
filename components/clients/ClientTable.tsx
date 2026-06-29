@@ -1,45 +1,66 @@
 'use client'
 
-import Link from 'next/link'
+import { useState } from 'react'
+import ClientDetail from '@/components/clients/ClientDetail'
+import ClientTaxInfo from '@/components/clients/ClientTaxInfo'
+import ClientContacts from '@/components/clients/ClientContacts'
+import ClientNotes from '@/components/clients/ClientNotes'
+import ClientEngagements from '@/components/engagements/ClientEngagements'
+import ClientDeadlines from '@/components/clients/ClientDeadlines'
+import ClientDocumentList from '@/components/documents/ClientDocumentList'
+import DocumentUpload from '@/components/documents/DocumentUpload'
 
-export default function ClientTable({ clients }: { clients: any[] }) {
+const tabs = [
+  { id: 'overview', label: '📋 Overview' },
+  { id: 'tax', label: '💰 Tax Info' },
+  { id: 'directors', label: '👤 Directors' },
+  { id: 'engagements', label: '📋 Engagements' },
+  { id: 'deadlines', label: '📅 Deadlines' },
+  { id: 'documents', label: '📄 Documents' },
+  { id: 'notes', label: '📝 Notes' },
+]
+
+export default function ClientTabs({ clientId }: { clientId: string }) {
+  const [activeTab, setActiveTab] = useState('overview')
+  const [docRefresh, setDocRefresh] = useState(0)
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px]">
-          <thead>
-            <tr className="bg-brand-dark">
-              <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Name</th>
-              <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Type</th>
-              <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
-              <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Industry</th>
-              <th className="text-left px-6 py-4 text-xs font-semibold text-white uppercase tracking-wider">Email</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((client, index) => (
-              <tr key={client.id} className={`border-b border-gray-100 hover:bg-amber-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                <td className="px-6 py-4">
-                  <Link href={`/clients/${client.id}`} className="font-semibold text-brand-dark hover:text-brand-gold transition-colors">
-                    {client.name}
-                  </Link>
-                </td>
-                <td className="px-6 py-4"><span className="text-sm text-gray-500 capitalize">{client.type}</span></td>
-                <td className="px-6 py-4">
-                  <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
-                    client.status === 'active' ? 'bg-green-100 text-green-700' :
-                    client.status === 'prospect' ? 'bg-blue-100 text-blue-700' :
-                    client.status === 'onboarding' ? 'bg-amber-100 text-amber-700' :
-                    'bg-gray-100 text-gray-500'
-                  }`}>{client.status}</span>
-                </td>
-                <td className="px-6 py-4"><span className="text-sm text-gray-600">{client.industry || '—'}</span></td>
-                <td className="px-6 py-4"><span className="text-sm text-gray-600">{client.email || '—'}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div>
+      <div className="flex gap-2 mb-6 bg-white rounded-2xl p-2 border border-gray-200 shadow-sm overflow-x-auto">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
+              activeTab === tab.id
+                ? 'bg-brand-dark text-white'
+                : 'text-gray-500 hover:text-brand-dark hover:bg-gray-50'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      {activeTab === 'overview' && <ClientDetail clientId={clientId} />}
+      {activeTab === 'tax' && <ClientTaxInfo clientId={clientId} />}
+      {activeTab === 'directors' && <ClientContacts clientId={clientId} />}
+      {activeTab === 'engagements' && <ClientEngagements clientId={clientId} />}
+      {activeTab === 'deadlines' && <ClientDeadlines clientId={clientId} />}
+      {activeTab === 'notes' && <ClientNotes clientId={clientId} />}
+      {activeTab === 'documents' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1">
+            <DocumentUpload clientId={clientId} onUploadComplete={() => setDocRefresh(r => r + 1)} />
+          </div>
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Uploaded Documents</h3>
+              <ClientDocumentList clientId={clientId} refresh={docRefresh} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
