@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import CompanyLookup from '@/components/clients/CompanyLookup'
 
 export default function NewClientPage() {
   const [name, setName] = useState('')
@@ -14,9 +15,32 @@ export default function NewClientPage() {
   const [companyNumber, setCompanyNumber] = useState('')
   const [vatRegistered, setVatRegistered] = useState(false)
   const [vatNumber, setVatNumber] = useState('')
+  const [registeredAddress, setRegisteredAddress] = useState('')
+  const [incorporationDate, setIncorporationDate] = useState('')
+  const [sicCode, setSicCode] = useState('')
+  const [yearEndDate, setYearEndDate] = useState('')
+  const [directors, setDirectors] = useState<any[]>([])
+  const [chFound, setChFound] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
+
+  function handleCompanyFound(data: any) {
+    setName(data.name || '')
+    setCompanyNumber(data.company_number || '')
+    setRegisteredAddress(data.registered_address || '')
+    setIncorporationDate(data.incorporated_on || '')
+    setSicCode(data.sic_codes?.[0] || '')
+    setDirectors(data.directors || [])
+    setChFound(true)
+
+    // Calculate year end from accounting reference date
+    if (data.accounting_reference_date) {
+      const [day, month] = data.accounting_reference_date.split('/')
+      const year = new Date().getFullYear()
+      setYearEndDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`)
+    }
+  }
 
   async function handleSubmit() {
     setLoading(true)
@@ -28,13 +52,8 @@ export default function NewClientPage() {
       return
     }
 
-    // Get current user's firm
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Not authenticated')
-      setLoading(false)
-      return
-    }
+    if (!user) { setError('Not authenticated'); setLoading(false); return }
 
     const { data: firmUser } = await supabase
       .from('firm_users')
@@ -42,13 +61,9 @@ export default function NewClientPage() {
       .eq('user_id', user.id)
       .single()
 
-    if (!firmUser) {
-      setError('Could not find your firm')
-      setLoading(false)
-      return
-    }
+    if (!firmUser) { setError('Could not find your firm'); setLoading(false); return }
 
-    const { error: insertError } = await supabase
+    const { data: client, error: insertError } = await supabase
       .from('clients')
       .insert({
         firm_id: firmUser.firm_id,
@@ -61,12 +76,28 @@ export default function NewClientPage() {
         company_number: companyNumber || null,
         vat_registered: vatRegistered,
         vat_number: vatNumber || null,
+        registered_address: registeredAddress || null,
+        incorporation_date: incorporationDate || null,
+        sic_code: sicCode || null,
+        year_end_date: yearEndDate || null,
       })
+      .select()
+      .single()
 
-    if (insertError) {
-      setError(insertError.message)
-      setLoading(false)
-      return
+    if (insertError) { setError(insertError.message); setLoading(false); return }
+
+    // Add directors as contacts
+    if (directors.length > 0 && client) {
+      for (const director of directors) {
+        await supabase.from('client_contacts').insert({
+          client_id: client.id,
+          firm_id: firmUser.firm_id,
+          name: director.name,
+          role: 'director',
+          appointment_date: director.appointment_date || null,
+          is_primary: directors.indexOf(director) === 0,
+        })
+      }
     }
 
     window.location.href = '/clients'
@@ -84,27 +115,21 @@ export default function NewClientPage() {
         <h1 className="text-2xl font-bold text-brand-dark mb-8">Add new client</h1>
 
         {error && (
-          <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-6">
-            {error}
-          </div>
+          <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-6">{error}</div>
         )}
 
         <div className="bg-white rounded-2xl shadow-sm p-8 space-y-6">
 
           {/* Client Type */}
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-2">
-              Client type
-            </label>
+            <label className="block text-sm font-medium text-brand-dark mb-2">Client type</label>
             <div className="flex gap-4">
               {['company', 'individual'].map((t) => (
                 <button
                   key={t}
                   onClick={() => setType(t)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition ${
-                    type === t
-                      ? 'bg-brand-dark text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    type === t ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
                   {t}
@@ -112,6 +137,25 @@ export default function NewClientPage() {
               ))}
             </div>
           </div>
+
+          {/* Companies House Lookup — only for companies */}
+          {type === 'company' && (
+            <CompanyLookup onFound={handleCompanyFound} />
+          )}
+
+          {/* CH Found confirmation */}
+          {chFound && directors.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <p className="text-sm font-semibold text-green-700 mb-2">
+                ✅ Company found — {directors.length} director{directors.length > 1 ? 's' : ''} will be imported
+              </p>
+              <div className="space-y-1">
+                {directors.map((d, i) => (
+                  <p key={i} className="text-xs text-green-600">👤 {d.name}</p>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Name */}
           <div>
@@ -130,9 +174,7 @@ export default function NewClientPage() {
           {/* Company Number */}
           {type === 'company' && (
             <div>
-              <label className="block text-sm font-medium text-brand-dark mb-1">
-                Companies House number
-              </label>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Companies House number</label>
               <input
                 type="text"
                 value={companyNumber}
@@ -145,9 +187,7 @@ export default function NewClientPage() {
 
           {/* Status */}
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">
-              Status
-            </label>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -162,9 +202,7 @@ export default function NewClientPage() {
 
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">
-              Email address
-            </label>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
             <input
               type="email"
               value={email}
@@ -176,9 +214,7 @@ export default function NewClientPage() {
 
           {/* Phone */}
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">
-              Phone number
-            </label>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
             <input
               type="text"
               value={phone}
@@ -190,9 +226,7 @@ export default function NewClientPage() {
 
           {/* Industry */}
           <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">
-              Industry
-            </label>
+            <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
             <input
               type="text"
               value={industry}
@@ -201,6 +235,19 @@ export default function NewClientPage() {
               className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
             />
           </div>
+
+          {/* Year End */}
+          {type === 'company' && (
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Year end date</label>
+              <input
+                type="date"
+                value={yearEndDate}
+                onChange={(e) => setYearEndDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+          )}
 
           {/* VAT */}
           <div>
@@ -217,14 +264,25 @@ export default function NewClientPage() {
 
           {vatRegistered && (
             <div>
-              <label className="block text-sm font-medium text-brand-dark mb-1">
-                VAT number
-              </label>
+              <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
               <input
                 type="text"
                 value={vatNumber}
                 onChange={(e) => setVatNumber(e.target.value)}
                 placeholder="GB123456789"
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+          )}
+
+          {/* Registered Address (auto-filled from CH) */}
+          {registeredAddress && (
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Registered address</label>
+              <input
+                type="text"
+                value={registeredAddress}
+                onChange={(e) => setRegisteredAddress(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
               />
             </div>
@@ -240,7 +298,6 @@ export default function NewClientPage() {
               {loading ? 'Saving...' : 'Save client'}
             </button>
           </div>
-
         </div>
       </div>
     </div>
