@@ -31,52 +31,57 @@ export default function DashboardStats() {
 
       const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
 
-      // Clients
-      let clientQuery = supabase
-        .from('clients')
-        .select('id', { count: 'exact', head: true })
-        .eq('firm_id', firmUser.firm_id)
+      let assignedClientIds: string[] = []
 
       if (isRestricted) {
-        clientQuery = clientQuery.eq('assigned_to', firmUser.id)
+        const { data: assignments } = await supabase
+          .from('client_assignments')
+          .select('client_id')
+          .eq('firm_user_id', firmUser.id)
+        assignedClientIds = assignments?.map(a => a.client_id) || []
       }
 
-      const { count: clientCount } = await clientQuery
-
-      // Tasks
-      let taskQuery = supabase
-        .from('tasks')
-        .select('id', { count: 'exact', head: true })
-        .eq('firm_id', firmUser.firm_id)
-        .neq('status', 'done')
-
+      // Clients count
+      let clientCount = 0
       if (isRestricted) {
-        taskQuery = taskQuery.eq('assigned_to', firmUser.id)
-      }
-
-      const { count: taskCount } = await taskQuery
-
-      // Deadlines — restricted users only see deadlines for their assigned clients
-      let deadlineCount = 0
-
-      if (isRestricted) {
-        // Get assigned client IDs first
-        const { data: assignedClients } = await supabase
+        clientCount = assignedClientIds.length
+      } else {
+        const { count } = await supabase
           .from('clients')
-          .select('id')
+          .select('id', { count: 'exact', head: true })
+          .eq('firm_id', firmUser.firm_id)
+        clientCount = count || 0
+      }
+
+      // Tasks count
+      let taskCount = 0
+      if (isRestricted) {
+        const { count } = await supabase
+          .from('tasks')
+          .select('id', { count: 'exact', head: true })
           .eq('firm_id', firmUser.firm_id)
           .eq('assigned_to', firmUser.id)
-
-        if (assignedClients && assignedClients.length > 0) {
-          const clientIds = assignedClients.map(c => c.id)
-          const { count } = await supabase
-            .from('statutory_deadlines')
-            .select('id', { count: 'exact', head: true })
-            .in('client_id', clientIds)
-            .eq('status', 'upcoming')
-          deadlineCount = count || 0
-        }
+          .neq('status', 'done')
+        taskCount = count || 0
       } else {
+        const { count } = await supabase
+          .from('tasks')
+          .select('id', { count: 'exact', head: true })
+          .eq('firm_id', firmUser.firm_id)
+          .neq('status', 'done')
+        taskCount = count || 0
+      }
+
+      // Deadlines count
+      let deadlineCount = 0
+      if (isRestricted && assignedClientIds.length > 0) {
+        const { count } = await supabase
+          .from('statutory_deadlines')
+          .select('id', { count: 'exact', head: true })
+          .in('client_id', assignedClientIds)
+          .eq('status', 'upcoming')
+        deadlineCount = count || 0
+      } else if (!isRestricted) {
         const { count } = await supabase
           .from('statutory_deadlines')
           .select('id', { count: 'exact', head: true })
@@ -85,7 +90,7 @@ export default function DashboardStats() {
         deadlineCount = count || 0
       }
 
-      // Pipeline leads — always firm-wide
+      // Pipeline leads
       const { count: leadsCount } = await supabase
         .from('pipeline_leads')
         .select('id', { count: 'exact', head: true })
@@ -94,9 +99,9 @@ export default function DashboardStats() {
         .not('stage', 'eq', 'lost')
 
       setStats({
-        clients: clientCount || 0,
-        tasks: taskCount || 0,
-        deadlines: deadlineCount || 0,
+        clients: clientCount,
+        tasks: taskCount,
+        deadlines: deadlineCount,
         leads: leadsCount || 0,
       })
       setLoading(false)
