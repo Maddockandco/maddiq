@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
   try {
     const { clientId, email, clientName, firmName } = await request.json()
 
-    // Send invite email via Resend
     const emailResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -13,7 +11,7 @@ export async function POST(request: Request) {
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'onboarding@resend.dev',
+        from: 'Maddiq <hello@maddockandco.com>',
         to: email,
         subject: `${firmName} has invited you to their client portal`,
         html: `
