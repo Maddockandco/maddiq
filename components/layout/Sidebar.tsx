@@ -35,20 +35,24 @@ export default function Sidebar() {
 
   function isActive(href: string) {
     if (href === '/dashboard') return pathname === '/dashboard'
-    return pathname.startsWith(href)
+    return pathname === href || pathname.startsWith(href + '/')
+  }
+
+  function handleNavClick(href: string) {
+    window.location.href = href
   }
 
   return (
-    <aside className="fixed top-0 left-0 h-full w-64 bg-brand-dark flex flex-col z-50">
+    <aside style={{ width: '256px', minWidth: '256px' }} className="fixed top-0 left-0 h-full bg-brand-dark flex flex-col z-50">
 
       {/* Logo */}
-      <Link
-        href="/dashboard"
-        className="px-6 py-6 border-b border-white/10 hover:bg-white/5 transition block"
+      <div
+        onClick={() => handleNavClick('/dashboard')}
+        className="px-6 py-6 border-b border-white/10 hover:bg-white/5 transition block cursor-pointer"
       >
         <h1 className="text-2xl font-bold text-white">Maddiq</h1>
         <p className="text-xs text-brand-gold mt-0.5">AI-native accounting</p>
-      </Link>
+      </div>
 
       {/* Search */}
       <div className="px-4 py-3 border-b border-white/10">
@@ -61,10 +65,10 @@ export default function Sidebar() {
           const Icon = item.icon
           const active = isActive(item.href)
           return (
-            <Link
+            <div
               key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              onClick={() => handleNavClick(item.href)}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                 active
                   ? 'bg-brand-gold text-brand-dark'
                   : 'text-white/70 hover:text-white hover:bg-white/10'
@@ -75,7 +79,7 @@ export default function Sidebar() {
               {active && (
                 <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-dark" />
               )}
-            </Link>
+            </div>
           )
         })}
       </nav>
@@ -90,9 +94,9 @@ export default function Sidebar() {
 
       {/* Bottom — Settings + Logout */}
       <div className="px-4 py-4 border-t border-white/10 space-y-1">
-        <Link
-          href="/settings"
-          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+        <div
+          onClick={() => handleNavClick('/settings')}
+          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
             pathname === '/settings'
               ? 'bg-brand-gold text-brand-dark'
               : 'text-white/70 hover:text-white hover:bg-white/10'
@@ -100,7 +104,7 @@ export default function Sidebar() {
         >
           <Settings size={18} />
           Settings
-        </Link>
+        </div>
 
         <button
           onClick={handleLogout}
