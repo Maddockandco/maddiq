@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import GenerateDeadlines from '@/components/clients/GenerateDeadlines'
+import { useRole } from '@/hooks/useRole'
 
 export default function ClientDeadlines({ clientId }: { clientId: string }) {
   const [deadlines, setDeadlines] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const { can } = useRole()
   const supabase = createClient()
 
-  useEffect(() => {
-    fetchDeadlines()
-  }, [clientId])
+  useEffect(() => { fetchDeadlines() }, [clientId])
 
   async function fetchDeadlines() {
     const { data } = await supabase
@@ -31,9 +31,11 @@ export default function ClientDeadlines({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <GenerateDeadlines clientId={clientId} onGenerated={fetchDeadlines} />
-      </div>
+      {can.generateDeadlines && (
+        <div className="flex justify-end">
+          <GenerateDeadlines clientId={clientId} onGenerated={fetchDeadlines} />
+        </div>
+      )}
 
       {deadlines.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
@@ -49,7 +51,6 @@ export default function ClientDeadlines({ clientId }: { clientId: string }) {
               const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
               const isOverdue = daysUntilDue < 0
               const isDueSoon = daysUntilDue <= 30 && daysUntilDue >= 0
-
               return (
                 <div key={deadline.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition">
                   <div className="flex-1">
@@ -64,11 +65,7 @@ export default function ClientDeadlines({ clientId }: { clientId: string }) {
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right">
-                      <p className={`text-sm font-semibold ${
-                        isOverdue ? 'text-red-600' :
-                        isDueSoon ? 'text-amber-600' :
-                        'text-brand-dark'
-                      }`}>
+                      <p className={`text-sm font-semibold ${isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-brand-dark'}`}>
                         {dueDate.toLocaleDateString('en-GB')}
                       </p>
                       {isOverdue && <p className="text-xs text-red-500 mt-0.5">🚨 {Math.abs(daysUntilDue)} days overdue</p>}
