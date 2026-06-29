@@ -11,34 +11,44 @@ export default function RecentActivity() {
 
   useEffect(() => {
     async function fetchActivity() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: firmUser } = await supabase
+        .from('firm_users')
+        .select('firm_id, role, id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!firmUser) return
+
+      const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
       const results: any[] = []
 
-      // Recent clients
-      const { data: clients } = await supabase
-        .from('clients')
-        .select('id, name, created_at, status')
-        .order('created_at', { ascending: false })
-        .limit(3)
-
-      if (clients) {
-        clients.forEach(c => results.push({
-          id: c.id,
-          type: 'client',
-          title: `New client: ${c.name}`,
-          subtitle: c.status,
-          href: `/clients/${c.id}`,
-          created_at: c.created_at,
-          icon: '👤',
-        }))
+      // Get assigned client IDs for restricted users
+      let assignedClientIds: string[] = []
+      if (isRestricted) {
+        const { data: assignments } = await supabase
+          .from('client_assignments')
+          .select('client_id')
+          .eq('firm_user_id', firmUser.id)
+        assignedClientIds = assignments?.map(a => a.client_id) || []
       }
 
-      // Recent tasks
-      const { data: tasks } = await supabase
+      // Recent tasks — restricted users only see their own
+      let taskQuery = supabase
         .from('tasks')
         .select('id, title, status, created_at, client_id, clients(name)')
         .order('created_at', { ascending: false })
         .limit(3)
 
+      if (isRestricted) {
+        taskQuery = taskQuery.eq('assigned_to', firmUser.id)
+      } else {
+        taskQuery = taskQuery.eq('firm_id', firmUser.firm_id)
+      }
+
+      const { data: tasks } = await taskQuery
       if (tasks) {
         tasks.forEach(t => results.push({
           id: t.id,
@@ -51,33 +61,21 @@ export default function RecentActivity() {
         }))
       }
 
-      // Recent documents
-      const { data: docs } = await supabase
-        .from('documents')
-        .select('id, name, created_at, client_id, clients(name)')
-        .order('created_at', { ascending: false })
-        .limit(3)
-
-      if (docs) {
-        docs.forEach(d => results.push({
-          id: d.id,
-          type: 'document',
-          title: d.name,
-          subtitle: (d.clients as any)?.name || '—',
-          href: `/clients/${d.client_id}`,
-          created_at: d.created_at,
-          icon: '📄',
-        }))
-      }
-
-      // Recent notes
-      const { data: notes } = await supabase
+      // Recent notes — restricted users only see notes on assigned clients
+      let noteQuery = supabase
         .from('notes')
         .select('id, content, created_at, client_id, clients(name)')
         .is('parent_id', null)
         .order('created_at', { ascending: false })
         .limit(3)
 
+      if (isRestricted && assignedClientIds.length > 0) {
+        noteQuery = noteQuery.in('client_id', assignedClientIds)
+      } else if (!isRestricted) {
+        // No filter needed for owners/managers
+      }
+
+      const { data: notes } = await noteQuery
       if (notes) {
         notes.forEach(n => results.push({
           id: n.id,
@@ -90,7 +88,54 @@ export default function RecentActivity() {
         }))
       }
 
-      // Sort all by date and take top 8
+      // Recent documents — restricted users only see docs on assigned clients
+      let docQuery = supabase
+        .from('documents')
+        .select('id, name, created_at, client_id, clients(name)')
+        .order('created_at', { ascending: false })
+        .limit(3)
+
+      if (isRestricted && assignedClientIds.length > 0) {
+        docQuery = docQuery.in('client_id', assignedClientIds)
+      } else if (!isRestricted) {
+        docQuery = docQuery.eq('firm_id', firmUser.firm_id)
+      }
+
+      const { data: docs } = await docQuery
+      if (docs) {
+        docs.forEach(d => results.push({
+          id: d.id,
+          type: 'document',
+          title: d.name,
+          subtitle: (d.clients as any)?.name || '—',
+          href: `/clients/${d.client_id}`,
+          created_at: d.created_at,
+          icon: '📄',
+        }))
+      }
+
+      // Recent clients — only for non-restricted users
+      if (!isRestricted) {
+        const { data: clients } = await supabase
+          .from('clients')
+          .select('id, name, created_at, status')
+          .eq('firm_id', firmUser.firm_id)
+          .order('created_at', { ascending: false })
+          .limit(3)
+
+        if (clients) {
+          clients.forEach(c => results.push({
+            id: c.id,
+            type: 'client',
+            title: `New client: ${c.name}`,
+            subtitle: c.status,
+            href: `/clients/${c.id}`,
+            created_at: c.created_at,
+            icon: '👤',
+          }))
+        }
+      }
+
       results.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       setActivity(results.slice(0, 8))
       setLoading(false)
@@ -127,10 +172,7 @@ export default function RecentActivity() {
                 <p className="text-xs text-gray-500 capitalize mt-0.5">{item.subtitle}</p>
               </div>
               <div className="text-xs text-gray-400 shrink-0">
-                {new Date(item.created_at).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                })}
+                {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
               </div>
             </Link>
           ))}
