@@ -1,26 +1,33 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(request: Request) {
-  // Verify this is called by Vercel Cron
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const supabase = await createClient()
+  // Use service role to bypass RLS
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
   const apiKey = process.env.COMPANIES_HOUSE_API_KEY
   const credentials = Buffer.from(`${apiKey}:`).toString('base64')
 
-  // Get all company clients with a company number
-  const { data: clients } = await supabase
+  const { data: clients, error } = await supabase
     .from('clients')
-    .select('id, name, company_number, next_accounts_due, next_confirmation_due')
+    .select('id, name, company_number, next_accounts_due, next_confirmation_due, firm_id')
     .eq('type', 'company')
     .not('company_number', 'is', null)
 
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
   if (!clients || clients.length === 0) {
-    return NextResponse.json({ message: 'No company clients to sync' })
+    return NextResponse.json({ message: 'No company clients to sync', count: 0 })
   }
 
   const results = []
@@ -48,21 +55,17 @@ export async function GET(request: Request) {
       const newConfirmationDue = data.confirmation_statement?.next_due || null
       const companyStatus = data.company_status || null
 
-      // Check if anything changed
       const accountsChanged = newAccountsDue !== client.next_accounts_due
       const confirmationChanged = newConfirmationDue !== client.next_confirmation_due
 
-      // Update the client record
       await supabase
         .from('clients')
         .update({
           next_accounts_due: newAccountsDue,
           next_confirmation_due: newConfirmationDue,
-          status: companyStatus === 'dissolved' ? 'offboarded' : undefined,
         })
         .eq('id', client.id)
 
-      // If dates changed regenerate deadlines
       if (accountsChanged || confirmationChanged) {
         await supabase.rpc('generate_client_deadlines', { p_client_id: client.id })
       }
@@ -70,13 +73,14 @@ export async function GET(request: Request) {
       results.push({
         id: client.id,
         name: client.name,
+        company_number: client.company_number,
         accounts_due: newAccountsDue,
         confirmation_due: newConfirmationDue,
         accounts_changed: accountsChanged,
         confirmation_changed: confirmationChanged,
+        company_status: companyStatus,
       })
 
-      // Small delay to avoid rate limiting
       await new Promise(r => setTimeout(r, 200))
 
     } catch (err: any) {
