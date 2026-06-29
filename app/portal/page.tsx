@@ -7,23 +7,35 @@ export default function PortalPage() {
   const [documents, setDocuments] = useState<any[]>([])
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [authChecked, setAuthChecked] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
     async function fetchData() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { window.location.href = '/portal/login'; return }
+      // Wait for session to be ready
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        setAuthChecked(true)
+        setLoading(false)
+        window.location.href = '/portal/login'
+        return
+      }
 
       const { data: portalUser } = await supabase
         .from('client_portal_users')
         .select('client_id, status')
-        .eq('user_id', user.id)
+        .eq('user_id', session.user.id)
         .single()
 
       if (!portalUser || portalUser.status !== 'active') {
+        setAuthChecked(true)
+        setLoading(false)
         window.location.href = '/portal/login'
         return
       }
+
+      setAuthChecked(true)
 
       const { data: clientData } = await supabase
         .from('clients')
@@ -50,14 +62,13 @@ export default function PortalPage() {
     try {
       const { data, error } = await supabase.storage
         .from('documents')
-        .createSignedUrl(filePath, 60 * 60) // 1 hour expiry
+        .createSignedUrl(filePath, 60 * 60)
 
       if (error || !data?.signedUrl) {
         alert('Could not generate download link. Please try again.')
         return
       }
 
-      // Create a temporary anchor and click it
       const link = document.createElement('a')
       link.href = data.signedUrl
       link.download = fileName
@@ -78,7 +89,7 @@ export default function PortalPage() {
 
   if (loading) return (
     <div className="text-center py-12">
-      <p className="text-gray-500 text-sm">Loading your documents...</p>
+      <p className="text-gray-500 text-sm">Loading your portal...</p>
     </div>
   )
 
@@ -105,7 +116,9 @@ export default function PortalPage() {
         {documents.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 text-sm">No documents have been shared with you yet</p>
-            <p className="text-gray-400 text-xs mt-1">Your accountant will share documents here when they are ready</p>
+            <p className="text-gray-400 text-xs mt-1">
+              Your accountant will share documents here when they are ready
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
