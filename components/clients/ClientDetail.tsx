@@ -117,12 +117,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
               <span className="text-sm text-gray-500">Year End</span>
               <span className="text-sm text-brand-dark font-medium">{client.year_end_date || '—'}</span>
             </div>
-            {can.manageTeam && (
-              <div className="flex justify-between items-center pt-2 border-t border-gray-50">
-                <span className="text-sm text-gray-500">Assigned to</span>
-                <AssignClient clientId={client.id} currentAssignedTo={client.assigned_to} />
-              </div>
-            )}
           </div>
         </div>
 
@@ -155,6 +149,19 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Team Assignment — only visible to owners and managers */}
+      {can.manageTeam && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
+            Assigned Team Members
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Tick team members to give them access to this client
+          </p>
+          <AssignClient clientId={client.id} />
+        </div>
+      )}
 
       {client.notes && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
