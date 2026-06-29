@@ -161,4 +161,141 @@ export default function LandingPage() {
                   <p className="text-white font-semibold text-sm">Maddock & Co</p>
                   <p className="text-white/40 text-xs">Active · Accounting</p>
                 </div>
-                <span
+                <span className="ml-auto text-xs bg-green-500/20 text-green-400 px-2.5 py-1 rounded-full font-medium">Active</span>
+              </div>
+              {[
+                { label: 'CT UTR', value: '1234567890' },
+                { label: 'VAT Number', value: 'GB123456789' },
+                { label: 'PAYE Reference', value: '123/AB456' },
+                { label: 'CH Auth Code', value: '••••••' },
+                { label: 'CIS Status', value: 'Subcontractor' },
+                { label: 'Year End', value: '31 Dec 2026' },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between items-center">
+                  <span className="text-white/40 text-xs">{label}</span>
+                  <span className="text-white text-xs font-medium">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section className="bg-white/5 border-t border-white/10 py-24">
+        <div className="max-w-7xl mx-auto px-8 text-center">
+          <h3 className="text-3xl font-bold text-white mb-4">Simple pricing</h3>
+          <p className="text-white/50 text-lg mb-16">One price. Every feature. No hidden costs.</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            {[
+              {
+                name: 'Starter',
+                price: '£29',
+                period: '/month',
+                description: 'Perfect for sole practitioners',
+                features: ['Up to 25 clients', 'Full CRM', 'Client portal', 'Document management', 'Task & deadline tracking'],
+                cta: 'Start free trial',
+                highlight: false,
+              },
+              {
+                name: 'Growth',
+                price: '£79',
+                period: '/month',
+                description: 'For growing practices',
+                features: ['Up to 100 clients', 'Everything in Starter', 'Team collaboration', 'AI tax advisor', 'Priority support'],
+                cta: 'Start free trial',
+                highlight: true,
+              },
+              {
+                name: 'Practice',
+                price: '£149',
+                period: '/month',
+                description: 'For established firms',
+                features: ['Unlimited clients', 'Everything in Growth', 'AML/KYC module', 'Engagement letters', 'Dedicated support'],
+                cta: 'Contact us',
+                highlight: false,
+              },
+            ].map((plan) => (
+              <div
+                key={plan.name}
+                className={`rounded-2xl p-8 border ${
+                  plan.highlight
+                    ? 'bg-brand-gold border-brand-gold'
+                    : 'bg-white/5 border-white/10'
+                }`}
+              >
+                <h4 className={`text-lg font-bold mb-1 ${plan.highlight ? 'text-brand-dark' : 'text-white'}`}>
+                  {plan.name}
+                </h4>
+                <p className={`text-xs mb-6 ${plan.highlight ? 'text-brand-dark/60' : 'text-white/40'}`}>
+                  {plan.description}
+                </p>
+                <div className={`text-4xl font-bold mb-1 ${plan.highlight ? 'text-brand-dark' : 'text-white'}`}>
+                  {plan.price}
+                  <span className={`text-base font-normal ${plan.highlight ? 'text-brand-dark/60' : 'text-white/40'}`}>
+                    {plan.period}
+                  </span>
+                </div>
+                <div className="my-6 space-y-3">
+                  {plan.features.map((f) => (
+                    <div key={f} className="flex items-center gap-2">
+                      <span className={plan.highlight ? 'text-brand-dark' : 'text-brand-gold'}>✓</span>
+                      <span className={`text-sm ${plan.highlight ? 'text-brand-dark' : 'text-white/70'}`}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+                <Link
+                  href="/signup"
+                  className={`block w-full text-center font-semibold py-3 rounded-xl text-sm transition ${
+                    plan.highlight
+                      ? 'bg-brand-dark text-white hover:bg-opacity-90'
+                      : 'bg-white/10 text-white hover:bg-white/20'
+                  }`}
+                >
+                  {plan.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-24">
+        <div className="max-w-3xl mx-auto px-8 text-center">
+          <h3 className="text-4xl font-bold text-white mb-6">
+            Ready to modernise your practice?
+          </h3>
+          <p className="text-white/50 text-lg mb-10">
+            Join forward-thinking UK accounting firms already using Maddiq to save time, delight clients and grow their practice.
+          </p>
+          <Link
+            href="/signup"
+            className="inline-block bg-brand-gold text-brand-dark font-bold px-10 py-4 rounded-xl text-base hover:bg-opacity-90 transition"
+          >
+            Start your free trial today →
+          </Link>
+          <p className="text-white/30 text-sm mt-4">No credit card required · Cancel anytime</p>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 py-8">
+        <div className="max-w-7xl mx-auto px-8 flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-lg font-bold text-white">Maddiq</h1>
+            <p className="text-xs text-white/30 mt-0.5">AI-native accounting platform · Built in the UK</p>
+          </div>
+          <div className="flex items-center gap-6">
+            <Link href="/login" className="text-xs text-white/40 hover:text-white transition">Sign in</Link>
+            <Link href="/signup" className="text-xs text-white/40 hover:text-white transition">Sign up</Link>
+            <Link href="/portal/login" className="text-xs text-white/40 hover:text-white transition">Client portal</Link>
+          </div>
+          <p className="text-xs text-white/20">© 2026 Maddiq. All rights reserved.</p>
+        </div>
+      </footer>
+
+    </main>
+  )
+}
