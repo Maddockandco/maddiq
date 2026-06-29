@@ -4,9 +4,11 @@ import { useState } from 'react'
 import SettingsForm from '@/components/settings/SettingsForm'
 import TeamList from '@/components/settings/TeamList'
 import InviteTeamMember from '@/components/settings/InviteTeamMember'
+import { useRole } from '@/hooks/useRole'
 
 export default function SettingsPage() {
   const [refresh, setRefresh] = useState(0)
+  const { can, role } = useRole()
 
   return (
     <div className="max-w-3xl space-y-10">
@@ -15,23 +17,35 @@ export default function SettingsPage() {
         <p className="text-sm text-gray-500 mt-1">Manage your firm settings and team</p>
       </div>
 
-      {/* Firm Settings */}
-      <div>
-        <h2 className="text-lg font-semibold text-brand-dark mb-4">Firm Settings</h2>
-        <SettingsForm />
-      </div>
-
-      {/* Team Management */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-brand-dark">Team Members</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Manage your team and their access levels</p>
-          </div>
-          <InviteTeamMember onInvited={() => setRefresh(r => r + 1)} />
+      {/* Firm Settings — owners and managers only */}
+      {can.manageSettings && (
+        <div>
+          <h2 className="text-lg font-semibold text-brand-dark mb-4">Firm Settings</h2>
+          <SettingsForm />
         </div>
-        <TeamList key={refresh} />
-      </div>
+      )}
+
+      {/* Team Management — owners and managers only */}
+      {can.manageTeam && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-brand-dark">Team Members</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Manage your team and their access levels</p>
+            </div>
+            <InviteTeamMember onInvited={() => setRefresh(r => r + 1)} />
+          </div>
+          <TeamList key={refresh} />
+        </div>
+      )}
+
+      {/* For restricted users show a simple message */}
+      {!can.manageSettings && !can.manageTeam && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+          <p className="text-gray-500 text-sm">You don't have permission to manage settings.</p>
+          <p className="text-gray-400 text-xs mt-1">Contact your Practice Owner or Manager.</p>
+        </div>
+      )}
     </div>
   )
 }
