@@ -13,6 +13,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import SearchBar from '@/components/layout/SearchBar'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -49,8 +50,13 @@ export default function Sidebar() {
         <p className="text-xs text-brand-gold mt-0.5">AI-native accounting</p>
       </Link>
 
+      {/* Search */}
+      <div className="px-4 py-3 border-b border-white/10">
+        <SearchBar />
+      </div>
+
       {/* Nav Items */}
-      <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = isActive(item.href)
