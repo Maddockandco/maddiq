@@ -19,6 +19,8 @@ export default function NewClientPage() {
   const [incorporationDate, setIncorporationDate] = useState('')
   const [sicCode, setSicCode] = useState('')
   const [yearEndDate, setYearEndDate] = useState('')
+  const [nextAccountsDue, setNextAccountsDue] = useState('')
+  const [nextConfirmationDue, setNextConfirmationDue] = useState('')
   const [directors, setDirectors] = useState<any[]>([])
   const [directorsToCreate, setDirectorsToCreate] = useState<string[]>([])
   const [chFound, setChFound] = useState(false)
@@ -37,12 +39,13 @@ export default function NewClientPage() {
   const supabase = createClient()
 
   async function handleCompanyFound(data: any) {
-    // Check if company already exists
-    const { data: existing } = await supabase
+    const { data: existingList } = await supabase
       .from('clients')
       .select('id, name')
       .eq('company_number', data.company_number)
-      .single()
+      .limit(1)
+
+    const existing = existingList?.[0] || null
 
     if (existing) {
       setExistingClientId(existing.id)
@@ -60,6 +63,8 @@ export default function NewClientPage() {
     setIncorporationDate(data.incorporated_on || '')
     setSicCode(data.sic_codes?.[0] || '')
     setDirectors(data.directors || [])
+    setNextAccountsDue(data.next_accounts_due || '')
+    setNextConfirmationDue(data.next_confirmation_due || '')
     setChFound(true)
     if (data.accounting_reference_date) {
       const [day, month] = data.accounting_reference_date.split('/')
@@ -94,13 +99,9 @@ export default function NewClientPage() {
 
     for (const director of directors) {
       let linkedClientId = null
-
       if (directorsToCreate.includes(director.name)) {
         const nameParts = director.name.split(', ')
-        const formattedName = nameParts.length > 1
-          ? `${nameParts[1]} ${nameParts[0]}`
-          : director.name
-
+        const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : director.name
         const { data: individualClient } = await supabase
           .from('clients')
           .insert({
@@ -112,10 +113,8 @@ export default function NewClientPage() {
           })
           .select()
           .single()
-
         if (individualClient) linkedClientId = individualClient.id
       }
-
       await supabase.from('client_contacts').insert({
         client_id: existingClientId,
         firm_id: firmUser.firm_id,
@@ -126,7 +125,6 @@ export default function NewClientPage() {
         linked_client_id: linkedClientId,
       })
     }
-
     window.location.replace('/clients')
   }
 
@@ -162,6 +160,8 @@ export default function NewClientPage() {
         incorporation_date: incorporationDate || null,
         sic_code: sicCode || null,
         year_end_date: yearEndDate || null,
+        next_accounts_due: nextAccountsDue || null,
+        next_confirmation_due: nextConfirmationDue || null,
         date_of_birth: dateOfBirth || null,
         national_insurance_number: niNumber || null,
         personal_utr: personalUtr || null,
@@ -227,7 +227,6 @@ export default function NewClientPage() {
 
         <div className="bg-white rounded-2xl shadow-sm p-8 space-y-6">
 
-          {/* Client Type */}
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-2">Client type</label>
             <div className="flex gap-4">
@@ -243,17 +242,12 @@ export default function NewClientPage() {
             </div>
           </div>
 
-          {/* Companies House Lookup */}
-          {type === 'company' && (
-            <CompanyLookup onFound={handleCompanyFound} />
-          )}
+          {type === 'company' && <CompanyLookup onFound={handleCompanyFound} />}
 
           {/* Existing company warning */}
           {existingClientId && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-semibold text-amber-700">
-                ⚠️ This company already exists in Maddiq
-              </p>
+              <p className="text-sm font-semibold text-amber-700">⚠️ This company already exists in Maddiq</p>
               <p className="text-xs text-amber-600">
                 <strong>{name}</strong> is already a client. You can import directors only instead of creating a duplicate.
               </p>
@@ -265,17 +259,11 @@ export default function NewClientPage() {
                     const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : d.name
                     return (
                       <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-amber-100">
-                        <input
-                          type="checkbox"
-                          checked={directorsToCreate.includes(d.name)}
-                          onChange={() => toggleDirectorCreate(d.name)}
-                          className="w-4 h-4 accent-brand-dark"
-                        />
+                        <input type="checkbox" checked={directorsToCreate.includes(d.name)}
+                          onChange={() => toggleDirectorCreate(d.name)} className="w-4 h-4 accent-brand-dark" />
                         <div>
                           <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
-                          <p className="text-xs text-gray-500">
-                            Director since {d.appointment_date || 'unknown'}
-                          </p>
+                          <p className="text-xs text-gray-500">Director since {d.appointment_date || 'unknown'}</p>
                           {directorsToCreate.includes(d.name) && (
                             <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
                           )}
@@ -286,11 +274,8 @@ export default function NewClientPage() {
                 </>
               )}
               <div className="flex gap-3 pt-2">
-                <button
-                  onClick={handleImportDirectorsOnly}
-                  disabled={loading}
-                  className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
-                >
+                <button onClick={handleImportDirectorsOnly} disabled={loading}
+                  className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
                   {loading ? 'Importing...' : 'Import directors only'}
                 </button>
                 <Link href="/clients" className="flex-1 text-center bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
@@ -300,27 +285,27 @@ export default function NewClientPage() {
             </div>
           )}
 
-          {/* Only show the rest of the form if no existing company */}
           {!existingClientId && (
             <>
-              {/* Directors found */}
               {chFound && directors.length > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
                   <p className="text-sm font-semibold text-green-700">
                     ✅ {directors.length} director{directors.length > 1 ? 's' : ''} found
                   </p>
+                  {nextAccountsDue && (
+                    <p className="text-xs text-green-600">📅 Next accounts due: <strong>{new Date(nextAccountsDue).toLocaleDateString('en-GB')}</strong> (from Companies House)</p>
+                  )}
+                  {nextConfirmationDue && (
+                    <p className="text-xs text-green-600">📅 Next confirmation due: <strong>{new Date(nextConfirmationDue).toLocaleDateString('en-GB')}</strong> (from Companies House)</p>
+                  )}
                   <p className="text-xs text-green-600">Tick any directors to also create as individual client records:</p>
                   {directors.map((d, i) => {
                     const nameParts = d.name.split(', ')
                     const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : d.name
                     return (
                       <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-green-100">
-                        <input
-                          type="checkbox"
-                          checked={directorsToCreate.includes(d.name)}
-                          onChange={() => toggleDirectorCreate(d.name)}
-                          className="w-4 h-4 accent-brand-dark"
-                        />
+                        <input type="checkbox" checked={directorsToCreate.includes(d.name)}
+                          onChange={() => toggleDirectorCreate(d.name)} className="w-4 h-4 accent-brand-dark" />
                         <div>
                           <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
                           <p className="text-xs text-gray-500">
@@ -337,7 +322,6 @@ export default function NewClientPage() {
                 </div>
               )}
 
-              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-brand-dark mb-1">
                   {type === 'company' ? 'Company name' : 'Full legal name'} *
@@ -368,11 +352,13 @@ export default function NewClientPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-brand-dark mb-1">National Insurance number</label>
-                    <input type="text" value={niNumber} onChange={(e) => setNiNumber(e.target.value)} placeholder="AB123456C" className={inputClass} />
+                    <input type="text" value={niNumber} onChange={(e) => setNiNumber(e.target.value)}
+                      placeholder="AB123456C" className={inputClass} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-brand-dark mb-1">Personal UTR</label>
-                    <input type="text" value={personalUtr} onChange={(e) => setPersonalUtr(e.target.value)} placeholder="1234567890" className={inputClass} />
+                    <input type="text" value={personalUtr} onChange={(e) => setPersonalUtr(e.target.value)}
+                      placeholder="1234567890" className={inputClass} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-brand-dark mb-1">Self Assessment status</label>
@@ -382,83 +368,3 @@ export default function NewClientPage() {
                       <option value="not_required">Not Required</option>
                       <option value="dormant">Dormant</option>
                     </select>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={studentLoan} onChange={(e) => setStudentLoan(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Student loan</span>
-                    </label>
-                    {studentLoan && (
-                      <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)} className={selectClass}>
-                        <option value="">Select plan</option>
-                        <option value="plan_1">Plan 1</option>
-                        <option value="plan_2">Plan 2</option>
-                        <option value="plan_4">Plan 4</option>
-                      </select>
-                    )}
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={marriageAllowance} onChange={(e) => setMarriageAllowance(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Marriage allowance</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={childBenefit} onChange={(e) => setChildBenefit(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Child benefit / high income charge</span>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox" checked={foreignIncome} onChange={(e) => setForeignIncome(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
-                      <span className="text-sm font-medium text-brand-dark">Foreign income</span>
-                    </label>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
-                  <option value="prospect">Prospect</option>
-                  <option value="onboarding">Onboarding</option>
-                  <option value="active">Active</option>
-                  <option value="offboarded">Offboarded</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@example.com" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
-                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900000" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
-                <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="Hospitality, Construction, Retail..." className={inputClass} />
-              </div>
-
-              <div>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">VAT registered</span>
-                </label>
-              </div>
-              {vatRegistered && (
-                <div>
-                  <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
-                  <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="GB123456789" className={inputClass} />
-                </div>
-              )}
-
-              <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm"
-              >
-                {loading ? 'Saving...' : 'Save client'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
