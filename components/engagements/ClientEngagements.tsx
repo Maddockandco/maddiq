@@ -11,17 +11,27 @@ export default function ClientEngagements({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<any>(null)
-  const { can } = useRole()
+  const { can, role } = useRole()
   const supabase = createClient()
+
+  const isPayrollOnly = role === 'payroll_manager'
+  const payrollEngagementTypes = ['payroll', 'cis']
 
   useEffect(() => { fetchEngagements() }, [clientId])
 
   async function fetchEngagements() {
-    const { data } = await supabase
+    let query = supabase
       .from('engagements')
       .select('*')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
+
+    // Payroll managers only see payroll and CIS engagements
+    if (isPayrollOnly) {
+      query = query.in('type', payrollEngagementTypes)
+    }
+
+    const { data } = await query
     if (data) setEngagements(data)
     setLoading(false)
   }
@@ -59,8 +69,14 @@ export default function ClientEngagements({ clientId }: { clientId: string }) {
 
       {engagements.length === 0 && !adding ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <h2 className="text-lg font-semibold text-brand-dark mb-2">No engagements yet</h2>
-          <p className="text-gray-500 text-sm mb-6">Add the services you are providing to this client</p>
+          <h2 className="text-lg font-semibold text-brand-dark mb-2">
+            {isPayrollOnly ? 'No payroll or CIS engagements' : 'No engagements yet'}
+          </h2>
+          <p className="text-gray-500 text-sm mb-6">
+            {isPayrollOnly
+              ? 'No payroll or CIS services have been set up for this client'
+              : 'Add the services you are providing to this client'}
+          </p>
           {can.manageEngagements && (
             <button onClick={() => setAdding(true)}
               className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
