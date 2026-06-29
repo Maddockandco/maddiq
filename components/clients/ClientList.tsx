@@ -16,33 +16,46 @@ export default function ClientList() {
 
       const { data: firmUser } = await supabase
         .from('firm_users')
-        .select('firm_id, role')
+        .select('firm_id, role, id')
         .eq('user_id', user.id)
         .single()
 
       if (!firmUser) return
 
-      let query = supabase
-        .from('clients')
-        .select('id, name, type, status, industry, email, assigned_to, firm_users(full_name)')
-        .eq('firm_id', firmUser.firm_id)
-        .order('name', { ascending: true })
+      const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
 
-      // Bookkeepers and payroll managers only see assigned clients
-      if (['bookkeeper', 'payroll_manager'].includes(firmUser.role)) {
-        const { data: currentFirmUser } = await supabase
-          .from('firm_users')
-          .select('id')
-          .eq('user_id', user.id)
-          .single()
+      if (isRestricted) {
+        // Get client IDs from assignments table
+        const { data: assignments } = await supabase
+          .from('client_assignments')
+          .select('client_id')
+          .eq('firm_user_id', firmUser.id)
 
-        if (currentFirmUser) {
-          query = query.eq('assigned_to', currentFirmUser.id)
+        if (!assignments || assignments.length === 0) {
+          setClients([])
+          setLoading(false)
+          return
         }
+
+        const clientIds = assignments.map(a => a.client_id)
+
+        const { data } = await supabase
+          .from('clients')
+          .select('id, name, type, status, industry, email, assigned_to, firm_users(full_name)')
+          .in('id', clientIds)
+          .order('name', { ascending: true })
+
+        if (data) setClients(data)
+      } else {
+        const { data } = await supabase
+          .from('clients')
+          .select('id, name, type, status, industry, email, assigned_to, firm_users(full_name)')
+          .eq('firm_id', firmUser.firm_id)
+          .order('name', { ascending: true })
+
+        if (data) setClients(data)
       }
 
-      const { data } = await query
-      if (data) setClients(data)
       setLoading(false)
     }
     fetchClients()
