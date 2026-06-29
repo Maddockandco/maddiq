@@ -11,13 +11,15 @@ export default function ClientEngagements({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<any>(null)
-  const { can, role } = useRole()
+  const { can, role, loading: roleLoading } = useRole()
   const supabase = createClient()
 
   const isPayrollOnly = role === 'payroll_manager'
   const payrollEngagementTypes = ['payroll', 'cis']
 
-  useEffect(() => { fetchEngagements() }, [clientId])
+  useEffect(() => {
+    if (!roleLoading) fetchEngagements()
+  }, [clientId, roleLoading, role])
 
   async function fetchEngagements() {
     let query = supabase
@@ -26,7 +28,6 @@ export default function ClientEngagements({ clientId }: { clientId: string }) {
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
 
-    // Payroll managers only see payroll and CIS engagements
     if (isPayrollOnly) {
       query = query.in('type', payrollEngagementTypes)
     }
@@ -42,7 +43,7 @@ export default function ClientEngagements({ clientId }: { clientId: string }) {
     fetchEngagements()
   }
 
-  if (loading) return (
+  if (loading || roleLoading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading engagements...</p>
     </div>
