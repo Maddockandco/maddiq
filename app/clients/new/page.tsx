@@ -22,6 +22,7 @@ export default function NewClientPage() {
   const [directors, setDirectors] = useState<any[]>([])
   const [directorsToCreate, setDirectorsToCreate] = useState<string[]>([])
   const [chFound, setChFound] = useState(false)
+  const [existingClientId, setExistingClientId] = useState<string | null>(null)
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [niNumber, setNiNumber] = useState('')
   const [personalUtr, setPersonalUtr] = useState('')
@@ -35,7 +36,24 @@ export default function NewClientPage() {
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
 
-  function handleCompanyFound(data: any) {
+  async function handleCompanyFound(data: any) {
+    // Check if company already exists
+    const { data: existing } = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('company_number', data.company_number)
+      .single()
+
+    if (existing) {
+      setExistingClientId(existing.id)
+      setDirectors(data.directors || [])
+      setChFound(true)
+      setName(data.name || '')
+      setCompanyNumber(data.company_number || '')
+      return
+    }
+
+    setExistingClientId(null)
     setName(data.name || '')
     setCompanyNumber(data.company_number || '')
     setRegisteredAddress(data.registered_address || '')
@@ -56,6 +74,60 @@ export default function NewClientPage() {
         ? prev.filter(n => n !== directorName)
         : [...prev, directorName]
     )
+  }
+
+  async function handleImportDirectorsOnly() {
+    if (!existingClientId) return
+    setLoading(true)
+    setError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setError('Not authenticated'); setLoading(false); return }
+
+    const { data: firmUser } = await supabase
+      .from('firm_users')
+      .select('firm_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!firmUser) { setError('Could not find your firm'); setLoading(false); return }
+
+    for (const director of directors) {
+      let linkedClientId = null
+
+      if (directorsToCreate.includes(director.name)) {
+        const nameParts = director.name.split(', ')
+        const formattedName = nameParts.length > 1
+          ? `${nameParts[1]} ${nameParts[0]}`
+          : director.name
+
+        const { data: individualClient } = await supabase
+          .from('clients')
+          .insert({
+            firm_id: firmUser.firm_id,
+            name: formattedName,
+            type: 'individual',
+            status: 'active',
+            date_of_birth: director.date_of_birth ? `${director.date_of_birth}-01` : null,
+          })
+          .select()
+          .single()
+
+        if (individualClient) linkedClientId = individualClient.id
+      }
+
+      await supabase.from('client_contacts').insert({
+        client_id: existingClientId,
+        firm_id: firmUser.firm_id,
+        name: director.name,
+        role: 'director',
+        appointment_date: director.appointment_date || null,
+        is_primary: directors.indexOf(director) === 0,
+        linked_client_id: linkedClientId,
+      })
+    }
+
+    window.location.replace('/clients')
   }
 
   async function handleSubmit() {
@@ -79,9 +151,7 @@ export default function NewClientPage() {
       .from('clients')
       .insert({
         firm_id: firmUser.firm_id,
-        name,
-        type,
-        status,
+        name, type, status,
         email: email || null,
         phone: phone || null,
         industry: industry || null,
@@ -107,16 +177,11 @@ export default function NewClientPage() {
 
     if (insertError) { setError(insertError.message); setLoading(false); return }
 
-    // Add directors as contacts
     for (const director of directors) {
       let linkedClientId = null
-
       if (directorsToCreate.includes(director.name)) {
         const nameParts = director.name.split(', ')
-        const formattedName = nameParts.length > 1
-          ? `${nameParts[1]} ${nameParts[0]}`
-          : director.name
-
+        const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : director.name
         const { data: individualClient } = await supabase
           .from('clients')
           .insert({
@@ -124,16 +189,12 @@ export default function NewClientPage() {
             name: formattedName,
             type: 'individual',
             status: status,
-            date_of_birth: director.date_of_birth
-              ? `${director.date_of_birth}-01`
-              : null,
+            date_of_birth: director.date_of_birth ? `${director.date_of_birth}-01` : null,
           })
           .select()
           .single()
-
         if (individualClient) linkedClientId = individualClient.id
       }
-
       await supabase.from('client_contacts').insert({
         client_id: client.id,
         firm_id: firmUser.firm_id,
@@ -171,9 +232,7 @@ export default function NewClientPage() {
             <label className="block text-sm font-medium text-brand-dark mb-2">Client type</label>
             <div className="flex gap-4">
               {['company', 'individual'].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setType(t)}
+                <button key={t} onClick={() => setType(t)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition ${
                     type === t ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
@@ -189,179 +248,215 @@ export default function NewClientPage() {
             <CompanyLookup onFound={handleCompanyFound} />
           )}
 
-          {/* Directors found */}
-          {chFound && directors.length > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
-              <p className="text-sm font-semibold text-green-700">
-                ✅ {directors.length} director{directors.length > 1 ? 's' : ''} found
+          {/* Existing company warning */}
+          {existingClientId && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-700">
+                ⚠️ This company already exists in Maddiq
               </p>
-              <p className="text-xs text-green-600">
-                Tick any directors to also create as individual client records:
+              <p className="text-xs text-amber-600">
+                <strong>{name}</strong> is already a client. You can import directors only instead of creating a duplicate.
               </p>
-              {directors.map((d, i) => {
-                const nameParts = d.name.split(', ')
-                const formattedName = nameParts.length > 1
-                  ? `${nameParts[1]} ${nameParts[0]}`
-                  : d.name
-                return (
-                  <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-green-100">
-                    <input
-                      type="checkbox"
-                      checked={directorsToCreate.includes(d.name)}
-                      onChange={() => toggleDirectorCreate(d.name)}
-                      className="w-4 h-4 accent-brand-dark"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
-                      <p className="text-xs text-gray-500">
-                        Director since {d.appointment_date || 'unknown'}
-                        {d.date_of_birth ? ` · DOB: ${d.date_of_birth}` : ''}
-                      </p>
-                      {directorsToCreate.includes(d.name) && (
-                        <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
-                      )}
-                    </div>
-                  </label>
-                )
-              })}
+              {directors.length > 0 && (
+                <>
+                  <p className="text-xs text-amber-600 font-medium">Select directors to import:</p>
+                  {directors.map((d, i) => {
+                    const nameParts = d.name.split(', ')
+                    const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : d.name
+                    return (
+                      <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-amber-100">
+                        <input
+                          type="checkbox"
+                          checked={directorsToCreate.includes(d.name)}
+                          onChange={() => toggleDirectorCreate(d.name)}
+                          className="w-4 h-4 accent-brand-dark"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
+                          <p className="text-xs text-gray-500">
+                            Director since {d.appointment_date || 'unknown'}
+                          </p>
+                          {directorsToCreate.includes(d.name) && (
+                            <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleImportDirectorsOnly}
+                  disabled={loading}
+                  className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                >
+                  {loading ? 'Importing...' : 'Import directors only'}
+                </button>
+                <Link href="/clients" className="flex-1 text-center bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
+                  Cancel
+                </Link>
+              </div>
             </div>
           )}
 
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">
-              {type === 'company' ? 'Company name' : 'Full legal name'} *
-            </label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-              placeholder={type === 'company' ? 'Acme Ltd' : 'John Smith'}
-              className={inputClass} />
-          </div>
-
-          {/* Company specific */}
-          {type === 'company' && (
+          {/* Only show the rest of the form if no existing company */}
+          {!existingClientId && (
             <>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Companies House number</label>
-                <input type="text" value={companyNumber} onChange={(e) => setCompanyNumber(e.target.value)}
-                  placeholder="12345678" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Year end date</label>
-                <input type="date" value={yearEndDate} onChange={(e) => setYearEndDate(e.target.value)}
-                  className={inputClass} />
-              </div>
-            </>
-          )}
+              {/* Directors found */}
+              {chFound && directors.length > 0 && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+                  <p className="text-sm font-semibold text-green-700">
+                    ✅ {directors.length} director{directors.length > 1 ? 's' : ''} found
+                  </p>
+                  <p className="text-xs text-green-600">Tick any directors to also create as individual client records:</p>
+                  {directors.map((d, i) => {
+                    const nameParts = d.name.split(', ')
+                    const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : d.name
+                    return (
+                      <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-green-100">
+                        <input
+                          type="checkbox"
+                          checked={directorsToCreate.includes(d.name)}
+                          onChange={() => toggleDirectorCreate(d.name)}
+                          className="w-4 h-4 accent-brand-dark"
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
+                          <p className="text-xs text-gray-500">
+                            Director since {d.appointment_date || 'unknown'}
+                            {d.date_of_birth ? ` · DOB: ${d.date_of_birth}` : ''}
+                          </p>
+                          {directorsToCreate.includes(d.name) && (
+                            <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
 
-          {/* Individual specific */}
-          {type === 'individual' && (
-            <>
+              {/* Name */}
               <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Date of birth</label>
-                <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)}
-                  className={inputClass} />
+                <label className="block text-sm font-medium text-brand-dark mb-1">
+                  {type === 'company' ? 'Company name' : 'Full legal name'} *
+                </label>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+                  placeholder={type === 'company' ? 'Acme Ltd' : 'John Smith'} className={inputClass} />
               </div>
+
+              {type === 'company' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">Companies House number</label>
+                    <input type="text" value={companyNumber} onChange={(e) => setCompanyNumber(e.target.value)}
+                      placeholder="12345678" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">Year end date</label>
+                    <input type="date" value={yearEndDate} onChange={(e) => setYearEndDate(e.target.value)} className={inputClass} />
+                  </div>
+                </>
+              )}
+
+              {type === 'individual' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">Date of birth</label>
+                    <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">National Insurance number</label>
+                    <input type="text" value={niNumber} onChange={(e) => setNiNumber(e.target.value)} placeholder="AB123456C" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">Personal UTR</label>
+                    <input type="text" value={personalUtr} onChange={(e) => setPersonalUtr(e.target.value)} placeholder="1234567890" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-dark mb-1">Self Assessment status</label>
+                    <select value={saStatus} onChange={(e) => setSaStatus(e.target.value)} className={selectClass}>
+                      <option value="">Select status</option>
+                      <option value="active">Active</option>
+                      <option value="not_required">Not Required</option>
+                      <option value="dormant">Dormant</option>
+                    </select>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={studentLoan} onChange={(e) => setStudentLoan(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Student loan</span>
+                    </label>
+                    {studentLoan && (
+                      <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)} className={selectClass}>
+                        <option value="">Select plan</option>
+                        <option value="plan_1">Plan 1</option>
+                        <option value="plan_2">Plan 2</option>
+                        <option value="plan_4">Plan 4</option>
+                      </select>
+                    )}
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={marriageAllowance} onChange={(e) => setMarriageAllowance(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Marriage allowance</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={childBenefit} onChange={(e) => setChildBenefit(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Child benefit / high income charge</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={foreignIncome} onChange={(e) => setForeignIncome(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
+                      <span className="text-sm font-medium text-brand-dark">Foreign income</span>
+                    </label>
+                  </div>
+                </>
+              )}
+
               <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">National Insurance number</label>
-                <input type="text" value={niNumber} onChange={(e) => setNiNumber(e.target.value)}
-                  placeholder="AB123456C" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Personal UTR</label>
-                <input type="text" value={personalUtr} onChange={(e) => setPersonalUtr(e.target.value)}
-                  placeholder="1234567890" className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-brand-dark mb-1">Self Assessment status</label>
-                <select value={saStatus} onChange={(e) => setSaStatus(e.target.value)} className={selectClass}>
-                  <option value="">Select status</option>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
+                  <option value="prospect">Prospect</option>
+                  <option value="onboarding">Onboarding</option>
                   <option value="active">Active</option>
-                  <option value="not_required">Not Required</option>
-                  <option value="dormant">Dormant</option>
+                  <option value="offboarded">Offboarded</option>
                 </select>
               </div>
-              <div className="space-y-3">
+
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@example.com" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
+                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900000" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
+                <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="Hospitality, Construction, Retail..." className={inputClass} />
+              </div>
+
+              <div>
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={studentLoan} onChange={(e) => setStudentLoan(e.target.checked)}
-                    className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">Student loan</span>
-                </label>
-                {studentLoan && (
-                  <select value={studentLoanPlan} onChange={(e) => setStudentLoanPlan(e.target.value)} className={selectClass}>
-                    <option value="">Select plan</option>
-                    <option value="plan_1">Plan 1</option>
-                    <option value="plan_2">Plan 2</option>
-                    <option value="plan_4">Plan 4</option>
-                  </select>
-                )}
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={marriageAllowance} onChange={(e) => setMarriageAllowance(e.target.checked)}
-                    className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">Marriage allowance</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={childBenefit} onChange={(e) => setChildBenefit(e.target.checked)}
-                    className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">Child benefit / high income charge</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={foreignIncome} onChange={(e) => setForeignIncome(e.target.checked)}
-                    className="w-4 h-4 accent-brand-dark" />
-                  <span className="text-sm font-medium text-brand-dark">Foreign income</span>
+                  <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)} className="w-4 h-4 accent-brand-dark" />
+                  <span className="text-sm font-medium text-brand-dark">VAT registered</span>
                 </label>
               </div>
+              {vatRegistered && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
+                  <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} placeholder="GB123456789" className={inputClass} />
+                </div>
+              )}
+
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm"
+              >
+                {loading ? 'Saving...' : 'Save client'}
+              </button>
             </>
           )}
-
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Status</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
-              <option value="prospect">Prospect</option>
-              <option value="onboarding">Onboarding</option>
-              <option value="active">Active</option>
-              <option value="offboarded">Offboarded</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              placeholder="contact@example.com" className={inputClass} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Phone number</label>
-            <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)}
-              placeholder="07700 900000" className={inputClass} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
-            <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)}
-              placeholder="Hospitality, Construction, Retail..." className={inputClass} />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)}
-                className="w-4 h-4 accent-brand-dark" />
-              <span className="text-sm font-medium text-brand-dark">VAT registered</span>
-            </label>
-          </div>
-          {vatRegistered && (
-            <div>
-              <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
-              <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)}
-                placeholder="GB123456789" className={inputClass} />
-            </div>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm"
-          >
-            {loading ? 'Saving...' : 'Save client'}
-          </button>
         </div>
       </div>
     </div>
