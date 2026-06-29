@@ -20,9 +20,8 @@ export default function NewClientPage() {
   const [sicCode, setSicCode] = useState('')
   const [yearEndDate, setYearEndDate] = useState('')
   const [directors, setDirectors] = useState<any[]>([])
+  const [directorsToCreate, setDirectorsToCreate] = useState<string[]>([])
   const [chFound, setChFound] = useState(false)
-
-  // Individual fields
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [niNumber, setNiNumber] = useState('')
   const [personalUtr, setPersonalUtr] = useState('')
@@ -32,7 +31,6 @@ export default function NewClientPage() {
   const [marriageAllowance, setMarriageAllowance] = useState(false)
   const [childBenefit, setChildBenefit] = useState(false)
   const [foreignIncome, setForeignIncome] = useState(false)
-
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
@@ -50,6 +48,14 @@ export default function NewClientPage() {
       const year = new Date().getFullYear()
       setYearEndDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`)
     }
+  }
+
+  function toggleDirectorCreate(directorName: string) {
+    setDirectorsToCreate(prev =>
+      prev.includes(directorName)
+        ? prev.filter(n => n !== directorName)
+        : [...prev, directorName]
+    )
   }
 
   async function handleSubmit() {
@@ -101,21 +107,45 @@ export default function NewClientPage() {
 
     if (insertError) { setError(insertError.message); setLoading(false); return }
 
-    // Add directors as contacts for companies
-    if (directors.length > 0 && client) {
-      for (const director of directors) {
-        await supabase.from('client_contacts').insert({
-          client_id: client.id,
-          firm_id: firmUser.firm_id,
-          name: director.name,
-          role: 'director',
-          appointment_date: director.appointment_date || null,
-          is_primary: directors.indexOf(director) === 0,
-        })
+    // Add directors as contacts
+    for (const director of directors) {
+      let linkedClientId = null
+
+      if (directorsToCreate.includes(director.name)) {
+        const nameParts = director.name.split(', ')
+        const formattedName = nameParts.length > 1
+          ? `${nameParts[1]} ${nameParts[0]}`
+          : director.name
+
+        const { data: individualClient } = await supabase
+          .from('clients')
+          .insert({
+            firm_id: firmUser.firm_id,
+            name: formattedName,
+            type: 'individual',
+            status: status,
+            date_of_birth: director.date_of_birth
+              ? `${director.date_of_birth}-01`
+              : null,
+          })
+          .select()
+          .single()
+
+        if (individualClient) linkedClientId = individualClient.id
       }
+
+      await supabase.from('client_contacts').insert({
+        client_id: client.id,
+        firm_id: firmUser.firm_id,
+        name: director.name,
+        role: 'director',
+        appointment_date: director.appointment_date || null,
+        is_primary: directors.indexOf(director) === 0,
+        linked_client_id: linkedClientId,
+      })
     }
 
-    window.location.href = '/clients'
+    window.location.replace('/clients')
   }
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -154,20 +184,46 @@ export default function NewClientPage() {
             </div>
           </div>
 
-          {/* Companies House Lookup — companies only */}
+          {/* Companies House Lookup */}
           {type === 'company' && (
             <CompanyLookup onFound={handleCompanyFound} />
           )}
 
-          {/* CH Found confirmation */}
+          {/* Directors found */}
           {chFound && directors.length > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <p className="text-sm font-semibold text-green-700 mb-2">
-                ✅ Company found — {directors.length} director{directors.length > 1 ? 's' : ''} will be imported
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-green-700">
+                ✅ {directors.length} director{directors.length > 1 ? 's' : ''} found
               </p>
-              {directors.map((d, i) => (
-                <p key={i} className="text-xs text-green-600">👤 {d.name}</p>
-              ))}
+              <p className="text-xs text-green-600">
+                Tick any directors to also create as individual client records:
+              </p>
+              {directors.map((d, i) => {
+                const nameParts = d.name.split(', ')
+                const formattedName = nameParts.length > 1
+                  ? `${nameParts[1]} ${nameParts[0]}`
+                  : d.name
+                return (
+                  <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-green-100">
+                    <input
+                      type="checkbox"
+                      checked={directorsToCreate.includes(d.name)}
+                      onChange={() => toggleDirectorCreate(d.name)}
+                      className="w-4 h-4 accent-brand-dark"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
+                      <p className="text-xs text-gray-500">
+                        Director since {d.appointment_date || 'unknown'}
+                        {d.date_of_birth ? ` · DOB: ${d.date_of_birth}` : ''}
+                      </p>
+                      {directorsToCreate.includes(d.name) && (
+                        <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
+                      )}
+                    </div>
+                  </label>
+                )
+              })}
             </div>
           )}
 
@@ -181,7 +237,7 @@ export default function NewClientPage() {
               className={inputClass} />
           </div>
 
-          {/* Company specific fields */}
+          {/* Company specific */}
           {type === 'company' && (
             <>
               <div>
@@ -197,7 +253,7 @@ export default function NewClientPage() {
             </>
           )}
 
-          {/* Individual specific fields */}
+          {/* Individual specific */}
           {type === 'individual' && (
             <>
               <div>
@@ -268,7 +324,6 @@ export default function NewClientPage() {
             </select>
           </div>
 
-          {/* Common fields */}
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-1">Email address</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
@@ -285,7 +340,6 @@ export default function NewClientPage() {
               placeholder="Hospitality, Construction, Retail..." className={inputClass} />
           </div>
 
-          {/* VAT — both company and individual can be VAT registered */}
           <div>
             <label className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" checked={vatRegistered} onChange={(e) => setVatRegistered(e.target.checked)}
