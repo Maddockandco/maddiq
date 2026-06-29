@@ -18,7 +18,7 @@ export default function InviteTeamMember({ onInvited }: { onInvited: () => void 
     setError('')
 
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setError('Step 1 failed: Not authenticated'); setSending(false); return }
+    if (!user) { setError('Not authenticated'); setSending(false); return }
 
     const { data: firmUser, error: firmError } = await supabase
       .from('firm_users')
@@ -26,10 +26,11 @@ export default function InviteTeamMember({ onInvited }: { onInvited: () => void 
       .eq('user_id', user.id)
       .single()
 
-    if (!firmUser) { setError(`Step 2 failed: ${firmError?.message}`); setSending(false); return }
+    if (!firmUser) { setError(`Could not find your firm: ${firmError?.message}`); setSending(false); return }
 
     const firmName = (firmUser.firms as any)?.name || 'Your firm'
 
+    // Create invite record in Supabase
     const { data: invite, error: inviteError } = await supabase
       .from('firm_invites')
       .insert({
@@ -42,53 +43,21 @@ export default function InviteTeamMember({ onInvited }: { onInvited: () => void 
       .select()
       .single()
 
-    if (inviteError) { setError(`Step 3 failed: ${inviteError.message}`); setSending(false); return }
+    if (inviteError) { setError(`Failed to create invite: ${inviteError.message}`); setSending(false); return }
 
     const inviteUrl = `${window.location.origin}/invite/accept?token=${invite.token}`
 
-    const roleLabels: Record<string, string> = {
-      practice_manager: 'Practice Manager',
-      client_manager: 'Client Manager',
-      bookkeeper: 'Bookkeeper',
-      admin_staff: 'Admin Staff',
-      payroll_manager: 'Payroll Manager',
-    }
-
-    const emailResponse = await fetch('https://api.resend.com/emails', {
+    // Send email via server-side API route
+    const response = await fetch('/api/team/invite', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: 'onboarding@resend.dev',
-        to: email,
-        subject: `You've been invited to join ${firmName} on Maddiq`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 40px 20px;">
-            <h1 style="color: #343b46; font-size: 24px;">You've been invited!</h1>
-            <p style="color: #666; font-size: 15px; line-height: 1.6;">
-              <strong>${firmName}</strong> has invited you to join their practice on Maddiq as a
-              <strong>${roleLabels[role] || role}</strong>.
-            </p>
-            <p style="color: #666; font-size: 15px; line-height: 1.6;">
-              Click the button below to accept your invitation and set up your account.
-            </p>
-            <a href="${inviteUrl}"
-               style="display: inline-block; background: #343b46; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0;">
-              Accept invitation
-            </a>
-            <p style="color: #999; font-size: 13px; margin-top: 30px;">
-              If you weren't expecting this invitation you can ignore this email.
-            </p>
-          </div>
-        `,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role, firmName, inviteUrl }),
     })
 
-    if (!emailResponse.ok) {
-      const emailError = await emailResponse.json()
-      setError(`Step 4 failed: ${emailError.message || 'Failed to send email'}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      setError(`Failed to send email: ${data.error}`)
       setSending(false)
       return
     }
