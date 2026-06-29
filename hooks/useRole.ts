@@ -30,9 +30,12 @@ export function useRole() {
     fetchRole()
   }, [])
 
+  const isPayrollOnly = role === 'payroll_manager'
+
   return {
     role,
     loading,
+    isPayrollOnly,
     can: {
       viewAllClients: role ? permissions.canViewAllClients(role) : false,
       addClient: role ? permissions.canAddClient(role) : false,
@@ -55,6 +58,7 @@ export function useRole() {
       manageSettings: role ? permissions.canManageSettings(role) : false,
       refreshFromCH: role ? permissions.canRefreshFromCH(role) : false,
       managePipeline: role ? permissions.canManagePipeline(role) : false,
+      addDirectors: role ? permissions.canAddDirectors(role) : false,
     }
   }
 }
