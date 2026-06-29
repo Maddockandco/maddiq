@@ -31,6 +31,8 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
     </div>
   )
 
+  const canEdit = can.editTaxInfo || can.editPayrollInfo || can.editCIS
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -43,7 +45,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
             />
           )}
         </div>
-        {can.editTaxInfo && (
+        {canEdit && (
           <Link
             href={`/clients/${clientId}/tax`}
             className="text-xs px-3 py-1.5 rounded-lg bg-brand-dark text-white hover:bg-opacity-90 transition"
