@@ -14,7 +14,7 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-bold text-brand-dark">Clients</h1>
           <p className="text-sm text-gray-500 mt-1">Manage your client relationships</p>
         </div>
-        {can.editClientDetails && (
+        {can.addClient && (
           <Link
             href="/clients/new"
             className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
