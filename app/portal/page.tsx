@@ -7,7 +7,6 @@ export default function PortalPage() {
   const [documents, setDocuments] = useState<any[]>([])
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const supabase = createClient()
 
   useEffect(() => {
@@ -15,7 +14,6 @@ export default function PortalPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { window.location.href = '/portal/login'; return }
 
-      // Get portal user record
       const { data: portalUser } = await supabase
         .from('client_portal_users')
         .select('client_id, status')
@@ -27,7 +25,6 @@ export default function PortalPage() {
         return
       }
 
-      // Get client details
       const { data: clientData } = await supabase
         .from('clients')
         .select('name, email')
@@ -36,7 +33,6 @@ export default function PortalPage() {
 
       if (clientData) setClient(clientData)
 
-      // Get shared documents
       const { data: docs } = await supabase
         .from('documents')
         .select('id, name, category, file_url, file_size, created_at')
@@ -50,11 +46,29 @@ export default function PortalPage() {
     fetchData()
   }, [])
 
-  async function handleDownload(filePath: string) {
-    const { data } = await supabase.storage
-      .from('documents')
-      .createSignedUrl(filePath, 60 * 5)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  async function handleDownload(filePath: string, fileName: string) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(filePath, 60 * 60) // 1 hour expiry
+
+      if (error || !data?.signedUrl) {
+        alert('Could not generate download link. Please try again.')
+        return
+      }
+
+      // Create a temporary anchor and click it
+      const link = document.createElement('a')
+      link.href = data.signedUrl
+      link.download = fileName
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+    } catch (err) {
+      alert('Download failed. Please try again.')
+    }
   }
 
   async function handleSignOut() {
@@ -70,7 +84,6 @@ export default function PortalPage() {
 
   return (
     <div className="space-y-6">
-      {/* Welcome header */}
       <div className="bg-brand-dark rounded-2xl p-6 text-white flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold">{client?.name || 'Welcome'}</h2>
@@ -84,7 +97,6 @@ export default function PortalPage() {
         </button>
       </div>
 
-      {/* Documents */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-6">
           Your Documents
@@ -113,14 +125,15 @@ export default function PortalPage() {
                     <p className="text-sm font-medium text-brand-dark">{doc.name}</p>
                     <p className="text-xs text-gray-500 capitalize mt-0.5">
                       {doc.category.replace(/_/g, ' ')} · {new Date(doc.created_at).toLocaleDateString('en-GB')}
+                      {doc.file_size && ` · ${(doc.file_size / 1024).toFixed(1)} KB`}
                     </p>
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDownload(doc.file_url)}
-                  className="text-xs px-3 py-1.5 rounded-lg font-medium bg-brand-dark text-white hover:bg-opacity-90 transition"
+                  onClick={() => handleDownload(doc.file_url, doc.name)}
+                  className="text-xs px-4 py-2 rounded-lg font-medium bg-brand-dark text-white hover:bg-opacity-90 transition flex items-center gap-2"
                 >
-                  Download
+                  ⬇️ Download
                 </button>
               </div>
             ))}
