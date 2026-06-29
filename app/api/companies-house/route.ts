@@ -9,27 +9,57 @@ export async function GET(request: Request) {
   }
 
   const apiKey = process.env.COMPANIES_HOUSE_API_KEY
+
+  // Debug — remove after testing
+  if (!apiKey) {
+    return NextResponse.json({ error: 'API key not found in environment' }, { status: 500 })
+  }
+
+  if (apiKey.length < 5) {
+    return NextResponse.json({ error: `API key too short: ${apiKey.length} chars` }, { status: 500 })
+  }
+
+  const paddedNumber = companyNumber.padStart(8, '0')
   const credentials = Buffer.from(`${apiKey}:`).toString('base64')
 
   try {
-    // Fetch company details
-    const [companyRes, officersRes] = await Promise.all([
-      fetch(`https://api.company-information.service.gov.uk/company/${companyNumber}`, {
-        headers: { Authorization: `Basic ${credentials}` },
-      }),
-      fetch(`https://api.company-information.service.gov.uk/company/${companyNumber}/officers`, {
-        headers: { Authorization: `Basic ${credentials}` },
-      }),
-    ])
+    const companyRes = await fetch(
+      `https://api.company-information.service.gov.uk/company/${paddedNumber}`,
+      {
+        headers: {
+          'Authorization': `Basic ${credentials}`,
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      }
+    )
+
+    const responseText = await companyRes.text()
 
     if (!companyRes.ok) {
-      return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+      return NextResponse.json({
+        error: `CH API returned ${companyRes.status}`,
+        body: responseText,
+        key_length: apiKey.length,
+        credentials_length: credentials.length,
+      }, { status: 400 })
     }
 
-    const company = await companyRes.json()
+    const company = JSON.parse(responseText)
+
+    const officersRes = await fetch(
+      `https://api.company-information.service.gov.uk/company/${paddedNumber}/officers`,
+      {
+        headers: {
+          'Authorization': `Basic ${credentials}`,
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      }
+    )
+
     const officers = officersRes.ok ? await officersRes.json() : { items: [] }
 
-    // Extract active directors only
     const directors = officers.items
       ?.filter((o: any) => !o.resigned_on && o.officer_role === 'director')
       ?.map((d: any) => ({
@@ -62,6 +92,7 @@ export async function GET(request: Request) {
       next_confirmation_due: company.confirmation_statement?.next_due,
       directors,
     })
+
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
