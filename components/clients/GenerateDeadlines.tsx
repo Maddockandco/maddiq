@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-export default function GenerateDeadlines({ clientId }: { clientId: string }) {
+export default function GenerateDeadlines({ clientId, onGenerated }: { clientId: string; onGenerated?: () => void }) {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
@@ -22,24 +22,19 @@ export default function GenerateDeadlines({ clientId }: { clientId: string }) {
       setError(rpcError.message)
     } else {
       setSuccess(true)
+      if (onGenerated) onGenerated()
     }
     setLoading(false)
   }
 
   return (
-    <div className="space-y-3">
-      {error && (
-        <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{error}</div>
-      )}
-      {success && (
-        <div className="bg-green-50 text-green-600 text-xs rounded-lg px-3 py-2">
-          ✅ Deadlines generated successfully!
-        </div>
-      )}
+    <div className="space-y-2">
+      {error && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{error}</div>}
+      {success && <div className="bg-green-50 text-green-600 text-xs rounded-lg px-3 py-2">✅ Deadlines generated!</div>}
       <button
         onClick={handleGenerate}
         disabled={loading}
-        className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition w-full disabled:opacity-50"
+        className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
       >
         📅 {loading ? 'Generating...' : 'Generate deadlines'}
       </button>
