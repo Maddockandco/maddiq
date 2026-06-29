@@ -5,49 +5,141 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 export default function DashboardStats() {
-  const [clientCount, setClientCount] = useState(0)
-  const [taskCount, setTaskCount] = useState(0)
-  const [deadlineCount, setDeadlineCount] = useState(0)
-  const [leadCount, setLeadCount] = useState(0)
+  const [stats, setStats] = useState({
+    clients: 0,
+    tasks: 0,
+    deadlines: 0,
+    leads: 0,
+  })
   const [loading, setLoading] = useState(true)
+  const [role, setRole] = useState('')
   const supabase = createClient()
 
   useEffect(() => {
     async function fetchStats() {
-      const [clients, tasks, deadlines, leads] = await Promise.all([
-        supabase.from('clients').select('id', { count: 'exact', head: true }),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).neq('status', 'done'),
-        supabase.from('statutory_deadlines').select('id', { count: 'exact', head: true }).eq('status', 'upcoming'),
-        supabase.from('pipeline_leads').select('id', { count: 'exact', head: true }).not('stage', 'in', '("won","lost")'),
-      ])
-      setClientCount(clients.count || 0)
-      setTaskCount(tasks.count || 0)
-      setDeadlineCount(deadlines.count || 0)
-      setLeadCount(leads.count || 0)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: firmUser } = await supabase
+        .from('firm_users')
+        .select('firm_id, role, id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!firmUser) return
+      setRole(firmUser.role)
+
+      const isRestricted = ['bookkeeper', 'payroll_manager'].includes(firmUser.role)
+
+      // Clients count — restricted users only see assigned clients
+      let clientQuery = supabase
+        .from('clients')
+        .select('id', { count: 'exact', head: true })
+        .eq('firm_id', firmUser.firm_id)
+
+      if (isRestricted) {
+        clientQuery = clientQuery.eq('assigned_to', firmUser.id)
+      }
+
+      const { count: clientCount } = await clientQuery
+
+      // Tasks — restricted users only see their tasks
+      let taskQuery = supabase
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('firm_id', firmUser.firm_id)
+        .neq('status', 'done')
+
+      if (isRestricted) {
+        taskQuery = taskQuery.eq('assigned_to', firmUser.id)
+      }
+
+      const { count: taskCount } = await taskQuery
+
+      // Deadlines — upcoming only
+      const { count: deadlineCount } = await supabase
+        .from('statutory_deadlines')
+        .select('id', { count: 'exact', head: true })
+        .eq('firm_id', firmUser.firm_id)
+        .eq('status', 'upcoming')
+
+      // Pipeline leads — restricted by role
+      let leadsQuery = supabase
+        .from('pipeline_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('firm_id', firmUser.firm_id)
+        .not('stage', 'eq', 'won')
+        .not('stage', 'eq', 'lost')
+
+      const { count: leadsCount } = await leadsQuery
+
+      setStats({
+        clients: clientCount || 0,
+        tasks: taskCount || 0,
+        deadlines: deadlineCount || 0,
+        leads: leadsCount || 0,
+      })
       setLoading(false)
     }
     fetchStats()
   }, [])
 
-  const stats = [
-    { label: 'Total Clients', value: clientCount, href: '/clients', color: 'bg-blue-50 text-blue-600' },
-    { label: 'Open Tasks', value: taskCount, href: '/tasks', color: 'bg-amber-50 text-amber-600' },
-    { label: 'Upcoming Deadlines', value: deadlineCount, href: '/deadlines', color: 'bg-red-50 text-red-600' },
-    { label: 'Active Leads', value: leadCount, href: '/pipeline', color: 'bg-green-50 text-green-600' },
+  const cards = [
+    {
+      label: role === 'bookkeeper' || role === 'payroll_manager' ? 'My Clients' : 'Total Clients',
+      value: stats.clients,
+      href: '/clients',
+      colour: 'bg-brand-dark',
+      textColour: 'text-white',
+    },
+    {
+      label: role === 'bookkeeper' || role === 'payroll_manager' ? 'My Tasks' : 'Open Tasks',
+      value: stats.tasks,
+      href: '/tasks',
+      colour: 'bg-brand-gold',
+      textColour: 'text-brand-dark',
+    },
+    {
+      label: 'Upcoming Deadlines',
+      value: stats.deadlines,
+      href: '/deadlines',
+      colour: 'bg-white',
+      textColour: 'text-brand-dark',
+    },
+    {
+      label: 'Active Leads',
+      value: stats.leads,
+      href: '/pipeline',
+      colour: 'bg-white',
+      textColour: 'text-brand-dark',
+    },
   ]
 
+  if (loading) return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {[1, 2, 3, 4].map(i => (
+        <div key={i} className="bg-white rounded-2xl p-6 animate-pulse border border-gray-200">
+          <div className="h-4 bg-gray-200 rounded mb-3 w-24" />
+          <div className="h-8 bg-gray-200 rounded w-12" />
+        </div>
+      ))}
+    </div>
+  )
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-      {stats.map((stat) => (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {cards.map((card) => (
         <Link
-          key={stat.label}
-          href={stat.href}
-          className="bg-white rounded-2xl shadow-sm p-6 border border-gray-200 hover:border-brand-gold transition-colors"
+          key={card.label}
+          href={card.href}
+          className={`${card.colour} rounded-2xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow`}
         >
-          <p className="text-2xl font-bold text-brand-dark">
-            {loading ? '...' : stat.value}
+          <p className={`text-xs font-semibold uppercase tracking-wider ${card.textColour} opacity-60`}>
+            {card.label}
           </p>
-          <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
+          <p className={`text-4xl font-bold mt-2 ${card.textColour}`}>
+            {card.value}
+          </p>
         </Link>
       ))}
     </div>
