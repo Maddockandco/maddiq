@@ -8,7 +8,7 @@ export default function ClientDetailLayout({
 }) {
   return (
     <div className="flex min-h-screen bg-brand-light">
-      <div className="hidden lg:block">
+      <div className="hidden lg:flex">
         <Sidebar />
       </div>
       <MobileHeader />
