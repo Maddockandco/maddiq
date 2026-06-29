@@ -5,10 +5,12 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { InfoRow, BoolRow, TaxCard } from '@/components/clients/ClientTaxInfoCards'
 import RefreshFromCH from '@/components/clients/RefreshFromCH'
+import { useRole } from '@/hooks/useRole'
 
 export default function ClientTaxInfo({ clientId }: { clientId: string }) {
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const { can } = useRole()
   const supabase = createClient()
 
   useEffect(() => { fetchClient() }, [clientId])
@@ -33,7 +35,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {client.company_number && (
+          {client.company_number && can.refreshFromCH && (
             <RefreshFromCH
               clientId={clientId}
               companyNumber={client.company_number}
@@ -41,16 +43,17 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
             />
           )}
         </div>
-        <Link
-          href={`/clients/${clientId}/tax`}
-          className="text-xs px-3 py-1.5 rounded-lg bg-brand-dark text-white hover:bg-opacity-90 transition"
-        >
-          Edit tax info
-        </Link>
+        {can.editTaxInfo && (
+          <Link
+            href={`/clients/${clientId}/tax`}
+            className="text-xs px-3 py-1.5 rounded-lg bg-brand-dark text-white hover:bg-opacity-90 transition"
+          >
+            Edit tax info
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
         <TaxCard title="Companies House">
           <InfoRow label="Company Number" value={client.company_number} />
           <InfoRow label="CH Authentication Code" value={client.ch_authentication_code} />
@@ -118,7 +121,6 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
           <InfoRow label="Billing Day" value={client.billing_day ? `${client.billing_day}th of month` : null} />
           <InfoRow label="Payment Method" value={client.payment_method} />
         </TaxCard>
-
       </div>
     </div>
   )
