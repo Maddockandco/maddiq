@@ -23,29 +23,37 @@ export default function DeadlineList() {
       if (!firmUser) return
 
       const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
+      const isPayrollOnly = firmUser.role === 'payroll_manager'
+
+      // Payroll managers only see payroll and CIS deadlines
+      const payrollDeadlineTypes = ['payroll', 'paye', 'cis']
 
       if (isRestricted) {
-        // Get assigned client IDs first
-        const { data: assignedClients } = await supabase
-          .from('clients')
-          .select('id')
-          .eq('firm_id', firmUser.firm_id)
-          .eq('assigned_to', firmUser.id)
+        const { data: assignments } = await supabase
+          .from('client_assignments')
+          .select('client_id')
+          .eq('firm_user_id', firmUser.id)
 
-        if (!assignedClients || assignedClients.length === 0) {
+        if (!assignments || assignments.length === 0) {
           setDeadlines([])
           setLoading(false)
           return
         }
 
-        const clientIds = assignedClients.map(c => c.id)
+        const clientIds = assignments.map(a => a.client_id)
 
-        const { data } = await supabase
+        let query = supabase
           .from('statutory_deadlines')
           .select('id, type, period_end, due_date, status, notes, clients(name)')
           .in('client_id', clientIds)
           .order('due_date', { ascending: true })
 
+        // Payroll managers only see payroll/CIS deadlines
+        if (isPayrollOnly) {
+          query = query.in('type', payrollDeadlineTypes)
+        }
+
+        const { data } = await query
         if (data) setDeadlines(data)
       } else {
         const { data } = await supabase
@@ -70,8 +78,8 @@ export default function DeadlineList() {
 
   if (deadlines.length === 0) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-      <h2 className="text-lg font-semibold text-brand-dark mb-2">No deadlines yet</h2>
-      <p className="text-gray-500 text-sm">Generate deadlines from a client page</p>
+      <h2 className="text-lg font-semibold text-brand-dark mb-2">No deadlines</h2>
+      <p className="text-gray-500 text-sm">No deadlines found for your assigned clients</p>
     </div>
   )
 
