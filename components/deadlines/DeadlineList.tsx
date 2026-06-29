@@ -13,7 +13,7 @@ export default function DeadlineList() {
     async function fetchDeadlines() {
       const { data } = await supabase
         .from('statutory_deadlines')
-        .select('id, type, period_end, due_date, status, clients(name)')
+        .select('id, type, period_end, due_date, status, notes, clients(name)')
         .order('due_date', { ascending: true })
       if (data) setDeadlines(data)
       setLoading(false)
@@ -33,7 +33,7 @@ export default function DeadlineList() {
     return (
       <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
         <h2 className="text-lg font-semibold text-brand-dark mb-2">No deadlines yet</h2>
-        <p className="text-gray-500 text-sm">Deadlines will appear here once clients are added</p>
+        <p className="text-gray-500 text-sm">Generate deadlines from a client page</p>
       </div>
     )
   }
