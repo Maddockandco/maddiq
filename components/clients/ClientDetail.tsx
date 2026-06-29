@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import PortalInvite from '@/components/clients/PortalInvite'
+import GenerateDeadlines from '@/components/clients/GenerateDeadlines'
 
 type Client = {
   id: string
@@ -56,7 +57,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
       <div className="bg-brand-dark rounded-2xl p-8 text-white">
         <div className="flex items-start justify-between">
           <div>
@@ -100,9 +100,7 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
         </div>
       </div>
 
-      {/* Details Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Company Info</h3>
           <div className="space-y-3">
@@ -136,13 +134,12 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             <a href={`/clients/${client.id}/engagements`} className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-gray-50 hover:bg-brand-light text-sm font-medium text-brand-dark transition">
               📋 Add Engagement
             </a>
+            <GenerateDeadlines clientId={client.id} />
             <PortalInvite clientId={client.id} clientName={client.name} />
           </div>
         </div>
-
       </div>
 
-      {/* Notes */}
       {client.notes && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-3">Notes</h3>
