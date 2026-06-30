@@ -59,6 +59,7 @@ export function useRole() {
       refreshFromCH: role ? permissions.canRefreshFromCH(role) : false,
       managePipeline: role ? permissions.canManagePipeline(role) : false,
       addDirectors: role ? permissions.canAddDirectors(role) : false,
+      manageEngagementLetters: role ? permissions.canManageEngagementLetters(role) : false,
     }
   }
 }
