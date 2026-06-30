@@ -6,6 +6,7 @@ import ClientContacts from '@/components/clients/ClientContacts'
 import ClientNotes from '@/components/clients/ClientNotes'
 import ClientEngagements from '@/components/engagements/ClientEngagements'
 import ClientDeadlines from '@/components/clients/ClientDeadlines'
+import EngagementLetters from '@/components/clients/EngagementLetters'
 import ClientDocumentList from '@/components/documents/ClientDocumentList'
 import DocumentUpload from '@/components/documents/DocumentUpload'
 
@@ -14,6 +15,7 @@ const tabs = [
   { id: 'tax', label: 'Tax Info' },
   { id: 'directors', label: 'Directors' },
   { id: 'engagements', label: 'Engagements' },
+  { id: 'letters', label: 'Engagement Letters' },
   { id: 'deadlines', label: 'Deadlines' },
   { id: 'documents', label: 'Documents' },
   { id: 'notes', label: 'Notes' },
@@ -36,6 +38,7 @@ export default function ClientTabs({ clientId }: { clientId: string }) {
       {activeTab === 'tax' && <ClientTaxInfo clientId={clientId} />}
       {activeTab === 'directors' && <ClientContacts clientId={clientId} />}
       {activeTab === 'engagements' && <ClientEngagements clientId={clientId} />}
+      {activeTab === 'letters' && <EngagementLetters clientId={clientId} />}
       {activeTab === 'deadlines' && <ClientDeadlines clientId={clientId} />}
       {activeTab === 'notes' && <ClientNotes clientId={clientId} />}
       {activeTab === 'documents' && (
