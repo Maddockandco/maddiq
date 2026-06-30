@@ -4,11 +4,12 @@ import { useState } from 'react'
 import SettingsForm from '@/components/settings/SettingsForm'
 import TeamList from '@/components/settings/TeamList'
 import InviteTeamMember from '@/components/settings/InviteTeamMember'
+import EngagementLetterTemplates from '@/components/settings/EngagementLetterTemplates'
 import { useRole } from '@/hooks/useRole'
 
 export default function SettingsPage() {
   const [refresh, setRefresh] = useState(0)
-  const { can, role } = useRole()
+  const { can } = useRole()
 
   return (
     <div className="max-w-3xl space-y-10">
@@ -17,7 +18,6 @@ export default function SettingsPage() {
         <p className="text-sm text-gray-500 mt-1">Manage your firm settings and team</p>
       </div>
 
-      {/* Firm Settings — owners and managers only */}
       {can.manageSettings && (
         <div>
           <h2 className="text-lg font-semibold text-brand-dark mb-4">Firm Settings</h2>
@@ -25,7 +25,14 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Team Management — owners and managers only */}
+      {can.manageSettings && (
+        <div>
+          <h2 className="text-lg font-semibold text-brand-dark mb-1">Engagement Letter Templates</h2>
+          <p className="text-sm text-gray-500 mb-4">Create reusable templates for client engagement letters</p>
+          <EngagementLetterTemplates />
+        </div>
+      )}
+
       {can.manageTeam && (
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -39,7 +46,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* For restricted users show a simple message */}
       {!can.manageSettings && !can.manageTeam && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
           <p className="text-gray-500 text-sm">You don't have permission to manage settings.</p>
