@@ -54,23 +54,4 @@ export const permissions = {
     ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'].includes(role),
 
   canBill: (role: Role, canBillFlag: boolean) =>
-    ['practice_owner', 'practice_manager'].includes(role) || canBillFlag,
-
-  canManageTeam: (role: Role) =>
-    ['practice_owner', 'practice_manager'].includes(role),
-
-  canManageSettings: (role: Role) =>
-    ['practice_owner', 'practice_manager'].includes(role),
-
-  canRefreshFromCH: (role: Role) =>
-    ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'].includes(role),
-
-  canManagePipeline: (role: Role) =>
-    ['practice_owner', 'practice_manager', 'client_manager'].includes(role),
-
-  canAddDirectors: (role: Role) =>
-    ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'].includes(role),
-
-  // Payroll deadline types
-  payrollDeadlineTypes: ['vat_return', 'payroll', 'paye', 'cis'],
-}
+    ['practice_owner', 'practice_manager'].i
