@@ -1,14 +1,19 @@
 'use client'
 
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import QuoteBuilder from '@/components/quotes/QuoteBuilder'
 
-export default function NewQuotePage() {
+function NewQuoteContent() {
   const searchParams = useSearchParams()
   const clientId = searchParams.get('client_id') || undefined
   const leadId = searchParams.get('lead_id') || undefined
 
+  return <QuoteBuilder prefillClientId={clientId} prefillLeadId={leadId} />
+}
+
+export default function NewQuotePage() {
   return (
     <div>
       <div className="flex items-center gap-4 mb-8">
@@ -17,7 +22,9 @@ export default function NewQuotePage() {
         </Link>
       </div>
       <h1 className="text-2xl font-bold text-brand-dark mb-8">New Quote</h1>
-      <QuoteBuilder prefillClientId={clientId} prefillLeadId={leadId} />
+      <Suspense fallback={<div className="text-gray-500 text-sm">Loading...</div>}>
+        <NewQuoteContent />
+      </Suspense>
     </div>
   )
 }
