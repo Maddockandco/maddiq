@@ -3,11 +3,23 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+const GOVERNING_BODIES = [
+  { value: '', label: 'Select governing body' },
+  { value: 'icaew', label: 'ICAEW' },
+  { value: 'acca', label: 'ACCA' },
+  { value: 'aat', label: 'AAT' },
+  { value: 'cima', label: 'CIMA' },
+  { value: 'iab', label: 'Institute of Accountants and Bookkeepers (IAB)' },
+  { value: 'att_ciot', label: 'ATT / CIOT' },
+  { value: 'unregulated', label: 'Unregulated / Other' },
+]
+
 export default function SettingsForm() {
   const [firmName, setFirmName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
+  const [governingBody, setGoverningBody] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -22,7 +34,7 @@ export default function SettingsForm() {
 
       const { data: firmUser } = await supabase
         .from('firm_users')
-        .select('firm_id, firms(id, name, email, phone, address)')
+        .select('firm_id, firms(id, name, email, phone, address, governing_body)')
         .eq('user_id', user.id)
         .single()
 
@@ -33,6 +45,7 @@ export default function SettingsForm() {
         setEmail(firm.email || '')
         setPhone(firm.phone || '')
         setAddress(firm.address || '')
+        setGoverningBody(firm.governing_body || '')
       }
       setLoading(false)
     }
@@ -46,7 +59,7 @@ export default function SettingsForm() {
 
     const { error: updateError } = await supabase
       .from('firms')
-      .update({ name: firmName, email, phone, address })
+      .update({ name: firmName, email, phone, address, governing_body: governingBody || null })
       .eq('id', firmId)
 
     if (updateError) {
@@ -114,6 +127,21 @@ export default function SettingsForm() {
             rows={3}
             className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-brand-dark mb-1">Governing body</label>
+          <select
+            value={governingBody}
+            onChange={(e) => setGoverningBody(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+          >
+            {GOVERNING_BODIES.map((b) => (
+              <option key={b.value} value={b.value}>{b.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1.5">
+            Used to show which engagement letter clauses are typically required by your professional body.
+          </p>
         </div>
         <button
           onClick={handleSave}
