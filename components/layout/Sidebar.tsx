@@ -1,5 +1,4 @@
 'use client'
-
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -8,34 +7,29 @@ import {
   Calendar,
   FileText,
   TrendingUp,
+  FileSignature,
   Settings,
   LogOut,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import SearchBar from '@/components/layout/SearchBar'
 import { useRole } from '@/hooks/useRole'
-
 export default function Sidebar() {
   const pathname = usePathname()
   const supabase = createClient()
   const { can, role } = useRole()
-
   const isRestricted = ['bookkeeper', 'payroll_manager'].includes(role || '')
-
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
   }
-
   function handleNavClick(href: string) {
     window.location.href = href
   }
-
   function isActive(href: string) {
     if (href === '/dashboard') return pathname === '/dashboard'
     return pathname === href || pathname.startsWith(href + '/')
   }
-
   const navItems = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
     { label: 'Clients', href: '/clients', icon: Users, show: true },
@@ -43,11 +37,10 @@ export default function Sidebar() {
     { label: 'Deadlines', href: '/deadlines', icon: Calendar, show: true },
     { label: 'Documents', href: '/documents', icon: FileText, show: true },
     { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
+    { label: 'Quotes', href: '/quotes', icon: FileSignature, show: can.managePipeline },
   ].filter(item => item.show)
-
   return (
     <aside style={{ width: '256px', minWidth: '256px' }} className="fixed top-0 left-0 h-full bg-brand-dark flex flex-col z-50">
-
       <div
         onClick={() => handleNavClick('/dashboard')}
         className="px-6 py-6 border-b border-white/10 hover:bg-white/5 transition block cursor-pointer"
@@ -55,11 +48,9 @@ export default function Sidebar() {
         <h1 className="text-2xl font-bold text-white">Maddiq</h1>
         <p className="text-xs text-brand-gold mt-0.5">AI-native accounting</p>
       </div>
-
       <div className="px-4 py-3 border-b border-white/10">
         <SearchBar />
       </div>
-
       <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -81,14 +72,12 @@ export default function Sidebar() {
           )
         })}
       </nav>
-
       <div className="px-6 py-3 bg-white/5 border-t border-white/10">
         <p className="text-xs text-white/40 uppercase tracking-wider">Current page</p>
         <p className="text-xs text-white/70 font-medium mt-0.5 capitalize">
           {pathname.split('/').filter(Boolean)[0] || 'dashboard'}
         </p>
       </div>
-
       <div className="px-4 py-4 border-t border-white/10 space-y-1">
         <div
           onClick={() => handleNavClick('/settings')}
@@ -101,7 +90,6 @@ export default function Sidebar() {
           <Settings size={18} />
           Settings
         </div>
-
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-all"
