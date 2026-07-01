@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import SettingsForm from '@/components/settings/SettingsForm'
+import BrandingForm from '@/components/settings/BrandingForm'
 import TeamList from '@/components/settings/TeamList'
 import InviteTeamMember from '@/components/settings/InviteTeamMember'
 import EngagementLetterTemplates from '@/components/settings/EngagementLetterTemplates'
@@ -22,6 +23,13 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-semibold text-brand-dark mb-4">Firm Settings</h2>
           <SettingsForm />
+        </div>
+      )}
+
+      {can.manageSettings && (
+        <div>
+          <h2 className="text-lg font-semibold text-brand-dark mb-4">Branding</h2>
+          <BrandingForm />
         </div>
       )}
 
