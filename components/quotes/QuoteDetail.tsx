@@ -156,7 +156,7 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
         <div className="p-10 text-white" style={{ backgroundColor: brandColor }}>
           <div className="flex items-center justify-between mb-16">
             {firm?.logo_url ? (
-              <img src={firm.logo_url} alt={firm.name} className="h-12 object-contain" />
+              <img src={firm.logo_url} alt={firm.name} className="h-16 max-w-[180px] object-contain" />
             ) : (
               <h2 className="text-2xl font-bold">{firm?.name}</h2>
             )}
