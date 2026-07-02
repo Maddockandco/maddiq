@@ -8,6 +8,7 @@ import {
   FileText,
   TrendingUp,
   FileSignature,
+  FileCheck,
   Settings,
   LogOut,
 } from 'lucide-react'
@@ -38,6 +39,7 @@ export default function Sidebar() {
     { label: 'Documents', href: '/documents', icon: FileText, show: true },
     { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
     { label: 'Quotes', href: '/quotes', icon: FileSignature, show: can.managePipeline },
+    { label: 'Proposals', href: '/proposals', icon: FileCheck, show: can.managePipeline },
   ].filter(item => item.show)
   return (
     <aside style={{ width: '256px', minWidth: '256px' }} className="fixed top-0 left-0 h-full bg-brand-dark flex flex-col z-50">
