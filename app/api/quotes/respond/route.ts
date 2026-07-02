@@ -1,6 +1,19 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+const SERVICE_TO_ENGAGEMENT_TYPE: Record<string, string> = {
+  'Accounts Production': 'accounts',
+  'Corporation Tax (CT600)': 'corporation_tax',
+  'VAT Returns & MTD': 'vat',
+  'Self Assessment': 'self_assessment',
+  'Payroll & RTI': 'payroll',
+  'CIS Returns': 'other',
+  'Partnership Accounts': 'accounts',
+  'Bookkeeping': 'bookkeeping',
+  'MTD for Income Tax': 'self_assessment',
+  'Other': 'other',
+}
+
 export async function POST(request: Request) {
   try {
     const { token, action, name, reason } = await request.json()
@@ -101,6 +114,30 @@ export async function POST(request: Request) {
         client_id: clientId,
         status: 'accepted',
       })
+
+      // Convert quote line items into real engagements
+      if (clientId) {
+        const { data: lineItems } = await supabase
+          .from('quote_line_items')
+          .select('*')
+          .eq('quote_id', quote.id)
+
+        if (lineItems && lineItems.length > 0) {
+          const engagementsToInsert = lineItems.map((item) => ({
+            client_id: clientId,
+            firm_id: quote.firm_id,
+            type: SERVICE_TO_ENGAGEMENT_TYPE[item.service_type] || 'other',
+            status: 'active',
+            frequency: item.frequency,
+            fee_amount: item.fee,
+            fee_currency: (item.currency || 'GBP').slice(0, 3),
+            currency: item.currency || 'GBP',
+            start_date: new Date().toISOString().split('T')[0],
+          }))
+
+          await supabase.from('engagements').insert(engagementsToInsert)
+        }
+      }
 
     } else if (action === 'decline') {
       await supabase
