@@ -24,7 +24,9 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
   const { can } = useRole()
   const supabase = createClient()
 
-  useEffect(() => { fetchData() }, [clientId])
+  useEffect(() => {
+    fetchData()
+  }, [clientId])
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -36,60 +38,150 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
       .single()
     if (!firmUser) return
 
-    const [{ data: lettersData }, { data: templatesData }] = await Promise.all([
-      supabase
-        .from('engagement_letters')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('engagement_letter_templates')
-        .select('id, name, content, is_default')
-        .eq('firm_id', firmUser.firm_id)
-        .order('is_default', { ascending: false }),
-    ])
+    const lettersResult = await supabase
+      .from('engagement_letters')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
 
-    if (lettersData) setLetters(lettersData)
-    if (templatesData) {
-      setTemplates(templatesData)
-      const def = templatesData.find(t => t.is_default)
-      if (def) setSelectedTemplate(def.id)
-      else if (templatesData.length > 0) setSelectedTemplate(templatesData[0].id)
+    const templatesResult = await supabase
+      .from('engagement_letter_templates')
+      .select('id, name, content, is_default')
+      .eq('firm_id', firmUser.firm_id)
+      .order('is_default', { ascending: false })
+
+    if (lettersResult.data) setLetters(lettersResult.data)
+    if (templatesResult.data) {
+      setTemplates(templatesResult.data)
+      const def = templatesResult.data.find(t => t.is_default)
+      if (def) {
+        setSelectedTemplate(def.id)
+      } else if (templatesResult.data.length > 0) {
+        setSelectedTemplate(templatesResult.data[0].id)
+      }
     }
     setLoading(false)
   }
 
+  function formatType(type: string) {
+    return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
   async function buildLetterContent(templateContent: string) {
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: firmUser } = await supabase
+
+    const firmUserResult = await supabase
       .from('firm_users')
       .select('firm_id, firms(name)')
       .eq('user_id', user!.id)
       .single()
 
-    const { data: client } = await supabase
+    const clientResult = await supabase
       .from('clients')
       .select('name')
       .eq('id', clientId)
       .single()
 
-    const { data: engagements } = await supabase
+    const engagementsResult = await supabase
       .from('engagements')
       .select('type, fee_amount, frequency')
       .eq('client_id', clientId)
       .eq('status', 'active')
 
-    const firmName = (firmUser?.firms as any)?.name || 'Our Firm'
-    const clientName = client?.name || 'Client'
+    const firmName = (firmUserResult.data?.firms as any)?.name || 'Our Firm'
+    const clientName = clientResult.data?.name || 'Client'
+    const engagements = engagementsResult.data
 
-    const formatType = (type: string) => type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    let servicesList = '- Services as agreed'
+    let feeSummary = 'Fees as agreed separately'
 
-    const servicesList = engagements && engagements.length > 0
-      ? engagements.map(e => `- ${formatType(e.type)}`).join('\n')
-      : '- Services as agreed'
+    if (engagements && engagements.length > 0) {
+      servicesList = engagements.map((e) => '- ' + formatType(e.type)).join('\n')
+      feeSummary = engagements.map((e) => {
+        const fee = parseFloat(e.fee_amount).toFixed(2)
+        const freq = e.frequency.replace(/_/g, ' ')
+        return formatType(e.type) + ': £' + fee + ' (' + freq + ')'
+      }).join('\n')
+    }
 
-    const feeSummary = engagements && engagements.length > 0
-      ? engagements.map(e => `${formatType(e.type)}: £${parseFloat(e.fee_amount).toFixed(2)} (${e.frequency.replace(/_/g, ' ')})`).join('\n')
-      : 'Fees as agreed separately'
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
-    const today = new
+    let result = templateContent
+    result = result.replaceAll('{client_name}', clientName)
+    result = result.replaceAll('{firm_name}', firmName)
+    result = result.replaceAll('{services}', servicesList)
+    result = result.replaceAll('{fee_summary}', feeSummary)
+    result = result.replaceAll('{date}', today)
+
+    return result
+  }
+
+  async function handleGenerate() {
+    if (!selectedTemplate) return
+    setSaving(true)
+    setError('')
+
+    const template = templates.find((t) => t.id === selectedTemplate)
+    if (!template) {
+      setSaving(false)
+      return
+    }
+
+    const builtContent = await buildLetterContent(template.content)
+    setPreviewing({ template_id: selectedTemplate, isNew: true })
+    setEditedContent(builtContent)
+    setCreating(false)
+    setSaving(false)
+  }
+
+  async function handleSaveDraft() {
+    setSaving(true)
+    setError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const firmUserResult = await supabase
+      .from('firm_users')
+      .select('firm_id, id')
+      .eq('user_id', user!.id)
+      .single()
+
+    if (!firmUserResult.data) {
+      setError('Could not find your firm')
+      setSaving(false)
+      return
+    }
+
+    const firmUser = firmUserResult.data
+
+    if (previewing.isNew) {
+      const insertResult = await supabase.from('engagement_letters').insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        template_id: previewing.template_id,
+        content: editedContent,
+        status: 'draft',
+        created_by: firmUser.id,
+      })
+      if (insertResult.error) {
+        setError(insertResult.error.message)
+        setSaving(false)
+        return
+      }
+    } else {
+      const updateResult = await supabase
+        .from('engagement_letters')
+        .update({ content: editedContent, updated_at: new Date().toISOString() })
+        .eq('id', previewing.id)
+      if (updateResult.error) {
+        setError(updateResult.error.message)
+        setSaving(false)
+        return
+      }
+    }
+
+    setPreviewing(null)
+    fetchData()
+    setSaving(false)
+  }
+
+  async function handleSend(letterId:
