@@ -9,6 +9,7 @@ import {
   TrendingUp,
   FileSignature,
   FileCheck,
+  Calculator,
   Settings,
   LogOut,
 } from 'lucide-react'
@@ -37,6 +38,7 @@ export default function Sidebar() {
     { label: 'Tasks', href: '/tasks', icon: CheckSquare, show: true },
     { label: 'Deadlines', href: '/deadlines', icon: Calendar, show: true },
     { label: 'Documents', href: '/documents', icon: FileText, show: true },
+    { label: 'Accounting', href: '/accounting', icon: Calculator, show: true },
     { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
     { label: 'Quotes', href: '/quotes', icon: FileSignature, show: can.managePipeline },
     { label: 'Proposals', href: '/proposals', icon: FileCheck, show: can.managePipeline },
