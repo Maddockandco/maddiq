@@ -26,33 +26,29 @@ export default function PublicQuoteViewPage({ params }: { params: { token: strin
   useEffect(() => { fetchQuote() }, [params.token])
 
   async function fetchQuote() {
-    const { data: quoteData } = await supabase
-      .from('quotes')
-      .select('*, clients(name, email)')
-      .eq('token', params.token)
-      .single()
+    const quoteResult = await supabase.rpc('get_quote_by_token', { p_token: params.token })
 
-    if (!quoteData) {
+    if (quoteResult.error || !quoteResult.data || quoteResult.data.length === 0) {
       setNotFound(true)
       setLoading(false)
       return
     }
 
+    const quoteData = quoteResult.data[0]
     setQuote(quoteData)
 
-    const { data: firmData } = await supabase
+    const firmResult = await supabase
       .from('firms')
       .select('name, logo_url, brand_color, email, phone, address')
       .eq('id', quoteData.firm_id)
       .single()
-    if (firmData) setFirm(firmData)
+    if (firmResult.data) setFirm(firmResult.data)
 
-    const { data: items } = await supabase
-      .from('quote_line_items')
-      .select('*')
-      .eq('quote_id', quoteData.id)
-      .order('sort_order', { ascending: true })
-    if (items) setLineItems(items)
+    const itemsResult = await supabase.rpc('get_quote_line_items_by_token', { p_token: params.token })
+    if (itemsResult.data) {
+      const sorted = [...itemsResult.data].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+      setLineItems(sorted)
+    }
 
     setLoading(false)
   }
@@ -141,7 +137,7 @@ export default function PublicQuoteViewPage({ params }: { params: { token: strin
 
   const { monthlyTotal, oneOffTotal } = calculateTotals()
   const brandColor = firm?.brand_color || '#343b46'
-  const recipientName = quote.prospect_name || (quote.clients as any)?.name || 'there'
+  const recipientName = quote.prospect_name || 'there'
   const isExpired = quote.valid_until && new Date(quote.valid_until) < new Date() && quote.status === 'sent'
 
   return (
