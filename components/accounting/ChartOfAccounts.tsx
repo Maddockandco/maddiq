@@ -1,7 +1,6 @@
 'use client'
 
-
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 
@@ -39,6 +38,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [accountType, setAccountType] = useState('expense')
+  const [parentId, setParentId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const { can } = useRole()
@@ -75,6 +75,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       code,
       name,
       account_type: accountType,
+      parent_id: parentId || null,
     })
 
     if (insertError) {
@@ -83,6 +84,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       setCode('')
       setName('')
       setAccountType('expense')
+      setParentId('')
       setAdding(false)
       fetchAccounts()
     }
@@ -176,6 +178,18 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                 {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            <div className="md:col-span-3">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional)</label>
+              <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputClass}>
+                <option value="">None — this is a top-level account</option>
+                {accounts.filter(a => !a.parent_id).map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                e.g. set parent to "Motor Expenses" to create a sub-account like "Fuel" or "Insurance"
+              </p>
+            </div>
           </div>
           <div className="flex gap-3">
             <button onClick={handleAdd} disabled={saving}
@@ -207,33 +221,65 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {accounts.map((a, i) => (
-                <tr key={a.id} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${!a.is_active ? 'opacity-50' : ''}`}>
-                  <td className="px-6 py-3 text-sm font-mono text-gray-600">{a.code}</td>
-                  <td className="px-6 py-3 text-sm font-medium text-brand-dark">{a.name}</td>
-                  <td className="px-6 py-3">
-                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${TYPE_STYLES[a.account_type]}`}>
-                      {a.account_type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    {can.manageEngagements ? (
-                      <button
-                        onClick={() => handleToggleActive(a.id, a.is_active)}
-                        className={`text-xs px-2.5 py-0.5 rounded-full font-medium transition ${
-                          a.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                        }`}
-                      >
-                        {a.is_active ? 'Active' : 'Inactive'}
-                      </button>
-                    ) : (
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${a.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {a.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {accounts.filter(a => !a.parent_id).map((parent) => {
+                const children = accounts.filter(a => a.parent_id === parent.id)
+                return (
+                  <Fragment key={parent.id}>
+                    <tr className="border-b border-gray-100 bg-white">
+                      <td className="px-6 py-3 text-sm font-mono text-gray-600">{parent.code}</td>
+                      <td className="px-6 py-3 text-sm font-semibold text-brand-dark">{parent.name}</td>
+                      <td className="px-6 py-3">
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${TYPE_STYLES[parent.account_type]}`}>
+                          {parent.account_type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3">
+                        {can.manageEngagements ? (
+                          <button
+                            onClick={() => handleToggleActive(parent.id, parent.is_active)}
+                            className={`text-xs px-2.5 py-0.5 rounded-full font-medium transition ${
+                              parent.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                          >
+                            {parent.is_active ? 'Active' : 'Inactive'}
+                          </button>
+                        ) : (
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${parent.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {parent.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                    {children.map((child) => (
+                      <tr key={child.id} className={`border-b border-gray-100 bg-gray-50 ${!child.is_active ? 'opacity-50' : ''}`}>
+                        <td className="px-6 py-3 text-sm font-mono text-gray-500 pl-10">{child.code}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600 pl-10">↳ {child.name}</td>
+                        <td className="px-6 py-3">
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${TYPE_STYLES[child.account_type]}`}>
+                            {child.account_type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3">
+                          {can.manageEngagements ? (
+                            <button
+                              onClick={() => handleToggleActive(child.id, child.is_active)}
+                              className={`text-xs px-2.5 py-0.5 rounded-full font-medium transition ${
+                                child.is_active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              }`}
+                            >
+                              {child.is_active ? 'Active' : 'Inactive'}
+                            </button>
+                          ) : (
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${child.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                              {child.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
