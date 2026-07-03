@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import { logActivity } from '@/lib/logActivity'
 
 const FREQUENCY_LABELS: Record<string, string> = {
   monthly: '/month',
@@ -64,13 +65,14 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
     setSuccess('')
 
     const quoteUrl = `${window.location.origin}/quote-view/${quote.token}`
+    const recipientName = quote.prospect_name || (quote.clients as any)?.name
 
     const response = await fetch('/api/quotes/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: recipientEmail,
-        recipientName: quote.prospect_name || (quote.clients as any)?.name,
+        recipientName,
         firmName: firm?.name,
         quoteUrl,
       }),
@@ -87,6 +89,24 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
       .from('quotes')
       .update({ status: 'sent', sent_at: new Date().toISOString() })
       .eq('id', quoteId)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const firmUserResult = await supabase
+      .from('firm_users')
+      .select('id')
+      .eq('user_id', user!.id)
+      .single()
+
+    await logActivity({
+      firmId: quote.firm_id,
+      clientId: quote.client_id || null,
+      firmUserId: firmUserResult.data?.id || null,
+      actionType: 'quote_sent',
+      title: 'Quote sent to ' + (recipientName || quote.prospect_company || 'prospect'),
+      subtitle: 'Sent',
+      href: '/quotes/' + quoteId,
+      icon: '💷',
+    })
 
     setSuccess('Quote sent successfully!')
     fetchData()
@@ -120,7 +140,7 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
 
   const { monthlyTotal, oneOffTotal } = calculateTotals()
   const brandColor = firm?.brand_color || '#343b46'
-  const recipientName = quote.prospect_name || (quote.clients as any)?.name || 'there'
+  const recipientNameDisplay = quote.prospect_name || (quote.clients as any)?.name || 'there'
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -163,7 +183,7 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
             <p className="text-sm text-white/70">{new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
           <h1 className="text-4xl font-bold mb-2">Proposal for Services</h1>
-          <p className="text-lg text-white/80">Prepared for {recipientName}{quote.prospect_company ? ` — ${quote.prospect_company}` : ''}</p>
+          <p className="text-lg text-white/80">Prepared for {recipientNameDisplay}{quote.prospect_company ? ` — ${quote.prospect_company}` : ''}</p>
         </div>
 
         <div className="p-10 bg-white space-y-8">
