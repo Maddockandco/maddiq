@@ -68,24 +68,36 @@ export default function AccountingPickerPage() {
           <p className="text-gray-500 text-sm">No clients found</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-          {filteredClients.map((client, i) => (
-            <button
-              key={client.id}
-              onClick={() => openClientBooks(client.id)}
-              className={`w-full flex items-center justify-between px-6 py-4 text-left hover:bg-brand-light transition ${
-                i !== filteredClients.length - 1 ? 'border-b border-gray-100' : ''
-              }`}
-            >
-              <div>
-                <p className="text-sm font-semibold text-brand-dark">{client.name}</p>
-                <p className="text-xs text-gray-400 capitalize mt-0.5">{client.type} · {client.status}</p>
-              </div>
-              <span className="text-xs text-brand-dark font-medium">
-                Open books ↗
-              </span>
-            </button>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredClients.map((client) => {
+            const initials = client.name
+              .split(' ')
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((w: string) => w[0])
+              .join('')
+              .toUpperCase()
+            return (
+              <button
+                key={client.id}
+                onClick={() => openClientBooks(client.id)}
+                className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex items-center justify-between text-left hover:shadow-md hover:border-brand-gold transition-all group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-xl bg-brand-dark flex items-center justify-center shrink-0">
+                    <span className="text-white font-bold text-sm">{initials}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-brand-dark">{client.name}</p>
+                    <p className="text-xs text-gray-400 capitalize mt-0.5">{client.type} · {client.status}</p>
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-brand-dark bg-brand-light px-3 py-1.5 rounded-lg group-hover:bg-brand-gold group-hover:text-brand-dark transition-colors whitespace-nowrap ml-3">
+                  Open books ↗
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
