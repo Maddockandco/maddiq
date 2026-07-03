@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logActivity } from '@/lib/logActivity'
 
 type Props = {
   clientId: string
@@ -77,6 +78,23 @@ export default function DocumentUpload({ clientId, onUploadComplete }: Props) {
       setUploading(false)
       return
     }
+
+    const { data: clientData } = await supabase
+      .from('clients')
+      .select('name')
+      .eq('id', clientId)
+      .single()
+
+    await logActivity({
+      firmId: firmUser.firm_id,
+      clientId: clientId,
+      firmUserId: firmUser.id,
+      actionType: 'document_uploaded',
+      title: file.name,
+      subtitle: clientData?.name || '',
+      href: '/clients/' + clientId,
+      icon: '📄',
+    })
 
     setSuccess(true)
     setFile(null)
