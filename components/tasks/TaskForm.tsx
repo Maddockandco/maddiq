@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logActivity } from '@/lib/logActivity'
 
 export default function TaskForm({ clientId }: { clientId?: string }) {
   const [title, setTitle] = useState('')
@@ -56,11 +57,13 @@ export default function TaskForm({ clientId }: { clientId?: string }) {
       return
     }
 
+    const finalClientId = selectedClientId || null
+
     const { error: insertError } = await supabase
       .from('tasks')
       .insert({
         firm_id: firmUser.firm_id,
-        client_id: selectedClientId || null,
+        client_id: finalClientId,
         title,
         description: description || null,
         priority,
@@ -75,6 +78,23 @@ export default function TaskForm({ clientId }: { clientId?: string }) {
       setLoading(false)
       return
     }
+
+    let clientName = ''
+    if (finalClientId) {
+      const matchedClient = clients.find((c) => c.id === finalClientId)
+      clientName = matchedClient ? matchedClient.name : ''
+    }
+
+    await logActivity({
+      firmId: firmUser.firm_id,
+      clientId: finalClientId,
+      firmUserId: firmUser.id,
+      actionType: 'task_created',
+      title: 'Task created: ' + title,
+      subtitle: clientName || 'Internal task',
+      href: finalClientId ? '/clients/' + finalClientId : '/tasks',
+      icon: '✅',
+    })
 
     setSuccess(true)
     setTitle('')
