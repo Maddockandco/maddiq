@@ -129,6 +129,9 @@ export default function TeamList() {
                       Invite pending
                     </span>
                   </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Invited {new Date(invite.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(invite.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
               </div>
               {canManageTeam && (
