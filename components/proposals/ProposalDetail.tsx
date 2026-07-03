@@ -18,12 +18,20 @@ export default function ProposalDetail({ proposalId }: { proposalId: string }) {
   const [engagements, setEngagements] = useState<any[]>([])
   const [firm, setFirm] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [unauthenticated, setUnauthenticated] = useState(false)
 
   const supabase = createClient()
 
   useEffect(() => { fetchData() }, [proposalId])
 
   async function fetchData() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setUnauthenticated(true)
+      setLoading(false)
+      return
+    }
+
     const { data: proposalData } = await supabase
       .from('proposals')
       .select('*, clients(id, name, email)')
@@ -84,6 +92,16 @@ export default function ProposalDetail({ proposalId }: { proposalId: string }) {
   if (loading) return (
     <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading proposal...</p>
+    </div>
+  )
+
+  if (unauthenticated) return (
+    <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
+      <p className="text-brand-dark font-semibold text-base mb-2">Oops, looks like you've hit a roadblock! 🚧</p>
+      <p className="text-gray-500 text-sm mb-4">You'll need to sign in to view this page.</p>
+      <a href="/login" className="inline-block bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+        Take me to login
+      </a>
     </div>
   )
 
