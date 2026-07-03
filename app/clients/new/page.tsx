@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import CompanyLookup from '@/components/clients/CompanyLookup'
+import { logActivity } from '@/lib/logActivity'
 
 export default function NewClientPage() {
   const [name, setName] = useState('')
@@ -98,7 +99,7 @@ export default function NewClientPage() {
 
     const { data: firmUser } = await supabase
       .from('firm_users')
-      .select('firm_id')
+      .select('firm_id, id')
       .eq('user_id', user.id)
       .single()
 
@@ -132,6 +133,18 @@ export default function NewClientPage() {
         linked_client_id: linkedClientId,
       })
     }
+
+    await logActivity({
+      firmId: firmUser.firm_id,
+      clientId: existingClientId,
+      firmUserId: firmUser.id,
+      actionType: 'directors_imported',
+      title: 'Directors imported for ' + name,
+      subtitle: directors.length + ' director(s)',
+      href: '/clients/' + existingClientId,
+      icon: '👤',
+    })
+
     window.location.replace('/clients')
   }
 
@@ -146,7 +159,7 @@ export default function NewClientPage() {
 
     const { data: firmUser } = await supabase
       .from('firm_users')
-      .select('firm_id')
+      .select('firm_id, id')
       .eq('user_id', user.id)
       .single()
 
@@ -214,6 +227,17 @@ export default function NewClientPage() {
         linked_client_id: linkedClientId,
       })
     }
+
+    await logActivity({
+      firmId: firmUser.firm_id,
+      clientId: client.id,
+      firmUserId: firmUser.id,
+      actionType: 'client_created',
+      title: 'New client: ' + name,
+      subtitle: status,
+      href: '/clients/' + client.id,
+      icon: '👤',
+    })
 
     window.location.replace('/clients')
   }
