@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       }
 
       let clientId = quote.client_id
+      let clientDisplayName = quote.prospect_company || quote.prospect_name || 'Client'
 
       // If linked to a pipeline lead, convert it to a client
       if (quote.pipeline_lead_id && !clientId) {
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
 
           if (newClient) {
             clientId = newClient.id
+            clientDisplayName = newClient.name
             await supabase.from('pipeline_leads').update({ stage: 'won' }).eq('id', lead.id)
           }
         }
@@ -93,7 +95,10 @@ export async function POST(request: Request) {
           .select()
           .single()
 
-        if (newClient) clientId = newClient.id
+        if (newClient) {
+          clientId = newClient.id
+          clientDisplayName = newClient.name
+        }
       }
 
       await supabase
@@ -139,6 +144,18 @@ export async function POST(request: Request) {
         }
       }
 
+      // Log the acceptance in the activity feed
+      await supabase.from('activity_log').insert({
+        firm_id: quote.firm_id,
+        client_id: clientId,
+        firm_user_id: null,
+        action_type: 'quote_accepted',
+        title: `${clientDisplayName} accepted the quote`,
+        subtitle: `Accepted by ${name}`,
+        href: clientId ? `/clients/${clientId}` : `/quotes/${quote.id}`,
+        icon: '✅',
+      })
+
     } else if (action === 'decline') {
       await supabase
         .from('quotes')
@@ -148,6 +165,21 @@ export async function POST(request: Request) {
           decline_reason: reason || null,
         })
         .eq('id', quote.id)
+
+      const clientDisplayName = quote.prospect_company || quote.prospect_name || 'Prospect'
+
+      // Log the decline in the activity feed
+      await supabase.from('activity_log').insert({
+        firm_id: quote.firm_id,
+        client_id: quote.client_id || null,
+        firm_user_id: null,
+        action_type: 'quote_declined',
+        title: `${clientDisplayName} declined the quote`,
+        subtitle: reason ? `Reason: ${reason}` : 'Declined',
+        href: `/quotes/${quote.id}`,
+        icon: '❌',
+      })
+
     } else {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
