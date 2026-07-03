@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import NoteItem from '@/components/clients/NoteItem'
+import { logActivity } from '@/lib/logActivity'
 
 export default function ClientNotes({ clientId }: { clientId: string }) {
   const [notes, setNotes] = useState<any[]>([])
@@ -12,6 +13,7 @@ export default function ClientNotes({ clientId }: { clientId: string }) {
   const [error, setError] = useState('')
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [firmId, setFirmId] = useState('')
+  const [clientName, setClientName] = useState('')
   const supabase = createClient()
 
   useEffect(() => {
@@ -26,6 +28,12 @@ export default function ClientNotes({ clientId }: { clientId: string }) {
           .single()
         if (firmUser) setFirmId(firmUser.firm_id)
       }
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('name')
+        .eq('id', clientId)
+        .single()
+      if (clientData) setClientName(clientData.name)
       fetchNotes()
     }
     init()
@@ -60,8 +68,25 @@ export default function ClientNotes({ clientId }: { clientId: string }) {
       created_by: firmUser.id,
       parent_id: null,
     })
-    if (insertError) { setError(insertError.message) }
-    else { setContent(''); fetchNotes() }
+    if (insertError) {
+      setError(insertError.message)
+    } else {
+      const preview = content.trim().length > 50 ? content.trim().substring(0, 50) + '...' : content.trim()
+
+      await logActivity({
+        firmId: firmUser.firm_id,
+        clientId: clientId,
+        firmUserId: firmUser.id,
+        actionType: 'note_added',
+        title: preview,
+        subtitle: clientName,
+        href: '/clients/' + clientId,
+        icon: '📝',
+      })
+
+      setContent('')
+      fetchNotes()
+    }
     setSaving(false)
   }
 
