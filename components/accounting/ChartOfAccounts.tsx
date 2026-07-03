@@ -4,13 +4,68 @@ import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 
-const ACCOUNT_TYPES = [
-  { value: 'asset', label: 'Asset' },
-  { value: 'liability', label: 'Liability' },
-  { value: 'equity', label: 'Equity' },
-  { value: 'income', label: 'Income' },
-  { value: 'expense', label: 'Expense' },
+const ACCOUNT_TYPE_GROUPS = [
+  {
+    group: 'Assets',
+    options: [
+      { value: 'bank', label: 'Bank' },
+      { value: 'current_asset', label: 'Current Asset' },
+      { value: 'fixed_asset', label: 'Fixed Asset' },
+      { value: 'inventory', label: 'Inventory' },
+      { value: 'non_current_asset', label: 'Non-current Asset' },
+      { value: 'prepayment', label: 'Prepayment' },
+    ],
+  },
+  {
+    group: 'Liabilities',
+    options: [
+      { value: 'current_liability', label: 'Current Liability' },
+      { value: 'non_current_liability', label: 'Non-current Liability' },
+      { value: 'liability', label: 'Liability' },
+    ],
+  },
+  {
+    group: 'Equity',
+    options: [
+      { value: 'equity', label: 'Equity' },
+    ],
+  },
+  {
+    group: 'Expenses',
+    options: [
+      { value: 'direct_costs', label: 'Direct Costs' },
+      { value: 'expense', label: 'Expense' },
+      { value: 'overhead', label: 'Overhead' },
+      { value: 'depreciation', label: 'Depreciation' },
+    ],
+  },
+  {
+    group: 'Income',
+    options: [
+      { value: 'sales', label: 'Sales' },
+      { value: 'revenue', label: 'Revenue' },
+      { value: 'other_income', label: 'Other Income' },
+    ],
+  },
 ]
+
+// Maps each granular sub-type to its top-level category for reporting/colour purposes
+const TYPE_TO_CATEGORY: Record<string, string> = {
+  bank: 'asset', current_asset: 'asset', fixed_asset: 'asset', inventory: 'asset', non_current_asset: 'asset', prepayment: 'asset',
+  current_liability: 'liability', non_current_liability: 'liability', liability: 'liability',
+  equity: 'equity',
+  direct_costs: 'expense', expense: 'expense', overhead: 'expense', depreciation: 'expense',
+  sales: 'income', revenue: 'income', other_income: 'income',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  bank: 'Bank', current_asset: 'Current Asset', fixed_asset: 'Fixed Asset', inventory: 'Inventory',
+  non_current_asset: 'Non-current Asset', prepayment: 'Prepayment',
+  current_liability: 'Current Liability', non_current_liability: 'Non-current Liability', liability: 'Liability',
+  equity: 'Equity',
+  direct_costs: 'Direct Costs', expense: 'Expense', overhead: 'Overhead', depreciation: 'Depreciation',
+  sales: 'Sales', revenue: 'Revenue', other_income: 'Other Income',
+}
 
 const TYPE_STYLES: Record<string, string> = {
   asset: 'bg-blue-100 text-blue-700',
@@ -19,16 +74,15 @@ const TYPE_STYLES: Record<string, string> = {
   income: 'bg-green-100 text-green-700',
   expense: 'bg-amber-100 text-amber-700',
 }
-
 const DEFAULT_ACCOUNTS = [
-  { code: '1000', name: 'Bank Current Account', account_type: 'asset' },
-  { code: '1100', name: 'Trade Debtors', account_type: 'asset' },
-  { code: '2000', name: 'Trade Creditors', account_type: 'liability' },
-  { code: '2100', name: 'VAT Control Account', account_type: 'liability' },
+  { code: '1000', name: 'Bank Current Account', account_type: 'bank' },
+  { code: '1100', name: 'Trade Debtors', account_type: 'current_asset' },
+  { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
+  { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
   { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
-  { code: '4000', name: 'Sales', account_type: 'income' },
-  { code: '5000', name: 'Cost of Sales', account_type: 'expense' },
-  { code: '6000', name: 'General Expenses', account_type: 'expense' },
+  { code: '4000', name: 'Sales', account_type: 'sales' },
+  { code: '5000', name: 'Cost of Sales', account_type: 'direct_costs' },
+  { code: '6000', name: 'General Expenses', account_type: 'overhead' },
 ]
 
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
@@ -175,7 +229,11 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
               <select value={accountType} onChange={(e) => setAccountType(e.target.value)} className={inputClass}>
-                {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {ACCOUNT_TYPE_GROUPS.map((g) => (
+                  <optgroup key={g.group} label={g.group}>
+                    {g.options.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </div>
             <div className="md:col-span-3">
@@ -229,8 +287,8 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                       <td className="px-6 py-3 text-sm font-mono text-gray-600">{parent.code}</td>
                       <td className="px-6 py-3 text-sm font-semibold text-brand-dark">{parent.name}</td>
                       <td className="px-6 py-3">
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${TYPE_STYLES[parent.account_type]}`}>
-                          {parent.account_type}
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_STYLES[TYPE_TO_CATEGORY[parent.account_type] || parent.account_type] || TYPE_STYLES.expense}`}>
+                          {TYPE_LABELS[parent.account_type] || parent.account_type.replace(/_/g, ' ')}
                         </span>
                       </td>
                       <td className="px-6 py-3">
@@ -255,8 +313,8 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                         <td className="px-6 py-3 text-sm font-mono text-gray-500 pl-10">{child.code}</td>
                         <td className="px-6 py-3 text-sm text-gray-600 pl-10">↳ {child.name}</td>
                         <td className="px-6 py-3">
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${TYPE_STYLES[child.account_type]}`}>
-                            {child.account_type}
+                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_STYLES[TYPE_TO_CATEGORY[child.account_type] || child.account_type] || TYPE_STYLES.expense}`}>
+                            {TYPE_LABELS[child.account_type] || child.account_type.replace(/_/g, ' ')}
                           </span>
                         </td>
                         <td className="px-6 py-3">
