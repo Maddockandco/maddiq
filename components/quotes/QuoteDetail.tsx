@@ -142,10 +142,10 @@ export default function QuoteDetail({ quoteId }: { quoteId: string }) {
 
   if (unauthenticated) return (
     <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
-      <p className="text-brand-dark font-semibold text-sm mb-2">Please sign in to view this quote</p>
-      <p className="text-gray-500 text-sm mb-4">This page is for firm staff only. If you received a quote link by email, please use that link instead.</p>
+      <p className="text-brand-dark font-semibold text-base mb-2">Oops, looks like you've hit a roadblock! 🚧</p>
+      <p className="text-gray-500 text-sm mb-4">You'll need to sign in to view this page. If you received a quote link by email, please use that link instead — no login needed there.</p>
       <a href="/login" className="inline-block bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-        Go to login
+        Take me to login
       </a>
     </div>
   )
