@@ -14,12 +14,16 @@ const statusStyles: Record<string, string> = {
 export default function EngagementLetters({ clientId }: { clientId: string }) {
   const [letters, setLetters] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
+  const [firm, setFirm] = useState<any>(null)
+  const [clientName, setClientName] = useState('')
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState('')
   const [previewing, setPreviewing] = useState<any>(null)
   const [editedContent, setEditedContent] = useState('')
+  const [viewingBranded, setViewingBranded] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const { can } = useRole()
   const supabase = createClient()
@@ -50,6 +54,18 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
       .eq('firm_id', firmUser.firm_id)
       .order('is_default', { ascending: false })
 
+    const firmResult = await supabase
+      .from('firms')
+      .select('name, logo_url, brand_color, email, phone, address')
+      .eq('id', firmUser.firm_id)
+      .single()
+
+    const clientResult = await supabase
+      .from('clients')
+      .select('name')
+      .eq('id', clientId)
+      .single()
+
     if (lettersResult.data) setLetters(lettersResult.data)
     if (templatesResult.data) {
       setTemplates(templatesResult.data)
@@ -60,6 +76,9 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
         setSelectedTemplate(templatesResult.data[0].id)
       }
     }
+    if (firmResult.data) setFirm(firmResult.data)
+    if (clientResult.data) setClientName(clientResult.data.name)
+
     setLoading(false)
   }
 
@@ -89,7 +108,7 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
       .eq('status', 'active')
 
     const firmName = (firmUserResult.data?.firms as any)?.name || 'Our Firm'
-    const clientName = clientResult.data?.name || 'Client'
+    const clientNameValue = clientResult.data?.name || 'Client'
     const engagements = engagementsResult.data
 
     let servicesList = '- Services as agreed'
@@ -107,7 +126,7 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
     const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
     let result = templateContent
-    result = result.replaceAll('{client_name}', clientName)
+    result = result.replaceAll('{client_name}', clientNameValue)
     result = result.replaceAll('{firm_name}', firmName)
     result = result.replaceAll('{services}', servicesList)
     result = result.replaceAll('{fee_summary}', feeSummary)
@@ -193,15 +212,84 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
     fetchData()
   }
 
+  async function handleDelete(letterId: string) {
+    if (!confirm('Delete this draft engagement letter? This cannot be undone.')) return
+    setDeletingId(letterId)
+    await supabase.from('engagement_letters').delete().eq('id', letterId)
+    fetchData()
+    setDeletingId(null)
+  }
+
   function openEdit(letter: any) {
     setPreviewing(letter)
     setEditedContent(letter.content)
+  }
+
+  function openBrandedView(letter: any) {
+    setViewingBranded(letter)
   }
 
   if (loading) {
     return (
       <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
         <p className="text-gray-500 text-sm">Loading engagement letters...</p>
+      </div>
+    )
+  }
+
+  const brandColor = firm?.brand_color || '#343b46'
+
+  // Branded read-only view (sent / signed / expired letters)
+  if (viewingBranded) {
+    return (
+      <div className="max-w-3xl space-y-4">
+        <button
+          onClick={() => setViewingBranded(null)}
+          className="text-xs text-gray-400 hover:text-brand-dark transition"
+        >
+          ← Back to letters
+        </button>
+
+        <div className="rounded-2xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="p-10 text-white" style={{ backgroundColor: brandColor }}>
+            <div className="flex items-center justify-between mb-16">
+              {firm?.logo_url ? (
+                <img src={firm.logo_url} alt={firm.name} className="h-16 max-w-[180px] object-contain" />
+              ) : (
+                <h2 className="text-2xl font-bold">{firm?.name}</h2>
+              )}
+              <p className="text-sm text-white/70">
+                {new Date(viewingBranded.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+            <h1 className="text-4xl font-bold mb-2">Letter of Engagement</h1>
+            <p className="text-lg text-white/80">{clientName}</p>
+          </div>
+
+          <div className="p-10 bg-white space-y-6">
+            <div className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
+              {viewingBranded.content}
+            </div>
+
+            {viewingBranded.signed_at && (
+              <div className="rounded-xl p-5 bg-green-50 border border-green-200">
+                <p className="text-sm font-semibold text-green-700">
+                  ✅ Signed by {viewingBranded.signed_name}
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  {new Date(viewingBranded.signed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-gray-100 text-xs text-gray-400 space-y-1">
+              {firm?.name && <p>{firm.name}</p>}
+              {firm?.address && <p>{firm.address}</p>}
+              {firm?.email && <p>{firm.email}</p>}
+              {firm?.phone && <p>{firm.phone}</p>}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -327,12 +415,18 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
                       </button>
                     </>
                   )}
+                  {letter.status === 'draft' && can.deleteClient && (
+                    <button
+                      onClick={() => handleDelete(letter.id)}
+                      disabled={deletingId === letter.id}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition font-medium disabled:opacity-50"
+                    >
+                      {deletingId === letter.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  )}
                   {letter.status !== 'draft' && (
                     <button
-                      onClick={() => {
-                        setPreviewing({ ...letter, isNew: false, readOnly: true })
-                        setEditedContent(letter.content)
-                      }}
+                      onClick={() => openBrandedView(letter)}
                       className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-brand-dark hover:bg-gray-200 transition font-medium"
                     >
                       View
