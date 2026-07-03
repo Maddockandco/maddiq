@@ -9,6 +9,7 @@ import ClientDeadlines from '@/components/clients/ClientDeadlines'
 import EngagementLetters from '@/components/clients/EngagementLetters'
 import ClientDocumentList from '@/components/documents/ClientDocumentList'
 import DocumentUpload from '@/components/documents/DocumentUpload'
+import ChartOfAccounts from '@/components/accounting/ChartOfAccounts'
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
@@ -16,11 +17,11 @@ const tabs = [
   { id: 'directors', label: 'Directors' },
   { id: 'engagements', label: 'Engagements' },
   { id: 'letters', label: 'Engagement Letters' },
+  { id: 'accounting', label: 'Accounting' },
   { id: 'deadlines', label: 'Deadlines' },
   { id: 'documents', label: 'Documents' },
   { id: 'notes', label: 'Notes' },
 ]
-
 export default function ClientTabs({ clientId }: { clientId: string }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [docRefresh, setDocRefresh] = useState(0)
@@ -39,6 +40,7 @@ export default function ClientTabs({ clientId }: { clientId: string }) {
       {activeTab === 'directors' && <ClientContacts clientId={clientId} />}
       {activeTab === 'engagements' && <ClientEngagements clientId={clientId} />}
       {activeTab === 'letters' && <EngagementLetters clientId={clientId} />}
+      {activeTab === 'accounting' && <ChartOfAccounts clientId={clientId} />}
       {activeTab === 'deadlines' && <ClientDeadlines clientId={clientId} />}
       {activeTab === 'notes' && <ClientNotes clientId={clientId} />}
       {activeTab === 'documents' && (
