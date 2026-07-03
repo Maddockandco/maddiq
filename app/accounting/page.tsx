@@ -55,7 +55,7 @@ export default function AccountingPickerPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search clients..."
-          className="w-full max-w-md border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+          className="w-full max-w-md bg-brand-dark text-white placeholder-white/50 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold border border-brand-dark"
         />
       </div>
 
