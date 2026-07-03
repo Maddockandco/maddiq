@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import { logActivity } from '@/lib/logActivity'
 
 const statusStyles: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -186,6 +187,17 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
         setSaving(false)
         return
       }
+
+      await logActivity({
+        firmId: firmUser.firm_id,
+        clientId: clientId,
+        firmUserId: firmUser.id,
+        actionType: 'engagement_letter_generated',
+        title: 'Engagement letter generated for ' + clientName,
+        subtitle: 'Draft',
+        href: '/clients/' + clientId,
+        icon: '📄',
+      })
     } else {
       const updateResult = await supabase
         .from('engagement_letters')
@@ -209,6 +221,27 @@ export default function EngagementLetters({ clientId }: { clientId: string }) {
       .from('engagement_letters')
       .update({ status: 'sent', sent_at: new Date().toISOString() })
       .eq('id', letterId)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const firmUserResult = await supabase
+      .from('firm_users')
+      .select('firm_id, id')
+      .eq('user_id', user!.id)
+      .single()
+
+    if (firmUserResult.data) {
+      await logActivity({
+        firmId: firmUserResult.data.firm_id,
+        clientId: clientId,
+        firmUserId: firmUserResult.data.id,
+        actionType: 'engagement_letter_sent',
+        title: 'Engagement letter sent to ' + clientName,
+        subtitle: 'Sent',
+        href: '/clients/' + clientId,
+        icon: '📄',
+      })
+    }
+
     fetchData()
   }
 
