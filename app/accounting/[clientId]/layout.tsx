@@ -69,6 +69,10 @@ export default function AccountingLayout({
             Dashboard
           </button>
 
+          <button onClick={() => router.push(`${basePath}/contacts`)} className={tabClass(pathname === `${basePath}/contacts`)}>
+            Contacts
+          </button>
+
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
