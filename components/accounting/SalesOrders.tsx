@@ -22,6 +22,12 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-600',
 }
 
+function addDays(dateStr: string, days: number) {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
 export default function SalesOrders({ clientId }: { clientId: string }) {
   const [orders, setOrders] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
@@ -38,6 +44,12 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const [convertingOrderId, setConvertingOrderId] = useState<string | null>(null)
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
+  const [dueDate, setDueDate] = useState('')
+  const [converting, setConverting] = useState(false)
+  const [convertError, setConvertError] = useState('')
+
   const { can } = useRole()
   const supabase = createClient()
 
@@ -45,7 +57,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
 
   async function fetchData() {
     const [ordersRes, contactsRes, accountsRes, vatRes] = await Promise.all([
-      supabase.from('sales_orders').select('*, contacts(name)').eq('client_id', clientId).order('order_date', { ascending: false }),
+      supabase.from('sales_orders').select('*, contacts(name, payment_terms_days)').eq('client_id', clientId).order('order_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
@@ -172,6 +184,36 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   async function handleStatusChange(orderId: string, newStatus: string) {
     await supabase.from('sales_orders').update({ status: newStatus }).eq('id', orderId)
     setOrders(orders.map((o) => o.id === orderId ? { ...o, status: newStatus } : o))
+  }
+
+  function openConvert(order: any) {
+    const today = new Date().toISOString().split('T')[0]
+    const terms = order.contacts?.payment_terms_days ?? 30
+    setInvoiceDate(today)
+    setDueDate(addDays(today, terms))
+    setConvertError('')
+    setConvertingOrderId(order.id)
+  }
+
+  async function handleConvert(orderId: string) {
+    setConverting(true)
+    setConvertError('')
+
+    const { error: convertErr } = await supabase.rpc('convert_sales_order_to_invoice', {
+      p_order_id: orderId,
+      p_invoice_date: invoiceDate,
+      p_due_date: dueDate,
+    })
+
+    if (convertErr) {
+      setConvertError(convertErr.message)
+      setConverting(false)
+      return
+    }
+
+    setConvertingOrderId(null)
+    setConverting(false)
+    fetchData()
   }
 
   const { subtotal, vatTotal, total } = calculateTotals()
@@ -336,34 +378,82 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Date</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-b border-gray-100">
-                  <td className="px-6 py-3 text-sm font-mono text-gray-600">{o.order_number}</td>
-                  <td className="px-6 py-3 text-sm font-medium text-brand-dark">{o.contacts?.name}</td>
-                  <td className="px-6 py-3 text-sm text-gray-500">{new Date(o.order_date).toLocaleDateString('en-GB')}</td>
-                  <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(o.total).toFixed(2)}</td>
-                  <td className="px-6 py-3">
-                    {can.manageEngagements && !['converted', 'cancelled'].includes(o.status) ? (
-                      <select
-                        value={o.status}
-                        onChange={(e) => handleStatusChange(o.id, e.target.value)}
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium border-0 ${STATUS_STYLES[o.status]}`}
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="sent">Sent</option>
-                        <option value="accepted">Accepted</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    ) : (
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[o.status]}`}>
-                        {o.status}
-                      </span>
-                    )}
-                  </td>
-                </tr>
+                <>
+                  <tr key={o.id} className="border-b border-gray-100">
+                    <td className="px-6 py-3 text-sm font-mono text-gray-600">{o.order_number}</td>
+                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{o.contacts?.name}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(o.order_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(o.total).toFixed(2)}</td>
+                    <td className="px-6 py-3">
+                      {can.manageEngagements && !['converted', 'cancelled'].includes(o.status) ? (
+                        <select
+                          value={o.status}
+                          onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium border-0 ${STATUS_STYLES[o.status]}`}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="sent">Sent</option>
+                          <option value="accepted">Accepted</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      ) : (
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[o.status]}`}>
+                          {o.status}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-right">
+                      {can.manageEngagements && o.status === 'accepted' && (
+                        <button
+                          onClick={() => openConvert(o)}
+                          className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition"
+                        >
+                          Convert to Invoice
+                        </button>
+                      )}
+                      {o.status === 'converted' && (
+                        <span className="text-xs text-gray-400">Invoice created</span>
+                      )}
+                    </td>
+                  </tr>
+                  {convertingOrderId === o.id && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className="flex items-end gap-4">
+                          {convertError && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{convertError}</div>}
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
+                            <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)}
+                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
+                            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                          </div>
+                          <button
+                            onClick={() => handleConvert(o.id)}
+                            disabled={converting}
+                            className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                          >
+                            {converting ? 'Converting...' : 'Confirm conversion'}
+                          </button>
+                          <button
+                            onClick={() => setConvertingOrderId(null)}
+                            className="text-sm text-gray-500 hover:underline"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               ))}
             </tbody>
           </table>
