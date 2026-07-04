@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
-import CompanyLookup from '@/components/companies-house/CompanyLookup'
+import CompanyLookup from '@/components/clients/CompanyLookup'
 
 const ENTITY_TYPES = [
   { value: 'individual', label: 'Individual' },
