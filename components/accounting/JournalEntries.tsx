@@ -51,6 +51,29 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     setLoading(false)
   }
 
+  // Fire-and-forget audit log call. Never blocks or fails the main action —
+  // if the log write fails we surface it in the console only, since a
+  // missing audit row shouldn't stop an accountant from doing their job.
+  async function logAudit(params: {
+    entityType: string
+    entityId: string
+    action: string
+    oldData?: any
+    newData?: any
+    description: string
+  }) {
+    const { error: logError } = await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: params.entityType,
+      p_entity_id: params.entityId,
+      p_action: params.action,
+      p_old_data: params.oldData ?? null,
+      p_new_data: params.newData ?? null,
+      p_description: params.description,
+    })
+    if (logError) console.error('Audit log failed:', logError.message)
+  }
+
   function addLine() {
     setLines([...lines, { account_id: '', debit: '', credit: '', description: '' }])
   }
@@ -127,8 +150,20 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       sort_order: i,
     }))
 
-    const { error: linesError } = await supabase.from('journal_lines').insert(linesToInsert)
+    const { data: insertedLines, error: linesError } = await supabase
+      .from('journal_lines')
+      .insert(linesToInsert)
+      .select('*, chart_of_accounts(code, name)')
+
     if (linesError) { setError(linesError.message); setSaving(false); return }
+
+    await logAudit({
+      entityType: 'journal_entry',
+      entityId: entry.id,
+      action: 'posted',
+      newData: { ...entry, lines: insertedLines },
+      description: `Posted journal entry${reference ? ` "${reference}"` : ''} dated ${new Date(entryDate).toLocaleDateString('en-GB')} — ${validLines.length} lines, £${totalDebit.toFixed(2)} total${description ? `: ${description}` : ''}`,
+    })
 
     setCreating(false)
     setEntryDate(new Date().toISOString().split('T')[0])
