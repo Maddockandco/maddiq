@@ -1,14 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const navItems = [
-  { label: 'Dashboard', path: '' },
+const accountingToolItems = [
   { label: 'Chart of Accounts', path: '/chart-of-accounts' },
   { label: 'Journal Entries', path: '/journal-entries' },
-  { label: 'Reports', path: '/reports' },
 ]
 
 export default function AccountingClientLayout({
@@ -20,6 +18,8 @@ export default function AccountingClientLayout({
 }) {
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -37,11 +37,23 @@ export default function AccountingClientLayout({
     fetchClient()
   }, [params.clientId])
 
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   function isActive(path: string) {
     const fullPath = `/accounting/${params.clientId}${path}`
     if (path === '') return pathname === `/accounting/${params.clientId}`
     return pathname === fullPath
   }
+
+  const isAccountingToolActive = accountingToolItems.some((item) => isActive(item.path))
 
   if (loading) {
     return (
@@ -72,19 +84,61 @@ export default function AccountingClientLayout({
             <div className="text-xs text-white/40">Maddiq Accounting</div>
           </div>
           <nav className="flex gap-1 -mb-px">
-            {navItems.map((item) => (
+            <button
+              onClick={() => router.push(`/accounting/${params.clientId}`)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-all ${
+                isActive('')
+                  ? 'border-brand-gold text-white'
+                  : 'border-transparent text-white/50 hover:text-white'
+              }`}
+            >
+              Dashboard
+            </button>
+
+            <div className="relative" ref={dropdownRef}>
               <button
-                key={item.label}
-                onClick={() => router.push(`/accounting/${params.clientId}${item.path}`)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-all ${
-                  isActive(item.path)
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-all flex items-center gap-1.5 ${
+                  isAccountingToolActive
                     ? 'border-brand-gold text-white'
                     : 'border-transparent text-white/50 hover:text-white'
                 }`}
               >
-                {item.label}
+                Accounting
+                <span className={`text-xs transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}>▾</span>
               </button>
-            ))}
+              {dropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 py-2 min-w-[200px] z-50">
+                  {accountingToolItems.map((item) => (
+                    <button
+                      key={item.label}
+                      onClick={() => {
+                        router.push(`/accounting/${params.clientId}${item.path}`)
+                        setDropdownOpen(false)
+                      }}
+                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                        isActive(item.path)
+                          ? 'bg-brand-light text-brand-dark font-medium'
+                          : 'text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => router.push(`/accounting/${params.clientId}/reports`)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-all ${
+                isActive('/reports')
+                  ? 'border-brand-gold text-white'
+                  : 'border-transparent text-white/50 hover:text-white'
+              }`}
+            >
+              Reports
+            </button>
           </nav>
         </div>
       </div>
