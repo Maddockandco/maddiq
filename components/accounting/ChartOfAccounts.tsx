@@ -110,6 +110,29 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setLoading(false)
   }
 
+  // Fire-and-forget audit log call. Never blocks or fails the main action —
+  // if the log write fails we surface it in the console only, since a
+  // missing audit row shouldn't stop an accountant from doing their job.
+  async function logAudit(params: {
+    entityType: string
+    entityId: string
+    action: string
+    oldData?: any
+    newData?: any
+    description: string
+  }) {
+    const { error: logError } = await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: params.entityType,
+      p_entity_id: params.entityId,
+      p_action: params.action,
+      p_old_data: params.oldData ?? null,
+      p_new_data: params.newData ?? null,
+      p_description: params.description,
+    })
+    if (logError) console.error('Audit log failed:', logError.message)
+  }
+
   async function handleAdd() {
     setSaving(true)
     setError('')
@@ -123,18 +146,29 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
 
-    const { error: insertError } = await supabase.from('chart_of_accounts').insert({
-      firm_id: firmUser.firm_id,
-      client_id: clientId,
-      code,
-      name,
-      account_type: accountType,
-      parent_id: parentId || null,
-    })
+    const { data: inserted, error: insertError } = await supabase
+      .from('chart_of_accounts')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        code,
+        name,
+        account_type: accountType,
+        parent_id: parentId || null,
+      })
+      .select()
+      .single()
 
     if (insertError) {
       setError(insertError.message)
     } else {
+      await logAudit({
+        entityType: 'chart_of_accounts',
+        entityId: inserted.id,
+        action: 'created',
+        newData: inserted,
+        description: `Created account "${code} — ${name}" (${TYPE_LABELS[accountType] || accountType})`,
+      })
       setCode('')
       setName('')
       setAccountType('expense')
@@ -165,20 +199,42 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       account_type: a.account_type,
     }))
 
-    const { error: insertError } = await supabase.from('chart_of_accounts').insert(rows)
+    const { data: inserted, error: insertError } = await supabase
+      .from('chart_of_accounts')
+      .insert(rows)
+      .select()
+
     if (insertError) {
       setError(insertError.message)
     } else {
+      await logAudit({
+        entityType: 'chart_of_accounts',
+        entityId: clientId,
+        action: 'bulk_seeded',
+        newData: inserted,
+        description: `Added ${DEFAULT_ACCOUNTS.length} standard accounts to the chart of accounts`,
+      })
       fetchAccounts()
     }
     setSaving(false)
   }
 
   async function handleToggleActive(accountId: string, isActive: boolean) {
+    const account = accounts.find(a => a.id === accountId)
     await supabase
       .from('chart_of_accounts')
       .update({ is_active: !isActive })
       .eq('id', accountId)
+
+    await logAudit({
+      entityType: 'chart_of_accounts',
+      entityId: accountId,
+      action: !isActive ? 'reactivated' : 'archived',
+      oldData: { is_active: isActive },
+      newData: { is_active: !isActive },
+      description: `${!isActive ? 'Reactivated' : 'Archived'} account "${account?.code} — ${account?.name}"`,
+    })
+
     setAccounts(accounts.map(a => a.id === accountId ? { ...a, is_active: !isActive } : a))
   }
 
