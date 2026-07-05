@@ -18,8 +18,10 @@ export default function AccountingLayout({
   const supabase = createClient()
 
   const [clientName, setClientName] = useState('')
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [salesDropdownOpen, setSalesDropdownOpen] = useState(false)
+  const [accountingDropdownOpen, setAccountingDropdownOpen] = useState(false)
+  const salesDropdownRef = useRef<HTMLDivElement>(null)
+  const accountingDropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function fetchClient() {
@@ -35,8 +37,11 @@ export default function AccountingLayout({
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false)
+      if (salesDropdownRef.current && !salesDropdownRef.current.contains(e.target as Node)) {
+        setSalesDropdownOpen(false)
+      }
+      if (accountingDropdownRef.current && !accountingDropdownRef.current.contains(e.target as Node)) {
+        setAccountingDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -45,18 +50,60 @@ export default function AccountingLayout({
 
   const basePath = `/accounting/${clientId}`
 
+  const salesSubPages = [
+    { href: `${basePath}/sales-orders`, label: 'Sales Orders' },
+    { href: `${basePath}/sales-invoices`, label: 'Sales Invoices' },
+  ]
+
   const accountingSubPages = [
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
 
+  const isOnSalesSubPage = salesSubPages.some((p) => pathname === p.href)
   const isOnAccountingSubPage = accountingSubPages.some((p) => pathname === p.href)
 
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-semibold rounded-lg transition ${
       active ? 'bg-brand-gold text-brand-dark' : 'text-white hover:bg-white/10'
     }`
+
+  function renderDropdown(
+    label: string,
+    isOpen: boolean,
+    setIsOpen: (v: boolean) => void,
+    ref: React.RefObject<HTMLDivElement>,
+    isActive: boolean,
+    subPages: { href: string; label: string }[]
+  ) {
+    return (
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={`flex items-center gap-1 ${tabClass(isActive)}`}
+        >
+          {label}
+          <ChevronDown size={14} />
+        </button>
+        {isOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px] z-10">
+            {subPages.map((p) => (
+              <button
+                key={p.href}
+                onClick={() => { router.push(p.href); setIsOpen(false) }}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
+                  pathname === p.href ? 'text-brand-gold font-semibold' : 'text-brand-dark'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-brand-light">
@@ -73,38 +120,9 @@ export default function AccountingLayout({
             Contacts
           </button>
 
-          <button onClick={() => router.push(`${basePath}/sales-orders`)} className={tabClass(pathname === `${basePath}/sales-orders`)}>
-            Sales Orders
-          </button>
+          {renderDropdown('Sales', salesDropdownOpen, setSalesDropdownOpen, salesDropdownRef, isOnSalesSubPage, salesSubPages)}
 
-          <button onClick={() => router.push(`${basePath}/sales-invoices`)} className={tabClass(pathname === `${basePath}/sales-invoices`)}>
-            Sales Invoices
-          </button>
-
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className={`flex items-center gap-1 ${tabClass(isOnAccountingSubPage)}`}
-            >
-              Accounting
-              <ChevronDown size={14} />
-            </button>
-            {dropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px] z-10">
-                {accountingSubPages.map((p) => (
-                  <button
-                    key={p.href}
-                    onClick={() => { router.push(p.href); setDropdownOpen(false) }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
-                      pathname === p.href ? 'text-brand-gold font-semibold' : 'text-brand-dark'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
 
           <button onClick={() => router.push(`${basePath}/reports`)} className={tabClass(pathname === `${basePath}/reports`)}>
             Reports
