@@ -4,6 +4,16 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 
+type LineDraft = {
+  description: string
+  quantity: string
+  unit_price: string
+  income_account_id: string
+  vat_rate_id: string
+}
+
+const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '' }
+
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
   awaiting_payment: 'bg-blue-100 text-blue-700',
@@ -12,41 +22,187 @@ const STATUS_STYLES: Record<string, string> = {
   void: 'bg-red-100 text-red-600',
 }
 
+function addDays(dateStr: string, days: number) {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
 export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [invoices, setInvoices] = useState<any[]>([])
+  const [contacts, setContacts] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [postingId, setPostingId] = useState<string | null>(null)
   const [postError, setPostError] = useState<Record<string, string>>({})
+
+  const [creating, setCreating] = useState(false)
+  const [contactId, setContactId] = useState('')
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
+  const [dueDate, setDueDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
   const { can } = useRole()
   const supabase = createClient()
 
-  useEffect(() => { fetchInvoices() }, [clientId])
+  useEffect(() => { fetchData() }, [clientId])
 
-  async function fetchInvoices() {
-    const { data } = await supabase
-      .from('sales_invoices')
-      .select('*, contacts(name)')
-      .eq('client_id', clientId)
-      .order('invoice_date', { ascending: false })
-    if (data) setInvoices(data)
+  async function fetchData() {
+    const [invoicesRes, contactsRes, accountsRes, vatRes] = await Promise.all([
+      supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
+      supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
+      supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
+    ])
+    if (invoicesRes.data) setInvoices(invoicesRes.data)
+    if (contactsRes.data) setContacts(contactsRes.data)
+    if (accountsRes.data) setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type)))
+    if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
+  }
+
+  function addLine() {
+    setLines([...lines, { ...EMPTY_LINE }])
+  }
+
+  function updateLine(index: number, field: keyof LineDraft, value: string) {
+    const updated = [...lines]
+    updated[index] = { ...updated[index], [field]: value }
+    setLines(updated)
+  }
+
+  function removeLine(index: number) {
+    setLines(lines.filter((_, i) => i !== index))
+  }
+
+  function lineAmounts(line: LineDraft) {
+    const qty = parseFloat(line.quantity) || 0
+    const price = parseFloat(line.unit_price) || 0
+    const net = qty * price
+    const rate = vatRates.find((r) => r.id === line.vat_rate_id)
+    const vatAmount = rate ? net * (parseFloat(rate.rate) / 100) : 0
+    return { net, vatAmount, gross: net + vatAmount }
+  }
+
+  function calculateTotals() {
+    let subtotal = 0
+    let vatTotal = 0
+    lines.forEach((l) => {
+      const { net, vatAmount } = lineAmounts(l)
+      subtotal += net
+      vatTotal += vatAmount
+    })
+    return { subtotal, vatTotal, total: subtotal + vatTotal }
+  }
+
+  function resetForm() {
+    setContactId('')
+    setInvoiceDate(new Date().toISOString().split('T')[0])
+    setDueDate('')
+    setNotes('')
+    setLines([{ ...EMPTY_LINE }])
+    setError('')
+  }
+
+  function handleContactChange(id: string) {
+    setContactId(id)
+    const contact = contacts.find((c) => c.id === id)
+    const terms = contact?.payment_terms_days ?? 30
+    setDueDate(addDays(invoiceDate, terms))
+  }
+
+  async function handleCreate() {
+    setSaving(true)
+    setError('')
+
+    if (!contactId) { setError('Select a customer'); setSaving(false); return }
+    if (!dueDate) { setError('Due date is required'); setSaving(false); return }
+    const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
+    if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase
+      .from('firm_users')
+      .select('firm_id')
+      .eq('user_id', user!.id)
+      .single()
+    if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
+
+    const { subtotal, vatTotal, total } = calculateTotals()
+
+    const { count } = await supabase
+      .from('sales_invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', clientId)
+    const invoiceNumber = `INV-${String((count || 0) + 1).padStart(4, '0')}`
+
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('sales_invoices')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        contact_id: contactId,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
+        due_date: dueDate,
+        status: 'draft',
+        subtotal,
+        vat_total: vatTotal,
+        total,
+        notes: notes || null,
+        created_by: user!.id,
+      })
+      .select()
+      .single()
+
+    if (invoiceError) { setError(invoiceError.message); setSaving(false); return }
+
+    const linesToInsert = validLines.map((l, i) => {
+      const { net, vatAmount } = lineAmounts(l)
+      return {
+        invoice_id: invoice.id,
+        description: l.description,
+        quantity: parseFloat(l.quantity) || 1,
+        unit_price: parseFloat(l.unit_price) || 0,
+        income_account_id: l.income_account_id || null,
+        vat_rate_id: l.vat_rate_id || null,
+        vat_amount: vatAmount,
+        line_total: net,
+        sort_order: i,
+      }
+    })
+
+    const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesToInsert)
+    if (linesError) { setError(linesError.message); setSaving(false); return }
+
+    setCreating(false)
+    resetForm()
+    fetchData()
+    setSaving(false)
   }
 
   async function handlePost(invoiceId: string) {
     setPostingId(invoiceId)
     setPostError((prev) => ({ ...prev, [invoiceId]: '' }))
 
-    const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
+    const { error: postErr } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
 
-    if (error) {
-      setPostError((prev) => ({ ...prev, [invoiceId]: error.message }))
+    if (postErr) {
+      setPostError((prev) => ({ ...prev, [invoiceId]: postErr.message }))
       setPostingId(null)
       return
     }
 
     setPostingId(null)
-    fetchInvoices()
+    fetchData()
   }
+
+  const { subtotal, vatTotal, total } = calculateTotals()
+  const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
 
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
@@ -54,14 +210,152 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     </div>
   )
 
+  if (contacts.length === 0 && !creating) return (
+    <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
+      <p className="text-gray-500 text-sm mb-2">No customers available</p>
+      <p className="text-gray-400 text-xs">Add a customer in Contacts first before creating invoices</p>
+    </div>
+  )
+
   return (
     <div className="space-y-6">
-      {invoices.length === 0 ? (
+      {can.manageEngagements && !creating && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
+          >
+            + New Invoice
+          </button>
+        </div>
+      )}
+
+      {creating && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">New Sales Invoice</h3>
+          <p className="text-xs text-gray-400 -mt-2">Creating directly — this won't be linked to a Sales Order</p>
+          {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
+              <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
+                <option value="">Select customer</option>
+                {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
+              <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-1">
+              <div className="col-span-4">Description</div>
+              <div className="col-span-1">Qty</div>
+              <div className="col-span-2">Unit price (£)</div>
+              <div className="col-span-2">Income account</div>
+              <div className="col-span-2">VAT rate</div>
+              <div className="col-span-1"></div>
+            </div>
+            {lines.map((line, index) => {
+              const { net, vatAmount } = lineAmounts(line)
+              return (
+                <div key={index}>
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <input
+                      type="text"
+                      value={line.description}
+                      onChange={(e) => updateLine(index, 'description', e.target.value)}
+                      placeholder="Item or service"
+                      className="col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <input
+                      type="number"
+                      value={line.quantity}
+                      onChange={(e) => updateLine(index, 'quantity', e.target.value)}
+                      className="col-span-1 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <input
+                      type="number"
+                      value={line.unit_price}
+                      onChange={(e) => updateLine(index, 'unit_price', e.target.value)}
+                      placeholder="0.00"
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <select
+                      value={line.income_account_id}
+                      onChange={(e) => updateLine(index, 'income_account_id', e.target.value)}
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    >
+                      <option value="">Account</option>
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                    </select>
+                    <select
+                      value={line.vat_rate_id}
+                      onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    >
+                      <option value="">No VAT</option>
+                      {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                    </select>
+                    <button
+                      onClick={() => removeLine(index)}
+                      disabled={lines.length <= 1}
+                      className="col-span-1 text-red-400 hover:text-red-600 text-xs disabled:opacity-30"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {(net > 0) && (
+                    <p className="text-xs text-gray-400 pl-1 mt-0.5">
+                      Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <button onClick={addLine} className="text-xs text-brand-dark font-medium hover:underline">
+            + Add line
+          </button>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
+          </div>
+
+          <div className="bg-gray-50 rounded-xl p-4 flex justify-end gap-6 text-sm">
+            <div><span className="text-gray-500">Subtotal: </span><span className="font-semibold text-brand-dark">£{subtotal.toFixed(2)}</span></div>
+            <div><span className="text-gray-500">VAT: </span><span className="font-semibold text-brand-dark">£{vatTotal.toFixed(2)}</span></div>
+            <div><span className="text-gray-500">Total: </span><span className="font-semibold text-brand-dark">£{total.toFixed(2)}</span></div>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={handleCreate} disabled={saving}
+              className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
+              {saving ? 'Saving...' : 'Save as draft'}
+            </button>
+            <button onClick={() => { setCreating(false); resetForm() }}
+              className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {invoices.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
           <p className="text-gray-500 text-sm mb-2">No invoices yet</p>
-          <p className="text-gray-400 text-xs">Convert an accepted Sales Order to create one</p>
+          <p className="text-gray-400 text-xs">Create one directly, or convert an accepted Sales Order</p>
         </div>
-      ) : (
+      ) : !creating && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
           <table className="w-full">
             <thead>
