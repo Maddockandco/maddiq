@@ -113,7 +113,7 @@ export default function Reports({ clientId }: { clientId: string }) {
           const linesForInvoice = (invoiceLines || []).filter((l: any) => l.invoice_id === alloc.invoice_id)
 
           for (const line of linesForInvoice) {
-            const acc = line.chart_of_accounts
+            const acc: any = Array.isArray(line.chart_of_accounts) ? line.chart_of_accounts[0] : line.chart_of_accounts
             if (!acc) continue
             const key = line.income_account_id || 'unmapped'
             const cashAmount = parseFloat(line.line_total) * proportion
@@ -153,7 +153,7 @@ export default function Reports({ clientId }: { clientId: string }) {
           const linesForBill = (billLines || []).filter((l: any) => l.bill_id === alloc.bill_id)
 
           for (const line of linesForBill) {
-            const acc = line.chart_of_accounts
+            const acc: any = Array.isArray(line.chart_of_accounts) ? line.chart_of_accounts[0] : line.chart_of_accounts
             if (!acc) continue
             const key = line.expense_account_id || 'unmapped'
             const cashAmount = parseFloat(line.line_total) * proportion
