@@ -64,6 +64,7 @@ export default function AccountingLayout({
   const purchasesSubPages = [
     { href: `${basePath}/purchase-orders`, label: 'Purchase Orders' },
     { href: `${basePath}/purchase-bills`, label: 'Purchase Bills' },
+    { href: `${basePath}/purchase-payments`, label: 'Payments' },
   ]
 
   const accountingSubPages = [
