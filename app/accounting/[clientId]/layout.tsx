@@ -19,8 +19,10 @@ export default function AccountingLayout({
 
   const [clientName, setClientName] = useState('')
   const [salesDropdownOpen, setSalesDropdownOpen] = useState(false)
+  const [purchasesDropdownOpen, setPurchasesDropdownOpen] = useState(false)
   const [accountingDropdownOpen, setAccountingDropdownOpen] = useState(false)
   const salesDropdownRef = useRef<HTMLDivElement>(null)
+  const purchasesDropdownRef = useRef<HTMLDivElement>(null)
   const accountingDropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -40,6 +42,9 @@ export default function AccountingLayout({
       if (salesDropdownRef.current && !salesDropdownRef.current.contains(e.target as Node)) {
         setSalesDropdownOpen(false)
       }
+      if (purchasesDropdownRef.current && !purchasesDropdownRef.current.contains(e.target as Node)) {
+        setPurchasesDropdownOpen(false)
+      }
       if (accountingDropdownRef.current && !accountingDropdownRef.current.contains(e.target as Node)) {
         setAccountingDropdownOpen(false)
       }
@@ -56,6 +61,10 @@ export default function AccountingLayout({
     { href: `${basePath}/sales-receipts`, label: 'Receipts' },
   ]
 
+  const purchasesSubPages = [
+    { href: `${basePath}/purchase-orders`, label: 'Purchase Orders' },
+  ]
+
   const accountingSubPages = [
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
@@ -63,6 +72,7 @@ export default function AccountingLayout({
   ]
 
   const isOnSalesSubPage = salesSubPages.some((p) => pathname === p.href)
+  const isOnPurchasesSubPage = purchasesSubPages.some((p) => pathname === p.href)
   const isOnAccountingSubPage = accountingSubPages.some((p) => pathname === p.href)
 
   const tabClass = (active: boolean) =>
@@ -122,6 +132,8 @@ export default function AccountingLayout({
           </button>
 
           {renderDropdown('Sales', salesDropdownOpen, setSalesDropdownOpen, salesDropdownRef, isOnSalesSubPage, salesSubPages)}
+
+          {renderDropdown('Purchases', purchasesDropdownOpen, setPurchasesDropdownOpen, purchasesDropdownRef, isOnPurchasesSubPage, purchasesSubPages)}
 
           {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
 
