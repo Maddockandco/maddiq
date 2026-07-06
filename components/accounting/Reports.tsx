@@ -94,7 +94,7 @@ export default function Reports({ clientId }: { clientId: string }) {
 
       if (salesErr) throw salesErr
 
-      const invoiceIds = [...new Set((salesAllocs || []).map((a: any) => a.invoice_id))]
+      const invoiceIds = Array.from(new Set((salesAllocs || []).map((a: any) => a.invoice_id)))
       const incomeByAccount: Record<string, AccountLine> = {}
 
       if (invoiceIds.length > 0) {
@@ -134,7 +134,7 @@ export default function Reports({ clientId }: { clientId: string }) {
 
       if (purchaseErr) throw purchaseErr
 
-      const billIds = [...new Set((purchaseAllocs || []).map((a: any) => a.bill_id))]
+      const billIds = Array.from(new Set((purchaseAllocs || []).map((a: any) => a.bill_id)))
       const expenseByAccount: Record<string, AccountLine> = {}
 
       if (billIds.length > 0) {
