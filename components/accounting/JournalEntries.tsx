@@ -11,11 +11,22 @@ type LineDraft = {
   description: string
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  manual: 'Manual',
+  sales_invoice: 'Sales Invoice',
+  sales_invoice_void: 'Invoice Void',
+  purchase_bill: 'Purchase Bill',
+  purchase_bill_void: 'Bill Void',
+  sales_receipt: 'Receipt',
+  purchase_payment: 'Payment',
+}
+
 export default function JournalEntries({ clientId }: { clientId: string }) {
   const [entries, setEntries] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0])
   const [reference, setReference] = useState('')
   const [description, setDescription] = useState('')
@@ -30,14 +41,20 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   const { can } = useRole()
   const supabase = createClient()
 
-  useEffect(() => { fetchData() }, [clientId])
+  useEffect(() => { fetchData() }, [clientId, showAll])
 
   async function fetchData() {
-    const entriesResult = await supabase
+    let query = supabase
       .from('journal_entries')
       .select('*')
       .eq('client_id', clientId)
       .order('entry_date', { ascending: false })
+
+    if (!showAll) {
+      query = query.eq('source', 'manual')
+    }
+
+    const entriesResult = await query
 
     const accountsResult = await supabase
       .from('chart_of_accounts')
@@ -51,9 +68,6 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     setLoading(false)
   }
 
-  // Fire-and-forget audit log call. Never blocks or fails the main action —
-  // if the log write fails we surface it in the console only, since a
-  // missing audit row shouldn't stop an accountant from doing their job.
   async function logAudit(params: {
     entityType: string
     entityId: string
@@ -162,7 +176,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       entityId: entry.id,
       action: 'posted',
       newData: { ...entry, lines: insertedLines },
-      description: `Posted journal entry${reference ? ` "${reference}"` : ''} dated ${new Date(entryDate).toLocaleDateString('en-GB')} — ${validLines.length} lines, £${totalDebit.toFixed(2)} total${description ? `: ${description}` : ''}`,
+      description: `Posted manual journal entry${reference ? ` "${reference}"` : ''} dated ${new Date(entryDate).toLocaleDateString('en-GB')} — ${validLines.length} lines, £${totalDebit.toFixed(2)} total${description ? `: ${description}` : ''}`,
     })
 
     setCreating(false)
@@ -209,16 +223,24 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
-      {can.manageEngagements && !creating && (
-        <div className="flex justify-end">
+      <div className="bg-blue-50 text-blue-700 text-xs rounded-lg px-4 py-3">
+        This screen is for manual entries only — adjustments, accruals, prepayments, and year-end corrections. Postings from invoices, bills, receipts, and payments are managed on their own screens and won't clutter this list unless you choose to show them below.
+      </div>
+
+      <div className="flex justify-between items-center">
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="rounded" />
+          Show system-generated postings too
+        </label>
+        {can.manageEngagements && !creating && (
           <button
             onClick={() => setCreating(true)}
             className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
           >
             + New Journal Entry
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
@@ -232,11 +254,11 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Reference</label>
-              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="INV-001" className={inputClass} />
+              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. YE-ADJ-001" className={inputClass} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-              <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Purchase of materials" className={inputClass} />
+              <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Accrued year-end expenses" className={inputClass} />
             </div>
           </div>
 
@@ -322,7 +344,9 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
 
       {entries.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm">No journal entries posted yet</p>
+          <p className="text-gray-500 text-sm">
+            {showAll ? 'No journal entries posted yet' : 'No manual journal entries yet — check "Show system-generated postings" to see automatic postings from invoices, bills, receipts, and payments'}
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -338,7 +362,10 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
                     {entry.reference && <span className="text-gray-400 font-normal ml-2">({entry.reference})</span>}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {new Date(entry.entry_date).toLocaleDateString('en-GB')} · {entry.source}
+                    {new Date(entry.entry_date).toLocaleDateString('en-GB')} ·{' '}
+                    <span className={entry.source === 'manual' ? 'text-brand-dark font-medium' : ''}>
+                      {SOURCE_LABELS[entry.source] || entry.source}
+                    </span>
                   </p>
                 </div>
                 <span className="text-xs text-gray-400">{expandedId === entry.id ? '▲' : '▼'}</span>
