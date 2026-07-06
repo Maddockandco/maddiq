@@ -53,6 +53,7 @@ export default function AccountingLayout({
   const salesSubPages = [
     { href: `${basePath}/sales-orders`, label: 'Sales Orders' },
     { href: `${basePath}/sales-invoices`, label: 'Sales Invoices' },
+    { href: `${basePath}/sales-receipts`, label: 'Receipts' },
   ]
 
   const accountingSubPages = [
