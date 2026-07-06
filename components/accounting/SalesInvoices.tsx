@@ -37,7 +37,13 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [postingId, setPostingId] = useState<string | null>(null)
   const [postError, setPostError] = useState<Record<string, string>>({})
 
+  const [voidingId, setVoidingId] = useState<string | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [voiding, setVoiding] = useState(false)
+  const [voidError, setVoidError] = useState<Record<string, string>>({})
+
   const [creating, setCreating] = useState(false)
+  const [replacesInvoiceId, setReplacesInvoiceId] = useState<string | null>(null)
   const [contactId, setContactId] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
@@ -106,6 +112,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
+    setReplacesInvoiceId(null)
   }
 
   function handleContactChange(id: string) {
@@ -113,6 +120,17 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     const contact = contacts.find((c) => c.id === id)
     const terms = contact?.payment_terms_days ?? 30
     setDueDate(addDays(invoiceDate, terms))
+  }
+
+  function openCorrectedInvoice(voidedInvoice: any) {
+    resetForm()
+    setContactId(voidedInvoice.contact_id)
+    const terms = contacts.find((c) => c.id === voidedInvoice.contact_id)?.payment_terms_days ?? 30
+    const today = new Date().toISOString().split('T')[0]
+    setInvoiceDate(today)
+    setDueDate(addDays(today, terms))
+    setReplacesInvoiceId(voidedInvoice.id)
+    setCreating(true)
   }
 
   async function handleCreate() {
@@ -155,6 +173,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         total,
         notes: notes || null,
         created_by: user!.id,
+        replaces_invoice_id: replacesInvoiceId,
       })
       .select()
       .single()
@@ -201,6 +220,36 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     fetchData()
   }
 
+  function openVoid(invoiceId: string) {
+    setVoidReason('')
+    setVoidError((prev) => ({ ...prev, [invoiceId]: '' }))
+    setVoidingId(invoiceId)
+  }
+
+  async function handleVoid(invoiceId: string) {
+    if (!voidReason.trim()) {
+      setVoidError((prev) => ({ ...prev, [invoiceId]: 'A reason is required' }))
+      return
+    }
+    setVoiding(true)
+    setVoidError((prev) => ({ ...prev, [invoiceId]: '' }))
+
+    const { error: voidErr } = await supabase.rpc('void_sales_invoice', {
+      p_invoice_id: invoiceId,
+      p_reason: voidReason.trim(),
+    })
+
+    if (voidErr) {
+      setVoidError((prev) => ({ ...prev, [invoiceId]: voidErr.message }))
+      setVoiding(false)
+      return
+    }
+
+    setVoidingId(null)
+    setVoiding(false)
+    fetchData()
+  }
+
   const { subtotal, vatTotal, total } = calculateTotals()
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
 
@@ -222,7 +271,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       {can.manageEngagements && !creating && (
         <div className="flex justify-end">
           <button
-            onClick={() => setCreating(true)}
+            onClick={() => { resetForm(); setCreating(true) }}
             className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
           >
             + New Invoice
@@ -232,8 +281,14 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">New Sales Invoice</h3>
-          <p className="text-xs text-gray-400 -mt-2">Creating directly — this won't be linked to a Sales Order</p>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
+            {replacesInvoiceId ? 'Corrected Invoice' : 'New Sales Invoice'}
+          </h3>
+          <p className="text-xs text-gray-400 -mt-2">
+            {replacesInvoiceId
+              ? 'This will be linked as a correction to the voided invoice'
+              : "Creating directly — this won't be linked to a Sales Order"}
+          </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -374,7 +429,10 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
               {invoices.map((inv) => (
                 <>
                   <tr key={inv.id} className="border-b border-gray-100">
-                    <td className="px-6 py-3 text-sm font-mono text-gray-600">{inv.invoice_number}</td>
+                    <td className="px-6 py-3 text-sm font-mono text-gray-600">
+                      {inv.invoice_number}
+                      {inv.replaces_invoice_id && <span className="block text-xs text-gray-400">corrects a voided invoice</span>}
+                    </td>
                     <td className="px-6 py-3 text-sm font-medium text-brand-dark">{inv.contacts?.name}</td>
                     <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</td>
                     <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.due_date).toLocaleDateString('en-GB')}</td>
@@ -384,8 +442,11 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                       <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[inv.status]}`}>
                         {inv.status.replace(/_/g, ' ')}
                       </span>
+                      {inv.status === 'void' && inv.voided_reason && (
+                        <span className="block text-xs text-gray-400 mt-0.5">{inv.voided_reason}</span>
+                      )}
                     </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
                       {can.manageEngagements && inv.status === 'draft' && (
                         <button
                           onClick={() => handlePost(inv.id)}
@@ -395,7 +456,23 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                           {postingId === inv.id ? 'Posting...' : 'Post to ledger'}
                         </button>
                       )}
-                      {inv.journal_entry_id && inv.status !== 'draft' && (
+                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
+                        <button
+                          onClick={() => openVoid(inv.id)}
+                          className="text-xs bg-red-50 text-red-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100 transition"
+                        >
+                          Void
+                        </button>
+                      )}
+                      {can.manageEngagements && inv.status === 'void' && (
+                        <button
+                          onClick={() => openCorrectedInvoice(inv)}
+                          className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition"
+                        >
+                          Create corrected invoice
+                        </button>
+                      )}
+                      {inv.journal_entry_id && !['draft', 'void'].includes(inv.status) && (
                         <span className="text-xs text-gray-400">Posted ✓</span>
                       )}
                     </td>
@@ -409,6 +486,35 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                             Go to the Accounting → Settings tab and map all six control accounts before posting invoices.
                           </p>
                         )}
+                      </td>
+                    </tr>
+                  )}
+                  {voidingId === inv.id && (
+                    <tr className="bg-red-50">
+                      <td colSpan={8} className="px-6 py-4">
+                        <div className="flex items-end gap-4 flex-wrap">
+                          <div className="flex-1 min-w-[240px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Reason for voiding</label>
+                            <input
+                              type="text"
+                              value={voidReason}
+                              onChange={(e) => setVoidReason(e.target.value)}
+                              placeholder="e.g. Incorrect amount, wrong customer"
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                            />
+                            {voidError[inv.id] && <p className="text-red-600 text-xs mt-1">{voidError[inv.id]}</p>}
+                          </div>
+                          <button
+                            onClick={() => handleVoid(inv.id)}
+                            disabled={voiding}
+                            className="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
+                          >
+                            {voiding ? 'Voiding...' : 'Confirm void'}
+                          </button>
+                          <button onClick={() => setVoidingId(null)} className="text-sm text-gray-500 hover:underline">
+                            Cancel
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )}
