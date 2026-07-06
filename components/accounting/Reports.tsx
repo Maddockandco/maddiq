@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet'
+type Basis = 'accruals' | 'cash'
 
 const ASSET_TYPES = ['bank', 'current_asset', 'fixed_asset', 'inventory', 'non_current_asset', 'prepayment']
 const LIABILITY_TYPES = ['current_liability', 'non_current_liability', 'liability']
@@ -29,20 +30,31 @@ function today() {
   return new Date().toISOString().split('T')[0]
 }
 
+type AccountLine = { code: string; name: string; amount: number }
+
 export default function Reports({ clientId }: { clientId: string }) {
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
+  const [basis, setBasis] = useState<Basis>('accruals')
   const [asOfDate, setAsOfDate] = useState(today())
   const [periodStart, setPeriodStart] = useState(firstDayOfYear())
   const [periodEnd, setPeriodEnd] = useState(today())
   const [lines, setLines] = useState<any[]>([])
+  const [cashIncome, setCashIncome] = useState<AccountLine[]>([])
+  const [cashExpenses, setCashExpenses] = useState<AccountLine[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const supabase = createClient()
 
-  useEffect(() => { fetchLines() }, [clientId, reportType, asOfDate, periodStart, periodEnd])
+  useEffect(() => {
+    if (reportType === 'profit_loss' && basis === 'cash') {
+      fetchCashBasisPL()
+    } else {
+      fetchLedgerLines()
+    }
+  }, [clientId, reportType, basis, asOfDate, periodStart, periodEnd])
 
-  async function fetchLines() {
+  async function fetchLedgerLines() {
     setLoading(true)
     setError('')
 
@@ -64,6 +76,99 @@ export default function Reports({ clientId }: { clientId: string }) {
       setLines([])
     } else {
       setLines(data || [])
+    }
+    setLoading(false)
+  }
+
+  async function fetchCashBasisPL() {
+    setLoading(true)
+    setError('')
+
+    try {
+      const { data: salesAllocs, error: salesErr } = await supabase
+        .from('sales_receipt_allocations')
+        .select('amount_allocated, invoice_id, sales_receipts!inner(receipt_date, client_id)')
+        .eq('sales_receipts.client_id', clientId)
+        .gte('sales_receipts.receipt_date', periodStart)
+        .lte('sales_receipts.receipt_date', periodEnd)
+
+      if (salesErr) throw salesErr
+
+      const invoiceIds = [...new Set((salesAllocs || []).map((a: any) => a.invoice_id))]
+      const incomeByAccount: Record<string, AccountLine> = {}
+
+      if (invoiceIds.length > 0) {
+        const { data: invoices } = await supabase.from('sales_invoices').select('id, total').in('id', invoiceIds)
+        const { data: invoiceLines } = await supabase
+          .from('sales_invoice_lines')
+          .select('invoice_id, income_account_id, line_total, chart_of_accounts(code, name)')
+          .in('invoice_id', invoiceIds)
+
+        const invoiceMap = new Map((invoices || []).map((i: any) => [i.id, i]))
+
+        for (const alloc of salesAllocs || []) {
+          const invoice = invoiceMap.get(alloc.invoice_id)
+          if (!invoice || parseFloat(invoice.total) === 0) continue
+          const proportion = parseFloat(alloc.amount_allocated) / parseFloat(invoice.total)
+          const linesForInvoice = (invoiceLines || []).filter((l: any) => l.invoice_id === alloc.invoice_id)
+
+          for (const line of linesForInvoice) {
+            const acc = line.chart_of_accounts
+            if (!acc) continue
+            const key = line.income_account_id || 'unmapped'
+            const cashAmount = parseFloat(line.line_total) * proportion
+            if (!incomeByAccount[key]) {
+              incomeByAccount[key] = { code: acc.code, name: acc.name, amount: 0 }
+            }
+            incomeByAccount[key].amount += cashAmount
+          }
+        }
+      }
+
+      const { data: purchaseAllocs, error: purchaseErr } = await supabase
+        .from('purchase_payment_allocations')
+        .select('amount_allocated, bill_id, purchase_payments!inner(payment_date, client_id)')
+        .eq('purchase_payments.client_id', clientId)
+        .gte('purchase_payments.payment_date', periodStart)
+        .lte('purchase_payments.payment_date', periodEnd)
+
+      if (purchaseErr) throw purchaseErr
+
+      const billIds = [...new Set((purchaseAllocs || []).map((a: any) => a.bill_id))]
+      const expenseByAccount: Record<string, AccountLine> = {}
+
+      if (billIds.length > 0) {
+        const { data: bills } = await supabase.from('purchase_bills').select('id, total').in('id', billIds)
+        const { data: billLines } = await supabase
+          .from('purchase_bill_lines')
+          .select('bill_id, expense_account_id, line_total, chart_of_accounts(code, name)')
+          .in('bill_id', billIds)
+
+        const billMap = new Map((bills || []).map((b: any) => [b.id, b]))
+
+        for (const alloc of purchaseAllocs || []) {
+          const bill = billMap.get(alloc.bill_id)
+          if (!bill || parseFloat(bill.total) === 0) continue
+          const proportion = parseFloat(alloc.amount_allocated) / parseFloat(bill.total)
+          const linesForBill = (billLines || []).filter((l: any) => l.bill_id === alloc.bill_id)
+
+          for (const line of linesForBill) {
+            const acc = line.chart_of_accounts
+            if (!acc) continue
+            const key = line.expense_account_id || 'unmapped'
+            const cashAmount = parseFloat(line.line_total) * proportion
+            if (!expenseByAccount[key]) {
+              expenseByAccount[key] = { code: acc.code, name: acc.name, amount: 0 }
+            }
+            expenseByAccount[key].amount += cashAmount
+          }
+        }
+      }
+
+      setCashIncome(Object.values(incomeByAccount).sort((a, b) => a.code.localeCompare(b.code)))
+      setCashExpenses(Object.values(expenseByAccount).sort((a, b) => a.code.localeCompare(b.code)))
+    } catch (e: any) {
+      setError(e.message || 'Failed to calculate cash basis report')
     }
     setLoading(false)
   }
@@ -145,10 +250,14 @@ export default function Reports({ clientId }: { clientId: string }) {
   }
 
   function renderProfitLoss() {
-    const income = accountBalances(INCOME_TYPES)
-    const expenses = accountBalances(EXPENSE_TYPES)
-    const incomeTotal = income.reduce((sum, a) => sum + (a.credit - a.debit), 0)
-    const expenseTotal = expenses.reduce((sum, a) => sum + (a.debit - a.credit), 0)
+    const income = basis === 'cash'
+      ? cashIncome.map(a => ({ code: a.code, name: a.name, value: a.amount }))
+      : accountBalances(INCOME_TYPES).map(a => ({ code: a.code, name: a.name, value: a.credit - a.debit }))
+    const expenses = basis === 'cash'
+      ? cashExpenses.map(a => ({ code: a.code, name: a.name, value: a.amount }))
+      : accountBalances(EXPENSE_TYPES).map(a => ({ code: a.code, name: a.name, value: a.debit - a.credit }))
+    const incomeTotal = income.reduce((sum, a) => sum + a.value, 0)
+    const expenseTotal = expenses.reduce((sum, a) => sum + a.value, 0)
     const netProfit = incomeTotal - expenseTotal
 
     return (
@@ -156,13 +265,13 @@ export default function Reports({ clientId }: { clientId: string }) {
         <div>
           <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">Income</p>
           {income.length === 0 ? (
-            <p className="text-sm text-gray-400">No income recorded in this period</p>
+            <p className="text-sm text-gray-400">No income {basis === 'cash' ? 'received' : 'recorded'} in this period</p>
           ) : (
             <div className="space-y-1">
               {income.map((row) => (
                 <div key={row.code} className="flex justify-between text-sm">
                   <span className="text-gray-600">{row.code} — {row.name}</span>
-                  <span className="font-medium text-brand-dark">£{(row.credit - row.debit).toFixed(2)}</span>
+                  <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -176,13 +285,13 @@ export default function Reports({ clientId }: { clientId: string }) {
         <div>
           <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">Expenses</p>
           {expenses.length === 0 ? (
-            <p className="text-sm text-gray-400">No expenses recorded in this period</p>
+            <p className="text-sm text-gray-400">No expenses {basis === 'cash' ? 'paid' : 'recorded'} in this period</p>
           ) : (
             <div className="space-y-1">
               {expenses.map((row) => (
                 <div key={row.code} className="flex justify-between text-sm">
                   <span className="text-gray-600">{row.code} — {row.name}</span>
-                  <span className="font-medium text-brand-dark">£{(row.debit - row.credit).toFixed(2)}</span>
+                  <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -211,18 +320,6 @@ export default function Reports({ clientId }: { clientId: string }) {
     const assetTotal = assets.reduce((sum, a) => sum + (a.debit - a.credit), 0)
     const liabilityTotal = liabilities.reduce((sum, a) => sum + (a.credit - a.debit), 0)
     const equityTotal = equity.reduce((sum, a) => sum + (a.credit - a.debit), 0)
-    const retainedEarnings = calculateNetProfit() - (incomeExpenseWithinBalanceSheetPeriod())
-
-    // Net profit up to the as-of date, treated as unallocated retained earnings for a live/unclosed ledger
-    function incomeExpenseWithinBalanceSheetPeriod() {
-      // This is intentionally 0 here — calculateNetProfit() above already reflects
-      // all income/expense lines up to asOfDate since lines are fetched with that filter
-      // when reportType is not 'profit_loss'. Kept as a named function for clarity.
-      return 0
-    }
-
-    const totalEquityWithRetained = equityTotal + retainedEarnings
-    const totalLiabilitiesAndEquity = liabilityTotal + totalEquityWithRetained
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
@@ -314,7 +411,21 @@ export default function Reports({ clientId }: { clientId: string }) {
         </div>
 
         {reportType === 'profit_loss' ? (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setBasis('accruals')}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${basis === 'accruals' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+              >
+                Accruals
+              </button>
+              <button
+                onClick={() => setBasis('cash')}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${basis === 'cash' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+              >
+                Cash basis
+              </button>
+            </div>
             <label className="text-xs text-gray-500">From</label>
             <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className={inputClass} />
             <label className="text-xs text-gray-500">To</label>
@@ -327,6 +438,12 @@ export default function Reports({ clientId }: { clientId: string }) {
           </div>
         )}
       </div>
+
+      {reportType === 'profit_loss' && basis === 'cash' && (
+        <div className="bg-blue-50 text-blue-700 text-xs rounded-lg px-4 py-3">
+          Cash basis recognizes income when received and expenses when paid, based on Receipts and Payments — not invoice/bill dates. Trial Balance and Balance Sheet always reflect the full accruals ledger, since that's what the underlying double-entry books actually are.
+        </div>
+      )}
 
       {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
