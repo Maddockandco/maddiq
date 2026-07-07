@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 type LineDraft = {
   account_id: string
@@ -213,7 +214,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Conversion date</label>
-            <input type="date" value={conversionDate} onChange={(e) => setConversionDate(e.target.value)} className={`${inputClass} max-w-xs`} />
+            <DatePicker value={conversionDate} onChange={setConversionDate} className="max-w-xs" />
           </div>
 
           <div className="space-y-2">
