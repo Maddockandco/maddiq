@@ -70,6 +70,7 @@ export default function AccountingLayout({
   const accountingSubPages = [
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
+    { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
 
