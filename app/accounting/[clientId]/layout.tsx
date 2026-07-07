@@ -71,6 +71,7 @@ export default function AccountingLayout({
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
     { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
+    { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
 
