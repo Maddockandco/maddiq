@@ -217,6 +217,13 @@ export default function Reports({ clientId }: { clientId: string }) {
     return Object.values(balances).sort((a, b) => a.code.localeCompare(b.code))
   }
 
+  function getUncategorizedAccounts() {
+    return allAccountBalances().filter((row) => {
+      const net = row.debit - row.credit
+      return categoryOf(row.account_type) === 'other' && Math.abs(net) > 0.005
+    })
+  }
+
   function calculateNetProfit() {
     const income = accountBalances('income').reduce((sum, a) => sum + (a.credit - a.debit), 0)
     const expenses = accountBalances('expense').reduce((sum, a) => sum + (a.debit - a.credit), 0)
@@ -469,6 +476,22 @@ export default function Reports({ clientId }: { clientId: string }) {
       {reportType === 'profit_loss' && basis === 'cash' && (
         <div className="bg-blue-50 text-blue-700 text-xs rounded-lg px-4 py-3">
           Cash basis recognizes income when received and expenses when paid, based on Receipts and Payments — not invoice/bill dates. Trial Balance and Balance Sheet always reflect the full accruals ledger, since that's what the underlying double-entry books actually are.
+        </div>
+      )}
+
+      {!loading && !(reportType === 'profit_loss' && basis === 'cash') && getUncategorizedAccounts().length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+          <p className="text-red-700 text-sm font-semibold mb-1">⚠ Uncategorized accounts detected</p>
+          <p className="text-red-600 text-xs mb-2">
+            The following accounts have balances but their type doesn't match a known category (Asset/Liability/Equity/Income/Expense), so they're excluded from Balance Sheet and P&L totals. Fix their Type in Chart of Accounts to resolve this.
+          </p>
+          <ul className="text-xs text-red-600 space-y-0.5">
+            {getUncategorizedAccounts().map((row) => (
+              <li key={row.code}>
+                <span className="font-mono">{row.code}</span> — {row.name} (type: "{row.account_type}", balance: £{(row.debit - row.credit).toFixed(2)})
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
