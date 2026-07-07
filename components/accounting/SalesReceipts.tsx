@@ -23,6 +23,11 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const [voidingId, setVoidingId] = useState<string | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [voiding, setVoiding] = useState(false)
+  const [voidError, setVoidError] = useState<Record<string, string>>({})
+
   const { can } = useRole()
   const supabase = createClient()
 
@@ -143,6 +148,36 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
     resetForm()
     fetchData()
     setSaving(false)
+  }
+
+  function openVoid(receiptId: string) {
+    setVoidReason('')
+    setVoidError((prev) => ({ ...prev, [receiptId]: '' }))
+    setVoidingId(receiptId)
+  }
+
+  async function handleVoid(receiptId: string) {
+    if (!voidReason.trim()) {
+      setVoidError((prev) => ({ ...prev, [receiptId]: 'A reason is required' }))
+      return
+    }
+    setVoiding(true)
+    setVoidError((prev) => ({ ...prev, [receiptId]: '' }))
+
+    const { error: voidErr } = await supabase.rpc('void_sales_receipt', {
+      p_receipt_id: receiptId,
+      p_reason: voidReason.trim(),
+    })
+
+    if (voidErr) {
+      setVoidError((prev) => ({ ...prev, [receiptId]: voidErr.message }))
+      setVoiding(false)
+      return
+    }
+
+    setVoidingId(null)
+    setVoiding(false)
+    fetchData()
   }
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -297,17 +332,63 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Method</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Reference</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Amount</th>
+                <th className="px-6 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {receipts.map((r) => (
-                <tr key={r.id} className="border-b border-gray-100">
-                  <td className="px-6 py-3 text-sm text-gray-500">{new Date(r.receipt_date).toLocaleDateString('en-GB')}</td>
-                  <td className="px-6 py-3 text-sm font-medium text-brand-dark">{r.contacts?.name}</td>
-                  <td className="px-6 py-3 text-sm text-gray-500 capitalize">{r.payment_method?.replace(/_/g, ' ')}</td>
-                  <td className="px-6 py-3 text-sm text-gray-500">{r.reference || '—'}</td>
-                  <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(r.amount).toFixed(2)}</td>
-                </tr>
+                <>
+                  <tr key={r.id} className={`border-b border-gray-100 ${r.voided ? 'opacity-50' : ''}`}>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(r.receipt_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{r.contacts?.name}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500 capitalize">{r.payment_method?.replace(/_/g, ' ')}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{r.reference || '—'}</td>
+                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(r.amount).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-right">
+                      {r.voided ? (
+                        <span className="text-xs bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full font-medium">Voided</span>
+                      ) : can.manageEngagements ? (
+                        <button onClick={() => openVoid(r.id)} className="text-xs bg-red-50 text-red-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100 transition">
+                          Void
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                  {r.voided && r.voided_reason && (
+                    <tr>
+                      <td colSpan={6} className="px-6 pb-2 text-xs text-gray-400">Voided: {r.voided_reason}</td>
+                    </tr>
+                  )}
+                  {voidingId === r.id && (
+                    <tr className="bg-red-50">
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className="flex items-end gap-4 flex-wrap">
+                          <div className="flex-1 min-w-[240px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Reason for voiding</label>
+                            <input
+                              type="text"
+                              value={voidReason}
+                              onChange={(e) => setVoidReason(e.target.value)}
+                              placeholder="e.g. Recorded against wrong invoice"
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                            />
+                            {voidError[r.id] && <p className="text-red-600 text-xs mt-1">{voidError[r.id]}</p>}
+                          </div>
+                          <button
+                            onClick={() => handleVoid(r.id)}
+                            disabled={voiding}
+                            className="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
+                          >
+                            {voiding ? 'Voiding...' : 'Confirm void'}
+                          </button>
+                          <button onClick={() => setVoidingId(null)} className="text-sm text-gray-500 hover:underline">
+                            Cancel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               ))}
             </tbody>
           </table>
