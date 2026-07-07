@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -55,6 +56,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [error, setError] = useState('')
 
   const { can } = useRole()
+  const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => { fetchData() }, [clientId])
@@ -431,7 +433,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                 <>
                   <tr key={bill.id} className="border-b border-gray-100">
                     <td className="px-6 py-3 text-sm font-mono text-gray-600">
-                      {bill.bill_number || '—'}
+                      <button
+                        onClick={() => router.push(`/accounting/${clientId}/purchase-bills/${bill.id}`)}
+                        className="text-brand-dark hover:underline font-semibold"
+                      >
+                        {bill.bill_number || 'View bill'}
+                      </button>
                       {bill.replaces_bill_id && <span className="block text-xs text-gray-400">corrects a voided bill</span>}
                     </td>
                     <td className="px-6 py-3 text-sm font-medium text-brand-dark">{bill.contacts?.name}</td>
