@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 type LineDraft = {
   account_id: string
@@ -65,10 +66,6 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .order('code', { ascending: true })
 
     if (entriesResult.data) setEntries(entriesResult.data)
-    // Bank-type accounts are excluded from manual journal entries — bank movements
-    // should only ever come from bank transactions/reconciliation, Receipts, or
-    // Payments, never a free-form manual entry. Opening balances are the one
-    // legitimate exception, handled by the separate Opening Balances screen.
     if (accountsResult.data) setAccounts(accountsResult.data.filter((a) => a.account_type !== 'bank'))
     setLoading(false)
   }
@@ -136,8 +133,6 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       return
     }
 
-    // Defense in depth: even though bank accounts are already excluded from the
-    // dropdown, double check no line somehow references one before saving.
     const accountIds = new Set(accounts.map((a) => a.id))
     const hasInvalidAccount = validLines.some((l) => !accountIds.has(l.account_id))
     if (hasInvalidAccount) {
@@ -265,7 +260,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-              <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className={inputClass} />
+              <DatePicker value={entryDate} onChange={setEntryDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Reference</label>
