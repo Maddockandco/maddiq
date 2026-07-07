@@ -21,6 +21,16 @@ export default function Sidebar() {
   const supabase = createClient()
   const { can, role } = useRole()
   const isRestricted = ['bookkeeper', 'payroll_manager'].includes(role || '')
+  // Accounting is available to everyone who might actually need to work in it day to day —
+  // Practice Owner, Practice Manager, Bookkeeper, Payroll Manager, and Client Manager.
+  // Admin Staff is the only role excluded, since they don't need access to financial postings.
+  const canAccessAccounting = [
+    'practice_owner',
+    'practice_manager',
+    'bookkeeper',
+    'payroll_manager',
+    'client_manager',
+  ].includes(role || '')
   async function handleLogout() {
     await supabase.auth.signOut()
     window.location.href = '/login'
@@ -38,7 +48,7 @@ export default function Sidebar() {
     { label: 'Tasks', href: '/tasks', icon: CheckSquare, show: true },
     { label: 'Deadlines', href: '/deadlines', icon: Calendar, show: true },
     { label: 'Documents', href: '/documents', icon: FileText, show: true },
-    { label: 'Accounting', href: '/accounting', icon: Calculator, show: true },
+    { label: 'Accounting', href: '/accounting', icon: Calculator, show: canAccessAccounting },
     { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
     { label: 'Quotes', href: '/quotes', icon: FileSignature, show: can.managePipeline },
     { label: 'Proposals', href: '/proposals', icon: FileCheck, show: can.managePipeline },
