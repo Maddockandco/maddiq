@@ -69,6 +69,7 @@ export default function AccountingLayout({
 
   const accountingSubPages = [
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
+    { href: `${basePath}/bank-transactions`, label: 'Bank Transactions' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
     { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
