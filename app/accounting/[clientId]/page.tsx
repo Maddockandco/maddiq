@@ -165,6 +165,12 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     fetchSummary()
   }
 
+  // Widgets spanning the full row (2 columns on md+) vs half-width (bank cards)
+  function widgetSpanClass(id: string) {
+    if (id.startsWith('bank-')) return 'col-span-1'
+    return 'col-span-1 md:col-span-2'
+  }
+
   const cards = [
     { label: 'Accounts set up', value: accountCount, path: '/chart-of-accounts', colour: 'bg-brand-dark', textColour: 'text-white' },
     { label: 'Journal entries posted', value: entryCount, path: '/journal-entries', colour: 'bg-brand-gold', textColour: 'text-brand-dark' },
@@ -173,17 +179,17 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   function renderWidget(id: string) {
     if (id === 'summary-cards') {
       return (
-        <div className="grid grid-cols-2 gap-4 max-w-2xl">
+        <div className="grid grid-cols-2 gap-4">
           {cards.map((card) => (
             <button
               key={card.label}
               onClick={() => router.push(`/accounting/${params.clientId}${card.path}`)}
-              className={`${card.colour} rounded-2xl p-6 shadow-sm text-left hover:shadow-md transition-shadow`}
+              className={`${card.colour} rounded-2xl p-5 shadow-sm text-left hover:shadow-md transition-shadow`}
             >
               <p className={`text-xs font-semibold uppercase tracking-wider ${card.textColour} opacity-60`}>
                 {card.label}
               </p>
-              <p className={`text-4xl font-bold mt-2 ${card.textColour}`}>
+              <p className={`text-3xl font-bold mt-1.5 ${card.textColour}`}>
                 {card.value}
               </p>
             </button>
@@ -194,9 +200,9 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
 
     if (id === 'recent-entries') {
       return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Recent Journal Entries</h3>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Recent Journal Entries</h3>
             <button
               onClick={() => router.push(`/accounting/${params.clientId}/journal-entries`)}
               className="text-xs text-brand-dark font-medium hover:underline"
@@ -206,11 +212,11 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
           </div>
 
           {recentEntries.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 text-sm mb-4">No journal entries posted yet</p>
+            <div className="text-center py-6">
+              <p className="text-gray-500 text-sm mb-3">No journal entries posted yet</p>
               <button
                 onClick={() => router.push(`/accounting/${params.clientId}/journal-entries`)}
-                className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
+                className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-xl text-xs hover:bg-opacity-90 transition"
               >
                 Post first entry
               </button>
@@ -218,7 +224,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
           ) : (
             <div className="space-y-1">
               {recentEntries.map((entry) => (
-                <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition">
+                <div key={entry.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50 transition">
                   <div>
                     <p className="text-sm font-medium text-brand-dark">
                       {entry.description || 'Journal entry'}
@@ -246,28 +252,26 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       const difference = statementBalance - bank.maddiqBalance
 
       return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-brand-dark">{bank.code} — {bank.name}</p>
-            </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-brand-dark truncate">{bank.code} — {bank.name}</p>
             {editingBankId !== bank.id && (
-              <button onClick={() => openEditBalance(bank)} className="text-xs text-brand-dark font-medium hover:underline">
-                Update statement balance
+              <button onClick={() => openEditBalance(bank)} className="text-xs text-brand-dark font-medium hover:underline flex-shrink-0 ml-2">
+                Edit
               </button>
             )}
           </div>
 
           {editingBankId === bank.id ? (
-            <div className="space-y-3 mb-4">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3 mb-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Statement balance (£)</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Balance (£)</label>
                   <input
                     type="number"
                     value={editBalance}
                     onChange={(e) => setEditBalance(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                   />
                 </div>
                 <div>
@@ -276,41 +280,41 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => saveStatementBalance(bank.id)} className="bg-brand-dark text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-opacity-90 transition">
+                <button onClick={() => saveStatementBalance(bank.id)} className="bg-brand-dark text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
                   Save
                 </button>
-                <button onClick={() => setEditingBankId(null)} className="text-xs text-gray-500 hover:underline px-2">
+                <button onClick={() => setEditingBankId(null)} className="text-xs text-gray-500 hover:underline px-1">
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex gap-6 mb-4">
+            <div className="flex gap-4 mb-3">
               <div>
-                <p className="text-2xl font-bold text-brand-dark">£{statementBalance.toFixed(2)}</p>
+                <p className="text-xl font-bold text-brand-dark">£{statementBalance.toFixed(2)}</p>
                 <p className="text-xs text-brand-dark/60">
-                  Statement balance {bank.statement_balance_date && `(${new Date(bank.statement_balance_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`}
+                  Statement {bank.statement_balance_date && `(${new Date(bank.statement_balance_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`}
                 </p>
               </div>
-              <div className="border-l border-gray-200 pl-6">
-                <p className="text-2xl font-bold text-brand-dark">£{bank.maddiqBalance.toFixed(2)}</p>
-                <p className="text-xs text-brand-dark/60">Balance in Maddiq</p>
+              <div className="border-l border-gray-200 pl-4">
+                <p className="text-xl font-bold text-brand-dark">£{bank.maddiqBalance.toFixed(2)}</p>
+                <p className="text-xs text-brand-dark/60">In Maddiq</p>
               </div>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+          <div className="flex items-center justify-between border-t border-gray-100 pt-3">
             <div>
-              <p className="text-xs text-gray-500">Balance difference</p>
+              <p className="text-xs text-gray-500">Difference</p>
               <p className={`text-sm font-semibold ${Math.abs(difference) < 0.01 ? 'text-green-700' : 'text-amber-600'}`}>
                 £{Math.abs(difference).toFixed(2)}
               </p>
             </div>
             <button
               onClick={() => router.push(`/accounting/${params.clientId}/bank-transactions`)}
-              className="bg-brand-gold text-brand-dark text-xs font-semibold px-4 py-2 rounded-lg hover:bg-opacity-90 transition"
+              className="bg-brand-gold text-brand-dark text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition whitespace-nowrap"
             >
-              {bank.unreconciledCount > 0 ? `Reconcile ${bank.unreconciledCount} item${bank.unreconciledCount === 1 ? '' : 's'}` : 'View account transactions'}
+              {bank.unreconciledCount > 0 ? `Reconcile ${bank.unreconciledCount}` : 'View transactions'}
             </button>
           </div>
         </div>
@@ -329,24 +333,26 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <p className="text-xs text-gray-400">Drag the handles to rearrange widgets — your layout is saved automatically.</p>
 
-      {widgetOrder.map((id) => (
-        <div
-          key={id}
-          draggable
-          onDragStart={() => handleDragStart(id)}
-          onDragOver={(e) => handleDragOver(e, id)}
-          onDragEnd={handleDragEnd}
-          className={`relative group ${draggedId === id ? 'opacity-40' : ''}`}
-        >
-          <div className="absolute -left-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
-            <GripVertical size={18} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {widgetOrder.map((id) => (
+          <div
+            key={id}
+            draggable
+            onDragStart={() => handleDragStart(id)}
+            onDragOver={(e) => handleDragOver(e, id)}
+            onDragEnd={handleDragEnd}
+            className={`relative group ${widgetSpanClass(id)} ${draggedId === id ? 'opacity-40' : ''}`}
+          >
+            <div className="absolute -left-6 top-4 opacity-0 group-hover:opacity-100 transition cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 z-10">
+              <GripVertical size={18} />
+            </div>
+            {renderWidget(id)}
           </div>
-          {renderWidget(id)}
-        </div>
-      ))}
+        ))}
+      </div>
 
       {accountCount === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
