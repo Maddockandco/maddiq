@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 type LineDraft = {
   description: string
@@ -126,9 +127,9 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     resetForm()
     setContactId(voidedInvoice.contact_id)
     const terms = contacts.find((c) => c.id === voidedInvoice.contact_id)?.payment_terms_days ?? 30
-    const today = new Date().toISOString().split('T')[0]
-    setInvoiceDate(today)
-    setDueDate(addDays(today, terms))
+    const todayStr = new Date().toISOString().split('T')[0]
+    setInvoiceDate(todayStr)
+    setDueDate(addDays(todayStr, terms))
     setReplacesInvoiceId(voidedInvoice.id)
     setCreating(true)
   }
@@ -301,11 +302,11 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
-              <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inputClass} />
+              <DatePicker value={invoiceDate} onChange={setInvoiceDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} />
+              <DatePicker value={dueDate} onChange={setDueDate} className="w-full" />
             </div>
           </div>
 
