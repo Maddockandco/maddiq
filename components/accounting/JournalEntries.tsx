@@ -13,6 +13,7 @@ type LineDraft = {
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: 'Manual',
+  opening_balance: 'Opening Balance',
   sales_invoice: 'Sales Invoice',
   sales_invoice_void: 'Invoice Void',
   purchase_bill: 'Purchase Bill',
@@ -64,7 +65,11 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .order('code', { ascending: true })
 
     if (entriesResult.data) setEntries(entriesResult.data)
-    if (accountsResult.data) setAccounts(accountsResult.data)
+    // Bank-type accounts are excluded from manual journal entries — bank movements
+    // should only ever come from bank transactions/reconciliation, Receipts, or
+    // Payments, never a free-form manual entry. Opening balances are the one
+    // legitimate exception, handled by the separate Opening Balances screen.
+    if (accountsResult.data) setAccounts(accountsResult.data.filter((a) => a.account_type !== 'bank'))
     setLoading(false)
   }
 
@@ -127,6 +132,16 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     const validLines = lines.filter((l) => l.account_id && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0))
     if (validLines.length < 2) {
       setError('At least two lines with an account and amount are required')
+      setSaving(false)
+      return
+    }
+
+    // Defense in depth: even though bank accounts are already excluded from the
+    // dropdown, double check no line somehow references one before saving.
+    const accountIds = new Set(accounts.map((a) => a.id))
+    const hasInvalidAccount = validLines.some((l) => !accountIds.has(l.account_id))
+    if (hasInvalidAccount) {
+      setError('One or more selected accounts are not valid for manual journal entries (bank accounts are not allowed here)')
       setSaving(false)
       return
     }
@@ -216,7 +231,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
 
   if (accounts.length === 0) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-      <p className="text-gray-500 text-sm mb-2">No accounts available</p>
+      <p className="text-gray-500 text-sm mb-2">No non-bank accounts available</p>
       <p className="text-gray-400 text-xs">Set up the Chart of Accounts first before posting journal entries</p>
     </div>
   )
@@ -224,7 +239,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   return (
     <div className="space-y-6">
       <div className="bg-blue-50 text-blue-700 text-xs rounded-lg px-4 py-3">
-        This screen is for manual entries only — adjustments, accruals, prepayments, and year-end corrections. Postings from invoices, bills, receipts, and payments are managed on their own screens and won't clutter this list unless you choose to show them below.
+        This screen is for manual entries only — adjustments, accruals, prepayments, and year-end corrections. Postings from invoices, bills, receipts, and payments are managed on their own screens and won't clutter this list unless you choose to show them below. <strong>Bank accounts cannot be posted to here</strong> — bank movements come from Receipts, Payments, or bank reconciliation. For bringing across existing bank balances when onboarding a client, use the Opening Balances screen instead.
       </div>
 
       <div className="flex justify-between items-center">
