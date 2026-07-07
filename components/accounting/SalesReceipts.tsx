@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 export default function SalesReceipts({ clientId }: { clientId: string }) {
   const [receipts, setReceipts] = useState<any[]>([])
@@ -197,7 +198,7 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Receipt date</label>
-              <input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className={inputClass} />
+              <DatePicker value={receiptDate} onChange={setReceiptDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Payment amount (£)</label>
