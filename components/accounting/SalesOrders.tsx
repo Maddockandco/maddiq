@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 type LineDraft = {
   description: string
@@ -187,10 +188,10 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   }
 
   function openConvert(order: any) {
-    const today = new Date().toISOString().split('T')[0]
+    const todayStr = new Date().toISOString().split('T')[0]
     const terms = order.contacts?.payment_terms_days ?? 30
-    setInvoiceDate(today)
-    setDueDate(addDays(today, terms))
+    setInvoiceDate(todayStr)
+    setDueDate(addDays(todayStr, terms))
     setConvertError('')
     setConvertingOrderId(order.id)
   }
@@ -260,11 +261,11 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Order date</label>
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputClass} />
+              <DatePicker value={orderDate} onChange={setOrderDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Expected date</label>
-              <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className={inputClass} />
+              <DatePicker value={expectedDate} onChange={setExpectedDate} className="w-full" />
             </div>
           </div>
 
@@ -424,17 +425,15 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                   {convertingOrderId === o.id && (
                     <tr className="bg-gray-50">
                       <td colSpan={6} className="px-6 py-4">
-                        <div className="flex items-end gap-4">
+                        <div className="flex items-end gap-4 flex-wrap">
                           {convertError && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{convertError}</div>}
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
-                            <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)}
-                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                            <DatePicker value={invoiceDate} onChange={setInvoiceDate} />
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
-                            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                            <DatePicker value={dueDate} onChange={setDueDate} />
                           </div>
                           <button
                             onClick={() => handleConvert(o.id)}
