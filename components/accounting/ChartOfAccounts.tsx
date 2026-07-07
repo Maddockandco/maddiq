@@ -49,7 +49,6 @@ const ACCOUNT_TYPE_GROUPS = [
   },
 ]
 
-// Maps each granular sub-type to its top-level category for reporting/colour purposes
 const TYPE_TO_CATEGORY: Record<string, string> = {
   bank: 'asset', current_asset: 'asset', fixed_asset: 'asset', inventory: 'asset', non_current_asset: 'asset', prepayment: 'asset',
   current_liability: 'liability', non_current_liability: 'liability', liability: 'liability',
@@ -88,7 +87,8 @@ const DEFAULT_ACCOUNTS = [
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [accountType, setAccountType] = useState('expense')
@@ -110,9 +110,6 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setLoading(false)
   }
 
-  // Fire-and-forget audit log call. Never blocks or fails the main action —
-  // if the log write fails we surface it in the console only, since a
-  // missing audit row shouldn't stop an accountant from doing their job.
   async function logAudit(params: {
     entityType: string
     entityId: string
@@ -133,10 +130,31 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     if (logError) console.error('Audit log failed:', logError.message)
   }
 
-  async function handleAdd() {
+  function openNewForm() {
+    setCode('')
+    setName('')
+    setAccountType('expense')
+    setParentId('')
+    setEditingId(null)
+    setError('')
+    setFormOpen(true)
+  }
+
+  function openEditForm(account: any) {
+    setCode(account.code)
+    setName(account.name)
+    setAccountType(account.account_type)
+    setParentId(account.parent_id || '')
+    setEditingId(account.id)
+    setError('')
+    setFormOpen(true)
+  }
+
+  async function handleSave() {
     setSaving(true)
     setError('')
     if (!code || !name) { setError('Code and name are required'); setSaving(false); return }
+    if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); setSaving(false); return }
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -146,35 +164,62 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from('chart_of_accounts')
-      .insert({
-        firm_id: firmUser.firm_id,
-        client_id: clientId,
-        code,
-        name,
-        account_type: accountType,
-        parent_id: parentId || null,
-      })
-      .select()
-      .single()
+    if (editingId) {
+      const before = accounts.find((a) => a.id === editingId)
+      const { data: updated, error: updateError } = await supabase
+        .from('chart_of_accounts')
+        .update({
+          code,
+          name,
+          account_type: accountType,
+          parent_id: parentId || null,
+        })
+        .eq('id', editingId)
+        .select()
+        .single()
 
-    if (insertError) {
-      setError(insertError.message)
+      if (updateError) {
+        setError(updateError.message)
+      } else {
+        await logAudit({
+          entityType: 'chart_of_accounts',
+          entityId: editingId,
+          action: 'updated',
+          oldData: before,
+          newData: updated,
+          description: `Updated account "${before?.code} — ${before?.name}" → "${code} — ${name}" (${TYPE_LABELS[accountType] || accountType})`,
+        })
+        setFormOpen(false)
+        setEditingId(null)
+        fetchAccounts()
+      }
     } else {
-      await logAudit({
-        entityType: 'chart_of_accounts',
-        entityId: inserted.id,
-        action: 'created',
-        newData: inserted,
-        description: `Created account "${code} — ${name}" (${TYPE_LABELS[accountType] || accountType})`,
-      })
-      setCode('')
-      setName('')
-      setAccountType('expense')
-      setParentId('')
-      setAdding(false)
-      fetchAccounts()
+      const { data: inserted, error: insertError } = await supabase
+        .from('chart_of_accounts')
+        .insert({
+          firm_id: firmUser.firm_id,
+          client_id: clientId,
+          code,
+          name,
+          account_type: accountType,
+          parent_id: parentId || null,
+        })
+        .select()
+        .single()
+
+      if (insertError) {
+        setError(insertError.message)
+      } else {
+        await logAudit({
+          entityType: 'chart_of_accounts',
+          entityId: inserted.id,
+          action: 'created',
+          newData: inserted,
+          description: `Created account "${code} — ${name}" (${TYPE_LABELS[accountType] || accountType})`,
+        })
+        setFormOpen(false)
+        fetchAccounts()
+      }
     }
     setSaving(false)
   }
@@ -259,9 +304,9 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               {saving ? 'Adding...' : 'Add standard accounts'}
             </button>
           )}
-          {!adding && (
+          {!formOpen && (
             <button
-              onClick={() => setAdding(true)}
+              onClick={openNewForm}
               className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
             >
               + New Account
@@ -270,8 +315,11 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {adding && (
+      {formOpen && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
+            {editingId ? 'Edit Account' : 'New Account'}
+          </h3>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -296,7 +344,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional)</label>
               <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputClass}>
                 <option value="">None — this is a top-level account</option>
-                {accounts.filter(a => !a.parent_id).map((a) => (
+                {accounts.filter(a => !a.parent_id && a.id !== editingId).map((a) => (
                   <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                 ))}
               </select>
@@ -305,12 +353,17 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               </p>
             </div>
           </div>
+          {editingId && (
+            <div className="bg-amber-50 text-amber-700 text-xs rounded-lg px-4 py-3">
+              Changing an account's type after transactions have been posted to it can affect historical reports. Review Reports after saving to confirm everything still looks correct.
+            </div>
+          )}
           <div className="flex gap-3">
-            <button onClick={handleAdd} disabled={saving}
+            <button onClick={handleSave} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : 'Add account'}
+              {saving ? 'Saving...' : editingId ? 'Save changes' : 'Add account'}
             </button>
-            <button onClick={() => setAdding(false)}
+            <button onClick={() => { setFormOpen(false); setEditingId(null) }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
               Cancel
             </button>
@@ -318,12 +371,12 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {accounts.length === 0 && !adding ? (
+      {accounts.length === 0 && !formOpen ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
           <p className="text-gray-500 text-sm mb-2">No accounts set up yet</p>
           <p className="text-gray-400 text-xs">Add standard accounts to get started, or build your own from scratch</p>
         </div>
-      ) : (
+      ) : !formOpen && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
           <table className="w-full">
             <thead>
@@ -332,6 +385,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Name</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Type</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -363,6 +417,13 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                           </span>
                         )}
                       </td>
+                      <td className="px-6 py-3 text-right">
+                        {can.manageEngagements && (
+                          <button onClick={() => openEditForm(parent)} className="text-xs text-brand-dark font-medium hover:underline">
+                            Edit
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {children.map((child) => (
                       <tr key={child.id} className={`border-b border-gray-100 bg-gray-50 ${!child.is_active ? 'opacity-50' : ''}`}>
@@ -387,6 +448,13 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                             <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${child.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                               {child.is_active ? 'Active' : 'Inactive'}
                             </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          {can.manageEngagements && (
+                            <button onClick={() => openEditForm(child)} className="text-xs text-brand-dark font-medium hover:underline">
+                              Edit
+                            </button>
                           )}
                         </td>
                       </tr>
