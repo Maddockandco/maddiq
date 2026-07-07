@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import DatePicker from '@/components/ui/DatePicker'
 
 type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet'
 type Basis = 'accruals' | 'cash'
@@ -14,9 +15,6 @@ const GRANULAR_TO_CATEGORY: Record<string, string> = {
   sales: 'income', revenue: 'income', other_income: 'income',
 }
 
-// Some accounts may have been stored with a generic top-level category
-// (e.g. 'asset', 'income') rather than a granular type (e.g. 'bank', 'sales').
-// This normalizes both so reports work regardless of which style was used.
 function categoryOf(accountType: string): string {
   if (['asset', 'liability', 'equity', 'income', 'expense'].includes(accountType)) {
     return accountType
@@ -433,8 +431,6 @@ export default function Reports({ clientId }: { clientId: string }) {
       active ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
     }`
 
-  const inputClass = "border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -461,14 +457,14 @@ export default function Reports({ clientId }: { clientId: string }) {
               </button>
             </div>
             <label className="text-xs text-gray-500">From</label>
-            <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className={inputClass} />
+            <DatePicker value={periodStart} onChange={setPeriodStart} />
             <label className="text-xs text-gray-500">To</label>
-            <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className={inputClass} />
+            <DatePicker value={periodEnd} onChange={setPeriodEnd} />
           </div>
         ) : (
           <div className="flex items-center gap-2">
             <label className="text-xs text-gray-500">As at</label>
-            <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className={inputClass} />
+            <DatePicker value={asOfDate} onChange={setAsOfDate} />
           </div>
         )}
       </div>
