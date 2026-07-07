@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 type LineDraft = {
   description: string
@@ -188,10 +189,10 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
   }
 
   function openConvert(order: any) {
-    const today = new Date().toISOString().split('T')[0]
+    const todayStr = new Date().toISOString().split('T')[0]
     const terms = order.contacts?.payment_terms_days ?? 30
-    setBillDate(today)
-    setDueDate(addDays(today, terms))
+    setBillDate(todayStr)
+    setDueDate(addDays(todayStr, terms))
     setBillNumber('')
     setConvertError('')
     setConvertingOrderId(order.id)
@@ -263,11 +264,11 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Order date</label>
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputClass} />
+              <DatePicker value={orderDate} onChange={setOrderDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Expected date</label>
-              <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className={inputClass} />
+              <DatePicker value={expectedDate} onChange={setExpectedDate} className="w-full" />
             </div>
           </div>
 
@@ -436,13 +437,11 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Bill date</label>
-                            <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)}
-                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                            <DatePicker value={billDate} onChange={setBillDate} />
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
-                            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-                              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
+                            <DatePicker value={dueDate} onChange={setDueDate} />
                           </div>
                           <button
                             onClick={() => handleConvert(o.id)}
