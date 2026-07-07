@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -54,6 +55,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [error, setError] = useState('')
 
   const { can } = useRole()
+  const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => { fetchData() }, [clientId])
@@ -431,7 +433,12 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                 <>
                   <tr key={inv.id} className="border-b border-gray-100">
                     <td className="px-6 py-3 text-sm font-mono text-gray-600">
-                      {inv.invoice_number}
+                      <button
+                        onClick={() => router.push(`/accounting/${clientId}/sales-invoices/${inv.id}`)}
+                        className="text-brand-dark hover:underline font-semibold"
+                      >
+                        {inv.invoice_number}
+                      </button>
                       {inv.replaces_invoice_id && <span className="block text-xs text-gray-400">corrects a voided invoice</span>}
                     </td>
                     <td className="px-6 py-3 text-sm font-medium text-brand-dark">{inv.contacts?.name}</td>
