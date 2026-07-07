@@ -6,11 +6,23 @@ import { createClient } from '@/lib/supabase/client'
 type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet'
 type Basis = 'accruals' | 'cash'
 
-const ASSET_TYPES = ['bank', 'current_asset', 'fixed_asset', 'inventory', 'non_current_asset', 'prepayment']
-const LIABILITY_TYPES = ['current_liability', 'non_current_liability', 'liability']
-const EQUITY_TYPES = ['equity']
-const INCOME_TYPES = ['sales', 'revenue', 'other_income']
-const EXPENSE_TYPES = ['direct_costs', 'expense', 'overhead', 'depreciation']
+const GRANULAR_TO_CATEGORY: Record<string, string> = {
+  bank: 'asset', current_asset: 'asset', fixed_asset: 'asset', inventory: 'asset', non_current_asset: 'asset', prepayment: 'asset',
+  current_liability: 'liability', non_current_liability: 'liability', liability: 'liability',
+  equity: 'equity',
+  direct_costs: 'expense', expense: 'expense', overhead: 'expense', depreciation: 'expense',
+  sales: 'income', revenue: 'income', other_income: 'income',
+}
+
+// Some accounts may have been stored with a generic top-level category
+// (e.g. 'asset', 'income') rather than a granular type (e.g. 'bank', 'sales').
+// This normalizes both so reports work regardless of which style was used.
+function categoryOf(accountType: string): string {
+  if (['asset', 'liability', 'equity', 'income', 'expense'].includes(accountType)) {
+    return accountType
+  }
+  return GRANULAR_TO_CATEGORY[accountType] || 'other'
+}
 
 const TYPE_LABELS: Record<string, string> = {
   bank: 'Bank', current_asset: 'Current Asset', fixed_asset: 'Fixed Asset', inventory: 'Inventory',
@@ -173,12 +185,28 @@ export default function Reports({ clientId }: { clientId: string }) {
     setLoading(false)
   }
 
-  function accountBalances(typeFilter: string[]) {
+  function accountBalances(category: string) {
     const balances: Record<string, { code: string; name: string; account_type: string; debit: number; credit: number }> = {}
 
     lines.forEach((l: any) => {
       const acc = l.chart_of_accounts
-      if (!acc || !typeFilter.includes(acc.account_type)) return
+      if (!acc || categoryOf(acc.account_type) !== category) return
+      if (!balances[l.account_id]) {
+        balances[l.account_id] = { code: acc.code, name: acc.name, account_type: acc.account_type, debit: 0, credit: 0 }
+      }
+      balances[l.account_id].debit += parseFloat(l.debit) || 0
+      balances[l.account_id].credit += parseFloat(l.credit) || 0
+    })
+
+    return Object.values(balances).sort((a, b) => a.code.localeCompare(b.code))
+  }
+
+  function allAccountBalances() {
+    const balances: Record<string, { code: string; name: string; account_type: string; debit: number; credit: number }> = {}
+
+    lines.forEach((l: any) => {
+      const acc = l.chart_of_accounts
+      if (!acc) return
       if (!balances[l.account_id]) {
         balances[l.account_id] = { code: acc.code, name: acc.name, account_type: acc.account_type, debit: 0, credit: 0 }
       }
@@ -190,14 +218,13 @@ export default function Reports({ clientId }: { clientId: string }) {
   }
 
   function calculateNetProfit() {
-    const income = accountBalances(INCOME_TYPES).reduce((sum, a) => sum + (a.credit - a.debit), 0)
-    const expenses = accountBalances(EXPENSE_TYPES).reduce((sum, a) => sum + (a.debit - a.credit), 0)
+    const income = accountBalances('income').reduce((sum, a) => sum + (a.credit - a.debit), 0)
+    const expenses = accountBalances('expense').reduce((sum, a) => sum + (a.debit - a.credit), 0)
     return income - expenses
   }
 
   function renderTrialBalance() {
-    const allTypes = [...ASSET_TYPES, ...LIABILITY_TYPES, ...EQUITY_TYPES, ...INCOME_TYPES, ...EXPENSE_TYPES]
-    const rows = accountBalances(allTypes)
+    const rows = allAccountBalances()
     let totalDebit = 0
     let totalCredit = 0
 
@@ -225,7 +252,7 @@ export default function Reports({ clientId }: { clientId: string }) {
                 <tr key={row.code} className="border-b border-gray-100">
                   <td className="px-6 py-3 text-sm font-mono text-gray-600">{row.code}</td>
                   <td className="px-6 py-3 text-sm font-medium text-brand-dark">{row.name}</td>
-                  <td className="px-6 py-3 text-sm text-gray-400">{TYPE_LABELS[row.account_type]}</td>
+                  <td className="px-6 py-3 text-sm text-gray-400">{TYPE_LABELS[row.account_type] || row.account_type}</td>
                   <td className="px-6 py-3 text-sm text-right">{debitCol > 0 ? `£${debitCol.toFixed(2)}` : ''}</td>
                   <td className="px-6 py-3 text-sm text-right">{creditCol > 0 ? `£${creditCol.toFixed(2)}` : ''}</td>
                 </tr>
@@ -252,10 +279,10 @@ export default function Reports({ clientId }: { clientId: string }) {
   function renderProfitLoss() {
     const income = basis === 'cash'
       ? cashIncome.map(a => ({ code: a.code, name: a.name, value: a.amount }))
-      : accountBalances(INCOME_TYPES).map(a => ({ code: a.code, name: a.name, value: a.credit - a.debit }))
+      : accountBalances('income').map(a => ({ code: a.code, name: a.name, value: a.credit - a.debit }))
     const expenses = basis === 'cash'
       ? cashExpenses.map(a => ({ code: a.code, name: a.name, value: a.amount }))
-      : accountBalances(EXPENSE_TYPES).map(a => ({ code: a.code, name: a.name, value: a.debit - a.credit }))
+      : accountBalances('expense').map(a => ({ code: a.code, name: a.name, value: a.debit - a.credit }))
     const incomeTotal = income.reduce((sum, a) => sum + a.value, 0)
     const expenseTotal = expenses.reduce((sum, a) => sum + a.value, 0)
     const netProfit = incomeTotal - expenseTotal
@@ -313,9 +340,9 @@ export default function Reports({ clientId }: { clientId: string }) {
   }
 
   function renderBalanceSheet() {
-    const assets = accountBalances(ASSET_TYPES)
-    const liabilities = accountBalances(LIABILITY_TYPES)
-    const equity = accountBalances(EQUITY_TYPES)
+    const assets = accountBalances('asset')
+    const liabilities = accountBalances('liability')
+    const equity = accountBalances('equity')
 
     const assetTotal = assets.reduce((sum, a) => sum + (a.debit - a.credit), 0)
     const liabilityTotal = liabilities.reduce((sum, a) => sum + (a.credit - a.debit), 0)
