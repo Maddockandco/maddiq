@@ -408,7 +408,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               onClick={openIndustryPicker}
               className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition"
             >
-              Add standard accounts
+              Choose Industry Template
             </button>
           )}
           {!formOpen && !showIndustryPicker && (
@@ -529,7 +529,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       {accounts.length === 0 && !formOpen && !showIndustryPicker ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
           <p className="text-gray-500 text-sm mb-2">No accounts set up yet</p>
-          <p className="text-gray-400 text-xs">Add standard accounts to get started, or build your own from scratch</p>
+          <p className="text-gray-400 text-xs">Choose an industry template to get started, or build your own from scratch</p>
         </div>
       ) : !formOpen && !showIndustryPicker && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
