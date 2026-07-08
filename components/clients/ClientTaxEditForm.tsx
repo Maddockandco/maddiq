@@ -9,6 +9,7 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [clientType, setClientType] = useState('company')
   const { role, loading: roleLoading } = useRole()
   const supabase = createClient()
   const isPayrollOnly = role === 'payroll_manager'
@@ -46,10 +47,26 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [billingDay, setBillingDay] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('')
 
+  // Individual-specific
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [niNumber, setNiNumber] = useState('')
+  const [personalUtr, setPersonalUtr] = useState('')
+  const [saStatus, setSaStatus] = useState('')
+  const [studentLoan, setStudentLoan] = useState(false)
+  const [studentLoanPlan, setStudentLoanPlan] = useState('')
+  const [marriageAllowance, setMarriageAllowance] = useState(false)
+  const [childBenefit, setChildBenefit] = useState(false)
+  const [foreignIncome, setForeignIncome] = useState(false)
+
+  // Partnership-specific
+  const [partnershipType, setPartnershipType] = useState('')
+  const [partnershipUtr, setPartnershipUtr] = useState('')
+
   useEffect(() => {
     async function fetchClient() {
       const { data } = await supabase.from('clients').select('*').eq('id', clientId).single()
       if (data) {
+        setClientType(data.type || 'company')
         setChAuthCode(data.ch_authentication_code || '')
         setSicCode(data.sic_code || '')
         setIncorporationDate(data.incorporation_date || '')
@@ -82,6 +99,19 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         setHourlyRate(data.hourly_rate || '')
         setBillingDay(data.billing_day || '')
         setPaymentMethod(data.payment_method || '')
+
+        setDateOfBirth(data.date_of_birth || '')
+        setNiNumber(data.national_insurance_number || '')
+        setPersonalUtr(data.personal_utr || '')
+        setSaStatus(data.sa_status || '')
+        setStudentLoan(data.student_loan || false)
+        setStudentLoanPlan(data.student_loan_plan || '')
+        setMarriageAllowance(data.marriage_allowance || false)
+        setChildBenefit(data.child_benefit || false)
+        setForeignIncome(data.foreign_income || false)
+
+        setPartnershipType(data.partnership_type || '')
+        setPartnershipUtr(data.partnership_utr || '')
       }
       setLoading(false)
     }
@@ -127,6 +157,19 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
       updateData.hourly_rate = hourlyRate || null
       updateData.billing_day = billingDay || null
       updateData.payment_method = paymentMethod || null
+
+      updateData.date_of_birth = dateOfBirth || null
+      updateData.national_insurance_number = niNumber || null
+      updateData.personal_utr = personalUtr || null
+      updateData.sa_status = saStatus || null
+      updateData.student_loan = studentLoan
+      updateData.student_loan_plan = studentLoanPlan || null
+      updateData.marriage_allowance = marriageAllowance
+      updateData.child_benefit = childBenefit
+      updateData.foreign_income = foreignIncome
+
+      updateData.partnership_type = partnershipType || null
+      updateData.partnership_utr = partnershipUtr || null
     }
     const { error: updateError } = await supabase.from('clients').update(updateData).eq('id', clientId)
     if (updateError) { setError(updateError.message) } else { setSuccess(true) }
@@ -144,7 +187,53 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
       {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
       {success && <div className="bg-green-50 text-green-600 text-sm rounded-lg px-4 py-3">Tax info saved!</div>}
 
-      {!isPayrollOnly && (
+      {clientType === 'individual' && !isPayrollOnly && (
+        <>
+          <Section title="Personal Tax">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Date of Birth" value={dateOfBirth} setter={setDateOfBirth} type="date" />
+              <Field label="NI Number" value={niNumber} setter={setNiNumber} placeholder="AB123456C" />
+              <Field label="Personal UTR" value={personalUtr} setter={setPersonalUtr} placeholder="1234567890" />
+              <SelectField label="SA Status" value={saStatus} setter={setSaStatus} options={[
+                { value: '', label: 'Select status' },
+                { value: 'registered', label: 'Registered' },
+                { value: 'not_registered', label: 'Not Registered' },
+                { value: 'exempt', label: 'Exempt' },
+              ]} />
+            </div>
+          </Section>
+          <Section title="Self Assessment Details">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Toggle label="Student Loan" value={studentLoan} setter={setStudentLoan} />
+              <SelectField label="Student Loan Plan" value={studentLoanPlan} setter={setStudentLoanPlan} options={[
+                { value: '', label: 'Select plan' },
+                { value: 'plan_1', label: 'Plan 1' },
+                { value: 'plan_2', label: 'Plan 2' },
+                { value: 'plan_4', label: 'Plan 4' },
+                { value: 'postgraduate', label: 'Postgraduate Loan' },
+              ]} />
+              <Toggle label="Marriage Allowance" value={marriageAllowance} setter={setMarriageAllowance} />
+              <Toggle label="Child Benefit" value={childBenefit} setter={setChildBenefit} />
+              <Toggle label="Foreign Income" value={foreignIncome} setter={setForeignIncome} />
+            </div>
+          </Section>
+        </>
+      )}
+
+      {clientType === 'partnership' && !isPayrollOnly && (
+        <Section title="Partnership">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <SelectField label="Partnership Type" value={partnershipType} setter={setPartnershipType} options={[
+              { value: '', label: 'Select type' },
+              { value: 'general', label: 'General Partnership' },
+              { value: 'llp', label: 'Limited Liability Partnership (LLP)' },
+            ]} />
+            <Field label="Partnership UTR" value={partnershipUtr} setter={setPartnershipUtr} placeholder="1234567890" />
+          </div>
+        </Section>
+      )}
+
+      {clientType === 'company' && !isPayrollOnly && (
         <>
           <Section title="Companies House">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -178,44 +267,48 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         </>
       )}
 
-      <Section title="PAYE & Payroll">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="PAYE Reference" value={payeReference} setter={setPayeReference} placeholder="123/AB456" />
-          <Field label="Accounts Office Reference" value={accountsOfficeReference} setter={setAccountsOfficeReference} placeholder="123PA00012345" />
-          <Field label="Number of Employees" value={numberOfEmployees} setter={setNumberOfEmployees} type="number" />
-          <SelectField label="Payroll Frequency" value={payrollFrequency} setter={setPayrollFrequency} options={[
-            { value: '', label: 'Select frequency' },
-            { value: 'weekly', label: 'Weekly' },
-            { value: 'monthly', label: 'Monthly' },
-            { value: 'four_weekly', label: 'Four Weekly' },
-          ]} />
-          <Toggle label="Auto Enrolment" value={autoEnrolment} setter={setAutoEnrolment} />
-          <Field label="Pension Provider" value={pensionProvider} setter={setPensionProvider} />
-          <Field label="Pension Staging Date" value={pensionStagingDate} setter={setPensionStagingDate} type="date" />
-        </div>
-      </Section>
+      {['company', 'partnership'].includes(clientType) && (
+        <>
+          <Section title="PAYE & Payroll">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="PAYE Reference" value={payeReference} setter={setPayeReference} placeholder="123/AB456" />
+              <Field label="Accounts Office Reference" value={accountsOfficeReference} setter={setAccountsOfficeReference} placeholder="123PA00012345" />
+              <Field label="Number of Employees" value={numberOfEmployees} setter={setNumberOfEmployees} type="number" />
+              <SelectField label="Payroll Frequency" value={payrollFrequency} setter={setPayrollFrequency} options={[
+                { value: '', label: 'Select frequency' },
+                { value: 'weekly', label: 'Weekly' },
+                { value: 'monthly', label: 'Monthly' },
+                { value: 'four_weekly', label: 'Four Weekly' },
+              ]} />
+              <Toggle label="Auto Enrolment" value={autoEnrolment} setter={setAutoEnrolment} />
+              <Field label="Pension Provider" value={pensionProvider} setter={setPensionProvider} />
+              <Field label="Pension Staging Date" value={pensionStagingDate} setter={setPensionStagingDate} type="date" />
+            </div>
+          </Section>
 
-      <Section title="CIS">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Toggle label="CIS Registered" value={cisRegistered} setter={setCisRegistered} />
-          <SelectField label="CIS Status" value={cisStatus} setter={setCisStatus} options={[
-            { value: '', label: 'Select CIS status' },
-            { value: 'contractor', label: 'Contractor' },
-            { value: 'subcontractor', label: 'Subcontractor' },
-            { value: 'both', label: 'Both Contractor & Subcontractor' },
-          ]} />
-          <SelectField label="CIS Tax Rate" value={cisTaxRate} setter={setCisTaxRate} options={[
-            { value: '', label: 'Select tax rate' },
-            { value: 'gross', label: 'Gross (0%) — Gross Payment Status' },
-            { value: 'standard', label: 'Standard (20%)' },
-            { value: 'higher', label: 'Higher (30%) — Unverified' },
-          ]} />
-          <Toggle label="Gross Payment Status" value={cisGrossPayment} setter={setCisGrossPayment} />
-          <Field label="Gross Payment Date" value={cisGrossPaymentDate} setter={setCisGrossPaymentDate} type="date" />
-          <Field label="CIS Verification Number" value={cisVerificationNumber} setter={setCisVerificationNumber} placeholder="V0000000000" />
-          <Field label="CIS UTR" value={cisUtr} setter={setCisUtr} placeholder="1234567890" />
-        </div>
-      </Section>
+          <Section title="CIS">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Toggle label="CIS Registered" value={cisRegistered} setter={setCisRegistered} />
+              <SelectField label="CIS Status" value={cisStatus} setter={setCisStatus} options={[
+                { value: '', label: 'Select CIS status' },
+                { value: 'contractor', label: 'Contractor' },
+                { value: 'subcontractor', label: 'Subcontractor' },
+                { value: 'both', label: 'Both Contractor & Subcontractor' },
+              ]} />
+              <SelectField label="CIS Tax Rate" value={cisTaxRate} setter={setCisTaxRate} options={[
+                { value: '', label: 'Select tax rate' },
+                { value: 'gross', label: 'Gross (0%) — Gross Payment Status' },
+                { value: 'standard', label: 'Standard (20%)' },
+                { value: 'higher', label: 'Higher (30%) — Unverified' },
+              ]} />
+              <Toggle label="Gross Payment Status" value={cisGrossPayment} setter={setCisGrossPayment} />
+              <Field label="Gross Payment Date" value={cisGrossPaymentDate} setter={setCisGrossPaymentDate} type="date" />
+              <Field label="CIS Verification Number" value={cisVerificationNumber} setter={setCisVerificationNumber} placeholder="V0000000000" />
+              <Field label="CIS UTR" value={cisUtr} setter={setCisUtr} placeholder="1234567890" />
+            </div>
+          </Section>
+        </>
+      )}
 
       {!isPayrollOnly && (
         <>
