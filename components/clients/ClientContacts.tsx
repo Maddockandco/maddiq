@@ -20,6 +20,7 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
   const [appointmentDate, setAppointmentDate] = useState('')
   const [chAuthCode, setChAuthCode] = useState('')
   const [chVerified, setChVerified] = useState(false)
+  const [createDLA, setCreateDLA] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const { can } = useRole()
@@ -47,7 +48,7 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
       .select('firm_id')
       .eq('user_id', user!.id)
       .single()
-    const { error: insertError } = await supabase.from('client_contacts').insert({
+    const { data: inserted, error: insertError } = await supabase.from('client_contacts').insert({
       client_id: clientId,
       firm_id: firmUser!.firm_id,
       name,
@@ -62,12 +63,50 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
       ch_authentication_code: chAuthCode || null,
       ch_identity_verified: chVerified,
       is_primary: contacts.length === 0,
-    })
-    if (insertError) { setError(insertError.message) } else {
+    }).select().single()
+
+    if (insertError) {
+      setError(insertError.message)
+    } else {
+      if (createDLA) {
+        const { data: existingCodes } = await supabase
+          .from('chart_of_accounts')
+          .select('code')
+          .eq('client_id', clientId)
+          .gte('code', '2200')
+          .lte('code', '2299')
+
+        let nextCode = 2200
+        if (existingCodes && existingCodes.length > 0) {
+          const numericCodes = existingCodes.map((a) => parseInt(a.code, 10)).filter((n) => !isNaN(n))
+          if (numericCodes.length > 0) nextCode = Math.max(...numericCodes) + 1
+        }
+
+        const loanCode = String(nextCode).padStart(4, '0')
+        const currentCode = String(nextCode + 1).padStart(4, '0')
+
+        await supabase.from('chart_of_accounts').insert([
+          {
+            firm_id: firmUser!.firm_id,
+            client_id: clientId,
+            code: loanCode,
+            name: `${name} - Director's Loan Account`,
+            account_type: 'current_liability',
+          },
+          {
+            firm_id: firmUser!.firm_id,
+            client_id: clientId,
+            code: currentCode,
+            name: `${name} - Director's Current Account`,
+            account_type: 'current_liability',
+          },
+        ])
+      }
+
       setAdding(false)
       setName(''); setContactRole('director'); setEmail(''); setPhone('')
       setDob(''); setNiNumber(''); setPersonalUtr(''); setShareholding('')
-      setAppointmentDate(''); setChAuthCode(''); setChVerified(false)
+      setAppointmentDate(''); setChAuthCode(''); setChVerified(false); setCreateDLA(false)
       fetchContacts()
     }
     setSaving(false)
@@ -164,6 +203,13 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
               className="w-4 h-4 accent-brand-dark" />
             <span className="text-sm font-medium text-brand-dark">Companies House identity verified</span>
           </label>
+          {['director', 'owner'].includes(contactRole) && (
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={createDLA} onChange={(e) => setCreateDLA(e.target.checked)}
+                className="w-4 h-4 accent-brand-dark" />
+              <span className="text-sm font-medium text-brand-dark">Create Director's Loan Account & Current Account in Chart of Accounts</span>
+            </label>
+          )}
           <div className="flex gap-3 pt-2">
             <button onClick={handleAdd} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
