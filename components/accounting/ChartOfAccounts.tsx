@@ -162,6 +162,25 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
   },
 }
 
+function detectIndustryFromSicCode(sicCode: string | null): string | null {
+  if (!sicCode) return null
+  const code = parseInt(sicCode, 10)
+  if (isNaN(code)) return null
+  if (code >= 55000 && code <= 56302) return 'hospitality'
+  if (code >= 41000 && code <= 43999) return 'construction'
+  if (code >= 68000 && code <= 68999) return 'property'
+  return null
+}
+
+function detectIndustryFromText(industryText: string | null): string | null {
+  if (!industryText) return null
+  const t = industryText.toLowerCase()
+  if (/restaurant|cafe|caf[eé]|bar|pub|hotel|catering|hospitality|bistro/.test(t)) return 'hospitality'
+  if (/construct|building|contractor|builder|cis\b/.test(t)) return 'construction'
+  if (/landlord|letting|rental|property|real estate/.test(t)) return 'property'
+  return null
+}
+
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -175,6 +194,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [error, setError] = useState('')
   const [showIndustryPicker, setShowIndustryPicker] = useState(false)
   const [selectedIndustry, setSelectedIndustry] = useState('general')
+  const [suggestedIndustry, setSuggestedIndustry] = useState<string | null>(null)
   const { can } = useRole()
   const supabase = createClient()
 
@@ -208,6 +228,19 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       p_description: params.description,
     })
     if (logError) console.error('Audit log failed:', logError.message)
+  }
+
+  async function openIndustryPicker() {
+    const { data: client } = await supabase
+      .from('clients')
+      .select('sic_code, industry')
+      .eq('id', clientId)
+      .single()
+
+    const suggestion = detectIndustryFromSicCode(client?.sic_code) || detectIndustryFromText(client?.industry) || null
+    setSuggestedIndustry(suggestion)
+    setSelectedIndustry(suggestion || 'general')
+    setShowIndustryPicker(true)
   }
 
   function openNewForm() {
@@ -390,7 +423,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
         <div className="flex justify-end gap-3">
           {accounts.length === 0 && !showIndustryPicker && (
             <button
-              onClick={() => setShowIndustryPicker(true)}
+              onClick={openIndustryPicker}
               className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition"
             >
               Add standard accounts
@@ -410,6 +443,15 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       {showIndustryPicker && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Choose an industry template</h3>
+          {suggestedIndustry ? (
+            <p className="text-xs text-gray-500 -mt-2">
+              We've pre-selected <span className="font-semibold text-brand-dark">{INDUSTRY_TEMPLATES[suggestedIndustry].label}</span> based on this client's business details — click a different card to change it.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 -mt-2">
+              We couldn't auto-detect this client's industry from their business details — pick the closest match below.
+            </p>
+          )}
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -417,10 +459,15 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               <button
                 key={key}
                 onClick={() => setSelectedIndustry(key)}
-                className={`text-left rounded-xl p-4 border-2 transition ${
+                className={`text-left rounded-xl p-4 border-2 transition relative ${
                   selectedIndustry === key ? 'border-brand-gold bg-brand-gold/10' : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
+                {suggestedIndustry === key && (
+                  <span className="absolute top-2 right-2 text-xs bg-brand-gold text-brand-dark px-2 py-0.5 rounded-full font-semibold">
+                    Suggested
+                  </span>
+                )}
                 <p className="text-sm font-semibold text-brand-dark">{t.label}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{t.description}</p>
                 <p className="text-xs text-gray-400 mt-2">{t.accounts.length} accounts</p>
