@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -18,6 +19,7 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
   const [lines, setLines] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
   const [replacedBy, setReplacedBy] = useState<any>(null)
+  const [bankAccounts, setBankAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [posting, setPosting] = useState(false)
   const [postError, setPostError] = useState('')
@@ -25,6 +27,16 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
   const [voidReason, setVoidReason] = useState('')
   const [showVoidForm, setShowVoidForm] = useState(false)
   const [voidError, setVoidError] = useState('')
+
+  // Record payment form
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentMethod, setPaymentMethod] = useState('bank_transfer')
+  const [paymentReference, setPaymentReference] = useState('')
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState('')
+  const [paymentSaving, setPaymentSaving] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
 
   const { can } = useRole()
   const router = useRouter()
@@ -51,21 +63,25 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
       .select('amount_allocated, sales_receipts(id, receipt_date, payment_method, reference, voided)')
       .eq('invoice_id', invoiceId)
 
-    if (inv?.replaces_invoice_id) {
-      // this invoice corrects an older one — nothing extra to fetch, already on the record
-    }
-
-    // Check if THIS invoice was itself voided and replaced by a newer one
     const { data: replacement } = await supabase
       .from('sales_invoices')
       .select('id, invoice_number')
       .eq('replaces_invoice_id', invoiceId)
       .maybeSingle()
 
+    const { data: banks } = await supabase
+      .from('chart_of_accounts')
+      .select('id, code, name')
+      .eq('client_id', clientId)
+      .eq('is_active', true)
+      .eq('account_type', 'bank')
+      .order('code')
+
     setInvoice(inv)
     setLines(invLines || [])
     setPayments(allocations || [])
     setReplacedBy(replacement)
+    setBankAccounts(banks || [])
     setLoading(false)
   }
 
@@ -100,6 +116,46 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
     fetchData()
   }
 
+  function openPaymentForm() {
+    const balanceDue = parseFloat(invoice.total) - parseFloat(invoice.amount_paid)
+    setPaymentAmount(balanceDue.toFixed(2))
+    setPaymentDate(new Date().toISOString().split('T')[0])
+    setPaymentMethod('bank_transfer')
+    setPaymentReference('')
+    setPaymentBankAccountId('')
+    setPaymentError('')
+    setShowPaymentForm(true)
+  }
+
+  async function handleRecordPayment() {
+    setPaymentSaving(true)
+    setPaymentError('')
+
+    const amt = parseFloat(paymentAmount) || 0
+    if (amt <= 0) { setPaymentError('Enter a payment amount'); setPaymentSaving(false); return }
+    if (!paymentBankAccountId) { setPaymentError('Select a bank account'); setPaymentSaving(false); return }
+
+    const { error } = await supabase.rpc('record_sales_receipt', {
+      p_client_id: clientId,
+      p_contact_id: invoice.contact_id,
+      p_receipt_date: paymentDate,
+      p_payment_method: paymentMethod,
+      p_reference: paymentReference || null,
+      p_bank_account_id: paymentBankAccountId,
+      p_allocations: [{ invoice_id: invoiceId, amount: amt }],
+    })
+
+    if (error) {
+      setPaymentError(error.message)
+      setPaymentSaving(false)
+      return
+    }
+
+    setShowPaymentForm(false)
+    setPaymentSaving(false)
+    fetchData()
+  }
+
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading invoice...</p>
@@ -113,6 +169,8 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
   )
 
   const contact = invoice.contacts
+  const balanceDue = parseFloat(invoice.total) - parseFloat(invoice.amount_paid)
+  const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
 
   return (
     <div className="space-y-6">
@@ -138,6 +196,12 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
                 {posting ? 'Posting...' : 'Post to ledger'}
               </button>
             )}
+            {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(invoice.status) && (
+              <button onClick={openPaymentForm}
+                className="bg-brand-gold text-brand-dark font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition">
+                Record Payment
+              </button>
+            )}
             {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(invoice.status) && parseFloat(invoice.amount_paid) === 0 && (
               <button onClick={() => setShowVoidForm(!showVoidForm)}
                 className="bg-red-50 text-red-600 font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-100 transition">
@@ -148,6 +212,53 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
         </div>
 
         {postError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-4">{postError}</div>}
+
+        {showPaymentForm && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 space-y-3">
+            <p className="text-sm font-semibold text-brand-dark">Record Payment — balance due £{balanceDue.toFixed(2)}</p>
+            {paymentError && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{paymentError}</div>}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Amount (£)</label>
+                <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date paid</label>
+                <DatePicker value={paymentDate} onChange={setPaymentDate} className="w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Method</label>
+                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className={inputClass}>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="card">Card</option>
+                  <option value="cash">Cash</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Bank account</label>
+                <select value={paymentBankAccountId} onChange={(e) => setPaymentBankAccountId(e.target.value)} className={inputClass}>
+                  <option value="">Select account</option>
+                  {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reference (optional)</label>
+              <input type="text" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} className={`${inputClass} max-w-xs`} />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleRecordPayment} disabled={paymentSaving}
+                className="bg-brand-dark text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50">
+                {paymentSaving ? 'Recording...' : 'Confirm payment'}
+              </button>
+              <button onClick={() => setShowPaymentForm(false)} className="text-sm text-gray-500 hover:underline px-2">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {invoice.replaces_invoice_id && (
           <div className="bg-brand-gold/10 text-brand-dark text-xs rounded-lg px-4 py-3 mb-4">
@@ -252,7 +363,7 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
             </div>
             <div className="flex justify-between text-sm font-semibold">
               <span className="text-brand-dark">Balance due</span>
-              <span className="text-brand-dark">£{(parseFloat(invoice.total) - parseFloat(invoice.amount_paid)).toFixed(2)}</span>
+              <span className="text-brand-dark">£{balanceDue.toFixed(2)}</span>
             </div>
           </div>
         </div>
