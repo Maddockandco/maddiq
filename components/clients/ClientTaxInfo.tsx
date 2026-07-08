@@ -27,7 +27,7 @@ export default function ClientTaxInfo({ clientId }: { clientId: string }) {
     if (data?.type === 'individual') {
       const { data: links } = await supabase
         .from('client_contacts')
-        .select('role, national_insurance_number, personal_utr, date_of_birth, appointment_date, client_id, clients(id, name)')
+        .select('role, national_insurance_number, personal_utr, date_of_birth, appointment_date, client_id, clients!client_id(id, name)')
         .eq('linked_client_id', clientId)
       if (links) setConnectedCompanies(links)
     }
