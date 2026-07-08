@@ -53,7 +53,7 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
       if (data?.type === 'individual') {
         const { data: links } = await supabase
           .from('client_contacts')
-          .select('role, client_id, national_insurance_number, personal_utr, date_of_birth, clients(id, name, type)')
+          .select('role, client_id, national_insurance_number, personal_utr, date_of_birth, clients!client_id(id, name, type)')
           .eq('linked_client_id', clientId)
         if (links) setConnectedCompanies(links)
       }
