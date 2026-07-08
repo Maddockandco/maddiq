@@ -3,6 +3,7 @@
 import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
+import { detectIndustry } from '@/lib/industryDetection'
 
 const ACCOUNT_TYPE_GROUPS = [
   {
@@ -162,25 +163,6 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
   },
 }
 
-function detectIndustryFromSicCode(sicCode: string | null): string | null {
-  if (!sicCode) return null
-  const code = parseInt(sicCode, 10)
-  if (isNaN(code)) return null
-  if (code >= 55000 && code <= 56302) return 'hospitality'
-  if (code >= 41000 && code <= 43999) return 'construction'
-  if (code >= 68000 && code <= 68999) return 'property'
-  return null
-}
-
-function detectIndustryFromText(industryText: string | null): string | null {
-  if (!industryText) return null
-  const t = industryText.toLowerCase()
-  if (/restaurant|cafe|caf[eé]|bar|pub|hotel|catering|hospitality|bistro/.test(t)) return 'hospitality'
-  if (/construct|building|contractor|builder|cis\b/.test(t)) return 'construction'
-  if (/landlord|letting|rental|property|real estate/.test(t)) return 'property'
-  return null
-}
-
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -237,7 +219,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .eq('id', clientId)
       .single()
 
-    const suggestion = detectIndustryFromSicCode(client?.sic_code) || detectIndustryFromText(client?.industry) || null
+    const suggestion = detectIndustry(client?.sic_code, client?.industry)
     setSuggestedIndustry(suggestion)
     setSelectedIndustry(suggestion || 'general')
     setShowIndustryPicker(true)
