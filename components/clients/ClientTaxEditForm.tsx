@@ -133,7 +133,14 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
     fetchClient()
   }, [clientId])
 
+  const [showConfirm, setShowConfirm] = useState(false)
+
+  function handleSaveClick() {
+    setShowConfirm(true)
+  }
+
   async function handleSave() {
+    setShowConfirm(false)
     setSaving(true)
     setError('')
     setSuccess(false)
@@ -187,8 +194,29 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
       updateData.partnership_utr = partnershipUtr || null
     }
     const { error: updateError } = await supabase.from('clients').update(updateData).eq('id', clientId)
-    if (updateError) { setError(updateError.message) } else { setSuccess(true) }
+
+    if (updateError) {
+      setError(updateError.message)
+      setSaving(false)
+      return
+    }
+
+    // Keep the linked director record (if any) in sync with the personal fields
+    // just saved, so editing from either side never lets the two drift apart.
+    if (clientType === 'individual') {
+      await supabase
+        .from('client_contacts')
+        .update({
+          national_insurance_number: niNumber || null,
+          personal_utr: personalUtr || null,
+          date_of_birth: dateOfBirth || null,
+        })
+        .eq('linked_client_id', clientId)
+    }
+
+    setSuccess(true)
     setSaving(false)
+    router.push(`/clients/${clientId}`)
   }
 
   if (loading || roleLoading) return (
@@ -350,8 +378,23 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         </>
       )}
 
+      {showConfirm && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-700">Save these changes?</p>
+          <p className="text-xs text-amber-600">You'll be taken back to the client page once saved.</p>
+          <div className="flex gap-3">
+            <button onClick={handleSave} disabled={saving} className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
+              {saving ? 'Saving...' : 'Yes, save'}
+            </button>
+            <button onClick={() => setShowConfirm(false)} className="flex-1 bg-white border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-50 transition">
+              Keep editing
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3">
-        <button onClick={handleSave} disabled={saving} className="flex-1 bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
+        <button onClick={handleSaveClick} disabled={saving} className="flex-1 bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
           {saving ? 'Saving...' : 'Save tax info'}
         </button>
         <button onClick={() => router.push(`/clients/${clientId}`)} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-3 rounded-xl hover:bg-gray-200 transition text-sm">
