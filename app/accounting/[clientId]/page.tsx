@@ -334,6 +334,19 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
 
   return (
     <div className="space-y-4">
+      {accountCount === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
+          <p className="text-sm font-semibold text-amber-700 mb-1">Get started</p>
+          <p className="text-sm text-amber-600 mb-4">Set up a Chart of Accounts before posting journal entries.</p>
+          <button
+            onClick={() => router.push(`/accounting/${params.clientId}/chart-of-accounts`)}
+            className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
+          >
+            Set up Chart of Accounts
+          </button>
+        </div>
+      )}
+
       <p className="text-xs text-gray-400">Drag the handles to rearrange widgets — your layout is saved automatically.</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -353,19 +366,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
           </div>
         ))}
       </div>
-
-      {accountCount === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
-          <p className="text-sm font-semibold text-amber-700 mb-1">Get started</p>
-          <p className="text-sm text-amber-600 mb-4">Set up a Chart of Accounts before posting journal entries.</p>
-          <button
-            onClick={() => router.push(`/accounting/${params.clientId}/chart-of-accounts`)}
-            className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
-          >
-            Set up Chart of Accounts
-          </button>
-        </div>
-      )}
     </div>
   )
 }
