@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Field, Toggle, Section, SelectField } from '@/components/clients/TaxSections'
 import { useRole } from '@/hooks/useRole'
@@ -11,6 +12,7 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
   const [success, setSuccess] = useState(false)
   const [clientType, setClientType] = useState('company')
   const { role, loading: roleLoading } = useRole()
+  const router = useRouter()
   const supabase = createClient()
   const isPayrollOnly = role === 'payroll_manager'
 
@@ -112,6 +114,19 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
 
         setPartnershipType(data.partnership_type || '')
         setPartnershipUtr(data.partnership_utr || '')
+
+        if (data.type === 'individual') {
+          const { data: links } = await supabase
+            .from('client_contacts')
+            .select('national_insurance_number, personal_utr, date_of_birth')
+            .eq('linked_client_id', clientId)
+          const linkedRecord = links?.[0]
+          if (linkedRecord) {
+            if (!data.national_insurance_number) setNiNumber(linkedRecord.national_insurance_number || '')
+            if (!data.personal_utr) setPersonalUtr(linkedRecord.personal_utr || '')
+            if (!data.date_of_birth) setDateOfBirth(linkedRecord.date_of_birth || '')
+          }
+        }
       }
       setLoading(false)
     }
@@ -335,9 +350,14 @@ export default function ClientTaxEditForm({ clientId }: { clientId: string }) {
         </>
       )}
 
-      <button onClick={handleSave} disabled={saving} className="w-full bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
-        {saving ? 'Saving...' : 'Save tax info'}
-      </button>
+      <div className="flex gap-3">
+        <button onClick={handleSave} disabled={saving} className="flex-1 bg-brand-dark text-white font-semibold py-3 rounded-xl hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
+          {saving ? 'Saving...' : 'Save tax info'}
+        </button>
+        <button onClick={() => router.push(`/clients/${clientId}`)} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-3 rounded-xl hover:bg-gray-200 transition text-sm">
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
