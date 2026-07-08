@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import CompanyLookup from '@/components/clients/CompanyLookup'
 import { logActivity } from '@/lib/logActivity'
+import { detectIndustry, INDUSTRY_LABELS } from '@/lib/industryDetection'
 
 export default function NewClientPage() {
   const [name, setName] = useState('')
@@ -74,6 +75,13 @@ export default function NewClientPage() {
     setNextAccountsDue(data.next_accounts_due || '')
     setNextConfirmationDue(data.next_confirmation_due || '')
     setChFound(true)
+
+    // Auto-suggest the Industry field from the SIC code Companies House returned —
+    // only if the person hasn't already typed something in themselves.
+    const detected = detectIndustry(data.sic_codes?.[0], null)
+    if (detected && !industry) {
+      setIndustry(INDUSTRY_LABELS[detected])
+    }
     if (data.accounting_reference_date) {
       const [day, month] = data.accounting_reference_date.split('/')
       const year = new Date().getFullYear()
@@ -507,6 +515,9 @@ export default function NewClientPage() {
                 <label className="block text-sm font-medium text-brand-dark mb-1">Industry</label>
                 <input type="text" value={industry} onChange={(e) => setIndustry(e.target.value)}
                   placeholder="Hospitality, Construction, Retail..." className={inputClass} />
+                {sicCode && (
+                  <p className="text-xs text-gray-400 mt-1">SIC code from Companies House: {sicCode}</p>
+                )}
               </div>
 
               <div>
