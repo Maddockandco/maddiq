@@ -108,6 +108,20 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
         return
       }
 
+      // Keep the linked individual client (if this director was also created
+      // as their own client) in sync with the shared personal fields just saved.
+      const editedContact = contacts.find((c) => c.id === editingId)
+      if (editedContact?.linked_client_id) {
+        await supabase
+          .from('clients')
+          .update({
+            national_insurance_number: niNumber || null,
+            personal_utr: personalUtr || null,
+            date_of_birth: dob || null,
+          })
+          .eq('id', editedContact.linked_client_id)
+      }
+
       setFormOpen(false)
       setEditingId(null)
       resetForm()
