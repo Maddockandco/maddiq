@@ -25,6 +25,7 @@ export default function NewClientPage() {
   const [nextConfirmationDue, setNextConfirmationDue] = useState('')
   const [directors, setDirectors] = useState<any[]>([])
   const [directorsToCreate, setDirectorsToCreate] = useState<string[]>([])
+  const [directorsForDLA, setDirectorsForDLA] = useState<string[]>([])
   const [chFound, setChFound] = useState(false)
   const [existingClientId, setExistingClientId] = useState<string | null>(null)
 
@@ -91,6 +92,14 @@ export default function NewClientPage() {
 
   function toggleDirectorCreate(directorName: string) {
     setDirectorsToCreate(prev =>
+      prev.includes(directorName)
+        ? prev.filter(n => n !== directorName)
+        : [...prev, directorName]
+    )
+  }
+
+  function toggleDirectorDLA(directorName: string) {
+    setDirectorsForDLA(prev =>
       prev.includes(directorName)
         ? prev.filter(n => n !== directorName)
         : [...prev, directorName]
@@ -207,16 +216,21 @@ export default function NewClientPage() {
 
     if (insertError) { setError(insertError.message); setLoading(false); return }
 
+    // Director's Loan Account / Director's Current Account use a reserved code
+    // block (2200-2299) so they never collide with the industry template ranges.
+    let nextDlaCode = 2200
+
     for (const director of directors) {
       let linkedClientId = null
+      const nameParts = director.name.split(', ')
+      const formattedDirectorName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : director.name
+
       if (directorsToCreate.includes(director.name)) {
-        const nameParts = director.name.split(', ')
-        const formattedName = nameParts.length > 1 ? `${nameParts[1]} ${nameParts[0]}` : director.name
         const { data: individualClient } = await supabase
           .from('clients')
           .insert({
             firm_id: firmUser.firm_id,
-            name: formattedName,
+            name: formattedDirectorName,
             type: 'individual',
             status: status,
             date_of_birth: director.date_of_birth ? `${director.date_of_birth}-01` : null,
@@ -234,6 +248,29 @@ export default function NewClientPage() {
         is_primary: directors.indexOf(director) === 0,
         linked_client_id: linkedClientId,
       })
+
+      if (directorsForDLA.includes(director.name)) {
+        const loanCode = String(nextDlaCode).padStart(4, '0')
+        const currentCode = String(nextDlaCode + 1).padStart(4, '0')
+        nextDlaCode += 2
+
+        await supabase.from('chart_of_accounts').insert([
+          {
+            firm_id: firmUser.firm_id,
+            client_id: client.id,
+            code: loanCode,
+            name: `${formattedDirectorName} - Director's Loan Account`,
+            account_type: 'current_liability',
+          },
+          {
+            firm_id: firmUser.firm_id,
+            client_id: client.id,
+            code: currentCode,
+            name: `${formattedDirectorName} - Director's Current Account`,
+            account_type: 'current_liability',
+          },
+        ])
+      }
     }
 
     await logActivity({
@@ -354,7 +391,7 @@ export default function NewClientPage() {
                       <label key={i} className="flex items-center gap-3 cursor-pointer bg-white rounded-lg p-3 border border-green-100">
                         <input type="checkbox" checked={directorsToCreate.includes(d.name)}
                           onChange={() => toggleDirectorCreate(d.name)} className="w-4 h-4 accent-brand-dark" />
-                        <div>
+                        <div className="flex-1">
                           <p className="text-sm font-medium text-brand-dark">👤 {formattedName}</p>
                           <p className="text-xs text-gray-500">
                             Director since {d.appointment_date || 'unknown'}
@@ -363,6 +400,15 @@ export default function NewClientPage() {
                           {directorsToCreate.includes(d.name) && (
                             <p className="text-xs text-green-600 mt-0.5">✅ Will be created as individual client</p>
                           )}
+                          <label className="flex items-center gap-2 mt-2 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={directorsForDLA.includes(d.name)}
+                              onChange={() => toggleDirectorDLA(d.name)}
+                              className="w-3.5 h-3.5 accent-brand-dark"
+                            />
+                            <span className="text-xs text-gray-500">Create Director's Loan Account & Current Account</span>
+                          </label>
                         </div>
                       </label>
                     )
