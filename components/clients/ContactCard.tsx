@@ -1,6 +1,6 @@
 'use client'
 
-export default function ContactCard({ contact }: { contact: any }) {
+export default function ContactCard({ contact, onEdit }: { contact: any; onEdit?: () => void }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
       <div className="flex items-start justify-between mb-4">
@@ -15,11 +15,18 @@ export default function ContactCard({ contact }: { contact: any }) {
             <p className="text-xs text-gray-500 capitalize">{contact.role}</p>
           </div>
         </div>
-        {contact.is_primary && (
-          <span className="text-xs px-2.5 py-1 rounded-full bg-brand-gold/20 text-brand-dark font-medium">
-            Primary
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {contact.is_primary && (
+            <span className="text-xs px-2.5 py-1 rounded-full bg-brand-gold/20 text-brand-dark font-medium">
+              Primary
+            </span>
+          )}
+          {onEdit && (
+            <button onClick={onEdit} className="text-xs text-brand-dark font-medium hover:underline">
+              Edit
+            </button>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         {contact.email && (
