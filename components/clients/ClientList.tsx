@@ -7,6 +7,7 @@ import ClientTable from '@/components/clients/ClientTable'
 export default function ClientList() {
   const [clients, setClients] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [typeFilter, setTypeFilter] = useState<'all' | 'company' | 'individual' | 'partnership'>('all')
   const supabase = createClient()
 
   useEffect(() => {
@@ -25,7 +26,6 @@ export default function ClientList() {
       const isRestricted = ['bookkeeper', 'payroll_manager', 'client_manager'].includes(firmUser.role)
 
       if (isRestricted) {
-        // Get client IDs from assignments table
         const { data: assignments } = await supabase
           .from('client_assignments')
           .select('client_id')
@@ -74,5 +74,45 @@ export default function ClientList() {
     </div>
   )
 
-  return <ClientTable clients={clients} />
+  const counts = {
+    all: clients.length,
+    company: clients.filter((c) => c.type === 'company').length,
+    individual: clients.filter((c) => c.type === 'individual').length,
+    partnership: clients.filter((c) => c.type === 'partnership').length,
+  }
+
+  const filteredClients = typeFilter === 'all' ? clients : clients.filter((c) => c.type === typeFilter)
+
+  const tabs: { key: typeof typeFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'company', label: 'Companies' },
+    { key: 'individual', label: 'Individuals' },
+    { key: 'partnership', label: 'Partnerships' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setTypeFilter(tab.key)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
+              typeFilter === tab.key ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            {tab.label} <span className="opacity-60">({counts[tab.key]})</span>
+          </button>
+        ))}
+      </div>
+
+      {filteredClients.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
+          <p className="text-gray-500 text-sm">No {typeFilter !== 'all' ? typeFilter : ''} clients found</p>
+        </div>
+      ) : (
+        <ClientTable clients={filteredClients} />
+      )}
+    </div>
+  )
 }
