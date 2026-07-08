@@ -53,7 +53,7 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
       if (data?.type === 'individual') {
         const { data: links } = await supabase
           .from('client_contacts')
-          .select('role, client_id, clients(id, name, type)')
+          .select('role, client_id, national_insurance_number, personal_utr, date_of_birth, clients(id, name, type)')
           .eq('linked_client_id', clientId)
         if (links) setConnectedCompanies(links)
       }
@@ -75,62 +75,52 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
     </div>
   )
 
+  // For individuals created via "also create as client" from a director record,
+  // personal fields may live on the linked client_contacts row rather than this
+  // client's own row. Fall back to that if the client's own field is empty.
+  const linkedRecord = connectedCompanies[0]
+  const niNumber = client.national_insurance_number || linkedRecord?.national_insurance_number
+  const personalUtr = client.personal_utr || linkedRecord?.personal_utr
+  const dobDisplay = client.date_of_birth || linkedRecord?.date_of_birth
+
   return (
     <div className="space-y-6">
-      <div className="bg-brand-dark rounded-2xl p-8 text-white">
-        <div className="flex items-start justify-between">
+      {client.type === 'individual' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <div>
-            <h2 className="text-2xl font-bold">{client.name}</h2>
-            <p className="text-white/60 text-sm mt-1 capitalize">{client.type}</p>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Email</p>
+            <p className="text-brand-dark text-sm mt-1">{client.email || '—'}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <span className={`px-3 py-1.5 rounded-full text-xs font-semibold capitalize ${
-              client.status === 'active' ? 'bg-green-400/20 text-green-300' :
-              client.status === 'prospect' ? 'bg-blue-400/20 text-blue-300' :
-              client.status === 'onboarding' ? 'bg-amber-400/20 text-amber-300' :
-              'bg-gray-400/20 text-gray-300'
-            }`}>
-              {client.status}
-            </span>
-            {can.editClientDetails && (
-              <Link
-                href={`/clients/${client.id}/edit`}
-                className="px-4 py-1.5 rounded-full text-xs font-semibold bg-brand-gold text-brand-dark hover:bg-opacity-90 transition"
-              >
-                Edit
-              </Link>
-            )}
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Phone</p>
+            <p className="text-brand-dark text-sm mt-1">{client.phone || '—'}</p>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Date of Birth</p>
+            <p className="text-brand-dark text-sm mt-1">{dobDisplay ? new Date(dobDisplay).toLocaleDateString('en-GB') : '—'}</p>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-8">
+      )}
+      {client.type === 'company' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <div>
-            <p className="text-white/40 text-xs uppercase tracking-wider">Email</p>
-            <p className="text-white text-sm mt-1">{client.email || '—'}</p>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Email</p>
+            <p className="text-brand-dark text-sm mt-1">{client.email || '—'}</p>
           </div>
           <div>
-            <p className="text-white/40 text-xs uppercase tracking-wider">Phone</p>
-            <p className="text-white text-sm mt-1">{client.phone || '—'}</p>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Phone</p>
+            <p className="text-brand-dark text-sm mt-1">{client.phone || '—'}</p>
           </div>
-          {client.type === 'company' && (
-            <>
-              <div>
-                <p className="text-white/40 text-xs uppercase tracking-wider">Industry</p>
-                <p className="text-white text-sm mt-1">{client.industry || '—'}</p>
-              </div>
-              <div>
-                <p className="text-white/40 text-xs uppercase tracking-wider">VAT Registered</p>
-                <p className="text-white text-sm mt-1">{client.vat_registered ? 'Yes' : 'No'}</p>
-              </div>
-            </>
-          )}
-          {client.type === 'individual' && (
-            <div>
-              <p className="text-white/40 text-xs uppercase tracking-wider">Date of Birth</p>
-              <p className="text-white text-sm mt-1">{client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString('en-GB') : '—'}</p>
-            </div>
-          )}
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">Industry</p>
+            <p className="text-brand-dark text-sm mt-1">{client.industry || '—'}</p>
+          </div>
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wider">VAT Registered</p>
+            <p className="text-brand-dark text-sm mt-1">{client.vat_registered ? 'Yes' : 'No'}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {client.type === 'individual' && connectedCompanies.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -180,11 +170,11 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">NI Number</span>
-                <span className="text-sm text-brand-dark font-medium">{client.national_insurance_number || '—'}</span>
+                <span className="text-sm text-brand-dark font-medium">{niNumber || '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Personal UTR</span>
-                <span className="text-sm text-brand-dark font-medium">{client.personal_utr || '—'}</span>
+                <span className="text-sm text-brand-dark font-medium">{personalUtr || '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">SA Status</span>
