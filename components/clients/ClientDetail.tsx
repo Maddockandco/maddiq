@@ -21,10 +21,22 @@ type Client = {
   year_end_date: string | null
   notes: string | null
   assigned_to: string | null
+  date_of_birth: string | null
+  national_insurance_number: string | null
+  personal_utr: string | null
+  sa_status: string | null
+  student_loan: boolean | null
+  student_loan_plan: string | null
+  marriage_allowance: boolean | null
+  child_benefit: boolean | null
+  foreign_income: boolean | null
+  partnership_type: string | null
+  partnership_utr: string | null
 }
 
 export default function ClientDetail({ clientId }: { clientId: string }) {
   const [client, setClient] = useState<Client | null>(null)
+  const [connectedCompanies, setConnectedCompanies] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const { can } = useRole()
   const supabase = createClient()
@@ -37,6 +49,15 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
         .eq('id', clientId)
         .single()
       if (data) setClient(data)
+
+      if (data?.type === 'individual') {
+        const { data: links } = await supabase
+          .from('client_contacts')
+          .select('role, client_id, clients(id, name, type)')
+          .eq('linked_client_id', clientId)
+        if (links) setConnectedCompanies(links)
+      }
+
       setLoading(false)
     }
     fetchClient()
@@ -90,35 +111,104 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
             <p className="text-white/40 text-xs uppercase tracking-wider">Phone</p>
             <p className="text-white text-sm mt-1">{client.phone || '—'}</p>
           </div>
-          <div>
-            <p className="text-white/40 text-xs uppercase tracking-wider">Industry</p>
-            <p className="text-white text-sm mt-1">{client.industry || '—'}</p>
-          </div>
-          <div>
-            <p className="text-white/40 text-xs uppercase tracking-wider">VAT Registered</p>
-            <p className="text-white text-sm mt-1">{client.vat_registered ? 'Yes' : 'No'}</p>
-          </div>
+          {client.type === 'company' && (
+            <>
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider">Industry</p>
+                <p className="text-white text-sm mt-1">{client.industry || '—'}</p>
+              </div>
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider">VAT Registered</p>
+                <p className="text-white text-sm mt-1">{client.vat_registered ? 'Yes' : 'No'}</p>
+              </div>
+            </>
+          )}
+          {client.type === 'individual' && (
+            <div>
+              <p className="text-white/40 text-xs uppercase tracking-wider">Date of Birth</p>
+              <p className="text-white text-sm mt-1">{client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString('en-GB') : '—'}</p>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {client.type === 'individual' && connectedCompanies.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Company Info</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Companies House No.</span>
-              <span className="text-sm text-brand-dark font-medium">{client.company_number || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">VAT Number</span>
-              <span className="text-sm text-brand-dark font-medium">{client.vat_number || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Year End</span>
-              <span className="text-sm text-brand-dark font-medium">{client.year_end_date || '—'}</span>
-            </div>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Connected Companies</h3>
+          <div className="space-y-2">
+            {connectedCompanies.map((link, i) => (
+              <Link
+                key={i}
+                href={`/clients/${link.client_id}`}
+                className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-brand-light transition"
+              >
+                <div>
+                  <p className="text-sm font-medium text-brand-dark">{link.clients?.name}</p>
+                  <p className="text-xs text-gray-500 capitalize">{link.role}</p>
+                </div>
+                <span className="text-xs text-brand-dark">View →</span>
+              </Link>
+            ))}
           </div>
         </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {client.type === 'company' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Company Info</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Companies House No.</span>
+                <span className="text-sm text-brand-dark font-medium">{client.company_number || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">VAT Number</span>
+                <span className="text-sm text-brand-dark font-medium">{client.vat_number || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Year End</span>
+                <span className="text-sm text-brand-dark font-medium">{client.year_end_date || '—'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {client.type === 'individual' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Personal Info</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">NI Number</span>
+                <span className="text-sm text-brand-dark font-medium">{client.national_insurance_number || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Personal UTR</span>
+                <span className="text-sm text-brand-dark font-medium">{client.personal_utr || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">SA Status</span>
+                <span className="text-sm text-brand-dark font-medium">{client.sa_status || '—'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {client.type === 'partnership' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Partnership Info</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Partnership Type</span>
+                <span className="text-sm text-brand-dark font-medium capitalize">{client.partnership_type || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Partnership UTR</span>
+                <span className="text-sm text-brand-dark font-medium">{client.partnership_utr || '—'}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">Quick Actions</h3>
@@ -150,7 +240,6 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
         </div>
       </div>
 
-      {/* Team Assignment — only visible to owners and managers */}
       {can.manageTeam && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-4">
