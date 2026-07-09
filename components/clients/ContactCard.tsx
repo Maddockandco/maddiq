@@ -1,6 +1,6 @@
 'use client'
 
-export default function ContactCard({ contact, onEdit }: { contact: any; onEdit?: () => void }) {
+export default function ContactCard({ contact, onEdit, onDelete }: { contact: any; onEdit?: () => void; onDelete?: () => void }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
       <div className="flex items-start justify-between mb-4">
@@ -24,6 +24,11 @@ export default function ContactCard({ contact, onEdit }: { contact: any; onEdit?
           {onEdit && (
             <button onClick={onEdit} className="text-xs text-brand-dark font-medium hover:underline">
               Edit
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} className="text-xs text-red-500 font-medium hover:underline">
+              Delete
             </button>
           )}
         </div>
