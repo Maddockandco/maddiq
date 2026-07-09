@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 export default function ClientEditForm({ clientId }: { clientId: string }) {
   const [name, setName] = useState('')
@@ -18,6 +19,7 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
   const supabase = createClient()
   const router = useRouter()
 
@@ -45,7 +47,14 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
     fetchClient()
   }, [clientId])
 
+  function handleSaveClick() {
+    if (!name) { setError('Name is required'); return }
+    setError('')
+    setShowConfirm(true)
+  }
+
   async function handleSave() {
+    setShowConfirm(false)
     setSaving(true)
     setError('')
     if (!name) { setError('Name is required'); setSaving(false); return }
@@ -163,10 +172,25 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
           </div>
         )}
 
+        <ConfirmModal
+          isOpen={showConfirm}
+          title="Save these changes?"
+          message="You'll be taken back to the client page once saved."
+          confirmLabel="Yes, save"
+          cancelLabel="Keep editing"
+          confirming={saving}
+          onConfirm={handleSave}
+          onCancel={() => setShowConfirm(false)}
+        />
+
         <div className="flex gap-3 pt-2">
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSaveClick} disabled={saving}
             className="flex-1 bg-brand-dark text-white font-semibold py-3 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 text-sm">
             {saving ? 'Saving...' : 'Save changes'}
+          </button>
+          <button onClick={() => router.push(`/clients/${clientId}`)}
+            className="flex-1 bg-gray-100 text-gray-600 font-semibold py-3 rounded-lg hover:bg-gray-200 transition text-sm">
+            Cancel
           </button>
         </div>
       </div>
