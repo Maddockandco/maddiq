@@ -5,16 +5,17 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
   description: string
   quantity: string
   unit_price: string
-  expense_account_id: string
+  income_account_id: string
   vat_rate_id: string
 }
 
-const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '' }
+const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '' }
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -30,8 +31,8 @@ function addDays(dateStr: string, days: number) {
   return d.toISOString().split('T')[0]
 }
 
-export default function PurchaseBills({ clientId }: { clientId: string }) {
-  const [bills, setBills] = useState<any[]>([])
+export default function SalesInvoices({ clientId }: { clientId: string }) {
+  const [invoices, setInvoices] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
@@ -42,13 +43,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [voidingId, setVoidingId] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voiding, setVoiding] = useState(false)
-  const [voidError, setVoidError] = useState<Record<string, string>>({})
+  const [voidError, setVoidError] = useState('')
 
   const [creating, setCreating] = useState(false)
-  const [replacesBillId, setReplacesBillId] = useState<string | null>(null)
+  const [replacesInvoiceId, setReplacesInvoiceId] = useState<string | null>(null)
   const [contactId, setContactId] = useState('')
-  const [billNumber, setBillNumber] = useState('')
-  const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0])
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
@@ -62,15 +62,15 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   useEffect(() => { fetchData() }, [clientId])
 
   async function fetchData() {
-    const [billsRes, contactsRes, accountsRes, vatRes] = await Promise.all([
-      supabase.from('purchase_bills').select('*, contacts(name)').eq('client_id', clientId).order('bill_date', { ascending: false }),
-      supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_supplier', true).eq('is_active', true).order('name'),
+    const [invoicesRes, contactsRes, accountsRes, vatRes] = await Promise.all([
+      supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
+      supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
-      supabase.from('vat_rates').select('*').eq('type', 'purchases').order('rate', { ascending: true }),
+      supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
     ])
-    if (billsRes.data) setBills(billsRes.data)
+    if (invoicesRes.data) setInvoices(invoicesRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
-    if (accountsRes.data) setAccounts(accountsRes.data.filter((a) => ['direct_costs', 'expense', 'overhead'].includes(a.account_type)))
+    if (accountsRes.data) setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type)))
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
   }
@@ -111,30 +111,29 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
   function resetForm() {
     setContactId('')
-    setBillNumber('')
-    setBillDate(new Date().toISOString().split('T')[0])
+    setInvoiceDate(new Date().toISOString().split('T')[0])
     setDueDate('')
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
-    setReplacesBillId(null)
+    setReplacesInvoiceId(null)
   }
 
   function handleContactChange(id: string) {
     setContactId(id)
     const contact = contacts.find((c) => c.id === id)
     const terms = contact?.payment_terms_days ?? 30
-    setDueDate(addDays(billDate, terms))
+    setDueDate(addDays(invoiceDate, terms))
   }
 
-  function openCorrectedBill(voidedBill: any) {
+  function openCorrectedInvoice(voidedInvoice: any) {
     resetForm()
-    setContactId(voidedBill.contact_id)
-    const terms = contacts.find((c) => c.id === voidedBill.contact_id)?.payment_terms_days ?? 30
+    setContactId(voidedInvoice.contact_id)
+    const terms = contacts.find((c) => c.id === voidedInvoice.contact_id)?.payment_terms_days ?? 30
     const todayStr = new Date().toISOString().split('T')[0]
-    setBillDate(todayStr)
+    setInvoiceDate(todayStr)
     setDueDate(addDays(todayStr, terms))
-    setReplacesBillId(voidedBill.id)
+    setReplacesInvoiceId(voidedInvoice.id)
     setCreating(true)
   }
 
@@ -142,7 +141,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
 
-    if (!contactId) { setError('Select a supplier'); setSaving(false); return }
+    if (!contactId) { setError('Select a customer'); setSaving(false); return }
     if (!dueDate) { setError('Due date is required'); setSaving(false); return }
     const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
     if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
@@ -157,14 +156,20 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
     const { subtotal, vatTotal, total } = calculateTotals()
 
-    const { data: bill, error: billError } = await supabase
-      .from('purchase_bills')
+    const { count } = await supabase
+      .from('sales_invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', clientId)
+    const invoiceNumber = `INV-${String((count || 0) + 1).padStart(4, '0')}`
+
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('sales_invoices')
       .insert({
         firm_id: firmUser.firm_id,
         client_id: clientId,
         contact_id: contactId,
-        bill_number: billNumber || null,
-        bill_date: billDate,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
         due_date: dueDate,
         status: 'draft',
         subtotal,
@@ -172,21 +177,21 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         total,
         notes: notes || null,
         created_by: user!.id,
-        replaces_bill_id: replacesBillId,
+        replaces_invoice_id: replacesInvoiceId,
       })
       .select()
       .single()
 
-    if (billError) { setError(billError.message); setSaving(false); return }
+    if (invoiceError) { setError(invoiceError.message); setSaving(false); return }
 
     const linesToInsert = validLines.map((l, i) => {
       const { net, vatAmount } = lineAmounts(l)
       return {
-        bill_id: bill.id,
+        invoice_id: invoice.id,
         description: l.description,
         quantity: parseFloat(l.quantity) || 1,
         unit_price: parseFloat(l.unit_price) || 0,
-        expense_account_id: l.expense_account_id || null,
+        income_account_id: l.income_account_id || null,
         vat_rate_id: l.vat_rate_id || null,
         vat_amount: vatAmount,
         line_total: net,
@@ -194,7 +199,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       }
     })
 
-    const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesToInsert)
+    const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesToInsert)
     if (linesError) { setError(linesError.message); setSaving(false); return }
 
     setCreating(false)
@@ -203,14 +208,14 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setSaving(false)
   }
 
-  async function handlePost(billId: string) {
-    setPostingId(billId)
-    setPostError((prev) => ({ ...prev, [billId]: '' }))
+  async function handlePost(invoiceId: string) {
+    setPostingId(invoiceId)
+    setPostError((prev) => ({ ...prev, [invoiceId]: '' }))
 
-    const { error: postErr } = await supabase.rpc('post_purchase_bill', { p_bill_id: billId })
+    const { error: postErr } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
 
     if (postErr) {
-      setPostError((prev) => ({ ...prev, [billId]: postErr.message }))
+      setPostError((prev) => ({ ...prev, [invoiceId]: postErr.message }))
       setPostingId(null)
       return
     }
@@ -219,27 +224,28 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     fetchData()
   }
 
-  function openVoid(billId: string) {
+  function openVoid(invoiceId: string) {
     setVoidReason('')
-    setVoidError((prev) => ({ ...prev, [billId]: '' }))
-    setVoidingId(billId)
+    setVoidError('')
+    setVoidingId(invoiceId)
   }
 
-  async function handleVoid(billId: string) {
+  async function handleVoid() {
+    if (!voidingId) return
     if (!voidReason.trim()) {
-      setVoidError((prev) => ({ ...prev, [billId]: 'A reason is required' }))
+      setVoidError('A reason is required')
       return
     }
     setVoiding(true)
-    setVoidError((prev) => ({ ...prev, [billId]: '' }))
+    setVoidError('')
 
-    const { error: voidErr } = await supabase.rpc('void_purchase_bill', {
-      p_bill_id: billId,
+    const { error: voidErr } = await supabase.rpc('void_sales_invoice', {
+      p_invoice_id: voidingId,
       p_reason: voidReason.trim(),
     })
 
     if (voidErr) {
-      setVoidError((prev) => ({ ...prev, [billId]: voidErr.message }))
+      setVoidError(voidErr.message)
       setVoiding(false)
       return
     }
@@ -254,14 +260,14 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
-      <p className="text-gray-500 text-sm">Loading purchase bills...</p>
+      <p className="text-gray-500 text-sm">Loading sales invoices...</p>
     </div>
   )
 
   if (contacts.length === 0 && !creating) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-      <p className="text-gray-500 text-sm mb-2">No suppliers available</p>
-      <p className="text-gray-400 text-xs">Add a supplier in Contacts first before creating bills</p>
+      <p className="text-gray-500 text-sm mb-2">No customers available</p>
+      <p className="text-gray-400 text-xs">Add a customer in Contacts first before creating invoices</p>
     </div>
   )
 
@@ -273,7 +279,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
             onClick={() => { resetForm(); setCreating(true) }}
             className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
           >
-            + New Bill
+            + New Invoice
           </button>
         </div>
       )}
@@ -281,30 +287,26 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
-            {replacesBillId ? 'Corrected Bill' : 'New Purchase Bill'}
+            {replacesInvoiceId ? 'Corrected Invoice' : 'New Sales Invoice'}
           </h3>
           <p className="text-xs text-gray-400 -mt-2">
-            {replacesBillId
-              ? 'This will be linked as a correction to the voided bill'
-              : "Creating directly — this won't be linked to a Purchase Order"}
+            {replacesInvoiceId
+              ? 'This will be linked as a correction to the voided invoice'
+              : "Creating directly — this won't be linked to a Sales Order"}
           </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
               <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
-                <option value="">Select supplier</option>
+                <option value="">Select customer</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier's bill/invoice number</label>
-              <input type="text" value={billNumber} onChange={(e) => setBillNumber(e.target.value)} placeholder="Their reference" className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Bill date</label>
-              <DatePicker value={billDate} onChange={setBillDate} className="w-full" />
+              <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
+              <DatePicker value={invoiceDate} onChange={setInvoiceDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
@@ -317,7 +319,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
               <div className="col-span-4">Description</div>
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit price (£)</div>
-              <div className="col-span-2">Expense account</div>
+              <div className="col-span-2">Income account</div>
               <div className="col-span-2">VAT rate</div>
               <div className="col-span-1"></div>
             </div>
@@ -347,8 +349,8 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     />
                     <select
-                      value={line.expense_account_id}
-                      onChange={(e) => updateLine(index, 'expense_account_id', e.target.value)}
+                      value={line.income_account_id}
+                      onChange={(e) => updateLine(index, 'income_account_id', e.target.value)}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">Account</option>
@@ -408,19 +410,19 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {bills.length === 0 && !creating ? (
+      {invoices.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm mb-2">No bills yet</p>
-          <p className="text-gray-400 text-xs">Create one directly, or convert an accepted Purchase Order</p>
+          <p className="text-gray-500 text-sm mb-2">No invoices yet</p>
+          <p className="text-gray-400 text-xs">Create one directly, or convert an accepted Sales Order</p>
         </div>
       ) : !creating && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
           <table className="w-full">
             <thead>
               <tr className="bg-brand-dark">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Bill #</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Supplier</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Bill date</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Invoice #</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Customer</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Invoice date</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Due date</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Paid</th>
@@ -429,100 +431,71 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {bills.map((bill) => (
+              {invoices.map((inv) => (
                 <>
-                  <tr key={bill.id} className="border-b border-gray-100">
+                  <tr key={inv.id} className="border-b border-gray-100">
                     <td className="px-6 py-3 text-sm font-mono text-gray-600">
                       <button
-                        onClick={() => router.push(`/accounting/${clientId}/purchase-bills/${bill.id}`)}
+                        onClick={() => router.push(`/accounting/${clientId}/sales-invoices/${inv.id}`)}
                         className="text-brand-dark hover:underline font-semibold"
                       >
-                        {bill.bill_number || 'View bill'}
+                        {inv.invoice_number}
                       </button>
-                      {bill.replaces_bill_id && <span className="block text-xs text-gray-400">corrects a voided bill</span>}
+                      {inv.replaces_invoice_id && <span className="block text-xs text-gray-400">corrects a voided invoice</span>}
                     </td>
-                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{bill.contacts?.name}</td>
-                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(bill.bill_date).toLocaleDateString('en-GB')}</td>
-                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(bill.due_date).toLocaleDateString('en-GB')}</td>
-                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(bill.total).toFixed(2)}</td>
-                    <td className="px-6 py-3 text-sm text-right text-gray-500">£{parseFloat(bill.amount_paid).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{inv.contacts?.name}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.due_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(inv.total).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-right text-gray-500">£{parseFloat(inv.amount_paid).toFixed(2)}</td>
                     <td className="px-6 py-3">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[bill.status]}`}>
-                        {bill.status.replace(/_/g, ' ')}
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[inv.status]}`}>
+                        {inv.status.replace(/_/g, ' ')}
                       </span>
-                      {bill.status === 'void' && bill.voided_reason && (
-                        <span className="block text-xs text-gray-400 mt-0.5">{bill.voided_reason}</span>
+                      {inv.status === 'void' && inv.voided_reason && (
+                        <span className="block text-xs text-gray-400 mt-0.5">{inv.voided_reason}</span>
                       )}
                     </td>
                     <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
-                      {can.manageEngagements && bill.status === 'draft' && (
+                      {can.manageEngagements && inv.status === 'draft' && (
                         <button
-                          onClick={() => handlePost(bill.id)}
-                          disabled={postingId === bill.id}
+                          onClick={() => handlePost(inv.id)}
+                          disabled={postingId === inv.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === bill.id ? 'Posting...' : 'Post to ledger'}
+                          {postingId === inv.id ? 'Posting...' : 'Post to ledger'}
                         </button>
                       )}
-                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && parseFloat(bill.amount_paid) === 0 && (
+                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
                         <button
-                          onClick={() => openVoid(bill.id)}
+                          onClick={() => openVoid(inv.id)}
                           className="text-xs bg-red-50 text-red-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100 transition"
                         >
                           Void
                         </button>
                       )}
-                      {can.manageEngagements && bill.status === 'void' && (
+                      {can.manageEngagements && inv.status === 'void' && (
                         <button
-                          onClick={() => openCorrectedBill(bill)}
+                          onClick={() => openCorrectedInvoice(inv)}
                           className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition"
                         >
-                          Create corrected bill
+                          Create corrected invoice
                         </button>
                       )}
-                      {bill.journal_entry_id && !['draft', 'void'].includes(bill.status) && (
+                      {inv.journal_entry_id && !['draft', 'void'].includes(inv.status) && (
                         <span className="text-xs text-gray-400">Posted ✓</span>
                       )}
                     </td>
                   </tr>
-                  {postError[bill.id] && (
+                  {postError[inv.id] && (
                     <tr>
                       <td colSpan={8} className="px-6 py-3 bg-red-50">
-                        <p className="text-red-600 text-xs">{postError[bill.id]}</p>
-                        {postError[bill.id].includes('Control accounts') && (
+                        <p className="text-red-600 text-xs">{postError[inv.id]}</p>
+                        {postError[inv.id].includes('Control accounts') && (
                           <p className="text-red-500 text-xs mt-1">
-                            Go to the Accounting → Settings tab and map all six control accounts before posting bills.
+                            Go to the Accounting → Settings tab and map all six control accounts before posting invoices.
                           </p>
                         )}
-                      </td>
-                    </tr>
-                  )}
-                  {voidingId === bill.id && (
-                    <tr className="bg-red-50">
-                      <td colSpan={8} className="px-6 py-4">
-                        <div className="flex items-end gap-4 flex-wrap">
-                          <div className="flex-1 min-w-[240px]">
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Reason for voiding</label>
-                            <input
-                              type="text"
-                              value={voidReason}
-                              onChange={(e) => setVoidReason(e.target.value)}
-                              placeholder="e.g. Incorrect amount, wrong supplier"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-                            />
-                            {voidError[bill.id] && <p className="text-red-600 text-xs mt-1">{voidError[bill.id]}</p>}
-                          </div>
-                          <button
-                            onClick={() => handleVoid(bill.id)}
-                            disabled={voiding}
-                            className="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
-                          >
-                            {voiding ? 'Voiding...' : 'Confirm void'}
-                          </button>
-                          <button onClick={() => setVoidingId(null)} className="text-sm text-gray-500 hover:underline">
-                            Cancel
-                          </button>
-                        </div>
                       </td>
                     </tr>
                   )}
@@ -532,6 +505,24 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!voidingId}
+        title="Void this invoice?"
+        message="This creates a reversing journal entry. The invoice record stays visible with its void reason, and can be corrected by creating a replacement."
+        confirmLabel="Void invoice"
+        cancelLabel="Cancel"
+        confirming={voiding}
+        danger
+        requireInput
+        inputLabel="Reason for voiding"
+        inputValue={voidReason}
+        onInputChange={setVoidReason}
+        inputPlaceholder="e.g. Incorrect amount, wrong customer"
+        inputError={voidError}
+        onConfirm={handleVoid}
+        onCancel={() => setVoidingId(null)}
+      />
     </div>
   )
 }
