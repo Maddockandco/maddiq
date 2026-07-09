@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 export default function SalesReceipts({ clientId }: { clientId: string }) {
   const [receipts, setReceipts] = useState<any[]>([])
@@ -26,7 +27,7 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
   const [voidingId, setVoidingId] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voiding, setVoiding] = useState(false)
-  const [voidError, setVoidError] = useState<Record<string, string>>({})
+  const [voidError, setVoidError] = useState('')
 
   const { can } = useRole()
   const supabase = createClient()
@@ -152,25 +153,26 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
 
   function openVoid(receiptId: string) {
     setVoidReason('')
-    setVoidError((prev) => ({ ...prev, [receiptId]: '' }))
+    setVoidError('')
     setVoidingId(receiptId)
   }
 
-  async function handleVoid(receiptId: string) {
+  async function handleVoid() {
+    if (!voidingId) return
     if (!voidReason.trim()) {
-      setVoidError((prev) => ({ ...prev, [receiptId]: 'A reason is required' }))
+      setVoidError('A reason is required')
       return
     }
     setVoiding(true)
-    setVoidError((prev) => ({ ...prev, [receiptId]: '' }))
+    setVoidError('')
 
     const { error: voidErr } = await supabase.rpc('void_sales_receipt', {
-      p_receipt_id: receiptId,
+      p_receipt_id: voidingId,
       p_reason: voidReason.trim(),
     })
 
     if (voidErr) {
-      setVoidError((prev) => ({ ...prev, [receiptId]: voidErr.message }))
+      setVoidError(voidErr.message)
       setVoiding(false)
       return
     }
@@ -359,41 +361,30 @@ export default function SalesReceipts({ clientId }: { clientId: string }) {
                       <td colSpan={6} className="px-6 pb-2 text-xs text-gray-400">Voided: {r.voided_reason}</td>
                     </tr>
                   )}
-                  {voidingId === r.id && (
-                    <tr className="bg-red-50">
-                      <td colSpan={6} className="px-6 py-4">
-                        <div className="flex items-end gap-4 flex-wrap">
-                          <div className="flex-1 min-w-[240px]">
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Reason for voiding</label>
-                            <input
-                              type="text"
-                              value={voidReason}
-                              onChange={(e) => setVoidReason(e.target.value)}
-                              placeholder="e.g. Recorded against wrong invoice"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-                            />
-                            {voidError[r.id] && <p className="text-red-600 text-xs mt-1">{voidError[r.id]}</p>}
-                          </div>
-                          <button
-                            onClick={() => handleVoid(r.id)}
-                            disabled={voiding}
-                            className="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
-                          >
-                            {voiding ? 'Voiding...' : 'Confirm void'}
-                          </button>
-                          <button onClick={() => setVoidingId(null)} className="text-sm text-gray-500 hover:underline">
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!voidingId}
+        title="Void this receipt?"
+        message="This reverses the journal entry and unwinds the invoice allocation. If it was matched to a bank transaction, that link is cleared too."
+        confirmLabel="Void receipt"
+        cancelLabel="Cancel"
+        confirming={voiding}
+        danger
+        requireInput
+        inputLabel="Reason for voiding"
+        inputValue={voidReason}
+        onInputChange={setVoidReason}
+        inputPlaceholder="e.g. Recorded against wrong invoice"
+        inputError={voidError}
+        onConfirm={handleVoid}
+        onCancel={() => setVoidingId(null)}
+      />
     </div>
   )
 }
