@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import ContactCard from '@/components/clients/ContactCard'
 import { useRole } from '@/hooks/useRole'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 export default function ClientContacts({ clientId }: { clientId: string }) {
   const [contacts, setContacts] = useState<any[]>([])
@@ -23,6 +24,8 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
   const [chVerified, setChVerified] = useState(false)
   const [createDLA, setCreateDLA] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingContact, setDeletingContact] = useState<any>(null)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   const { can } = useRole()
   const supabase = createClient()
@@ -184,6 +187,39 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
     setSaving(false)
   }
 
+  async function handleDelete() {
+    if (!deletingContact) return
+    setDeleting(true)
+
+    const { error: deleteError } = await supabase
+      .from('client_contacts')
+      .delete()
+      .eq('id', deletingContact.id)
+
+    if (deleteError) {
+      setDeleting(false)
+      return
+    }
+
+    // If the deleted contact was primary, promote another remaining contact
+    if (deletingContact.is_primary) {
+      const { data: remaining } = await supabase
+        .from('client_contacts')
+        .select('id')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+
+      if (remaining && remaining.length > 0) {
+        await supabase.from('client_contacts').update({ is_primary: true }).eq('id', remaining[0].id)
+      }
+    }
+
+    setDeletingContact(null)
+    setDeleting(false)
+    fetchContacts()
+  }
+
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading...</p>
@@ -301,10 +337,27 @@ export default function ClientContacts({ clientId }: { clientId: string }) {
               key={contact.id}
               contact={contact}
               onEdit={can.addDirectors ? () => openEditForm(contact) : undefined}
+              onDelete={can.addDirectors ? () => setDeletingContact(contact) : undefined}
             />
           ))}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!deletingContact}
+        title={`Remove ${deletingContact?.name}?`}
+        message={
+          deletingContact?.linked_client_id
+            ? "This removes them from this client's Directors list only. Their own separate client record (and any tasks, documents, or engagements on it) stays untouched."
+            : "This permanently removes this director/contact record. This can't be undone."
+        }
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        confirming={deleting}
+        danger
+        onConfirm={handleDelete}
+        onCancel={() => setDeletingContact(null)}
+      />
     </div>
   )
 }
