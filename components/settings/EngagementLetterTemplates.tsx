@@ -11,6 +11,22 @@ const PLACEHOLDER_HELP = [
   { tag: '{date}', desc: "Today's date" },
 ]
 
+const SAMPLE_VALUES: Record<string, string> = {
+  '{client_name}': 'Sample Client Ltd',
+  '{services}': '- Annual accounts preparation\n- Corporation tax return\n- VAT returns (quarterly)',
+  '{fee_summary}': 'Annual accounts & CT600: £1,200/year\nVAT returns: £150/quarter',
+  '{date}': new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+}
+
+function buildPreviewContent(content: string, firmName: string) {
+  let result = content
+  result = result.replaceAll('{firm_name}', firmName || 'Your Firm Name')
+  for (const [tag, value] of Object.entries(SAMPLE_VALUES)) {
+    result = result.replaceAll(tag, value)
+  }
+  return result
+}
+
 export default function EngagementLetterTemplates() {
   const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,6 +37,8 @@ export default function EngagementLetterTemplates() {
   const [isDefault, setIsDefault] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [firm, setFirm] = useState<any>(null)
+  const [previewing, setPreviewing] = useState<any>(null)
   const supabase = createClient()
 
   useEffect(() => { fetchTemplates() }, [])
@@ -42,6 +60,14 @@ export default function EngagementLetterTemplates() {
       .order('created_at', { ascending: false })
 
     if (data) setTemplates(data)
+
+    const { data: firmData } = await supabase
+      .from('firms')
+      .select('name, logo_url, brand_color, address')
+      .eq('id', firmUser.firm_id)
+      .single()
+    if (firmData) setFirm(firmData)
+
     setLoading(false)
   }
 
@@ -131,6 +157,49 @@ By signing below, you confirm acceptance of these terms.
 
   if (loading) return <div className="text-gray-500 text-sm">Loading templates...</div>
 
+  const brandColor = firm?.brand_color || '#343b46'
+
+  if (previewing) {
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setPreviewing(null)} className="text-xs text-gray-400 hover:text-brand-dark transition">
+          ← Back to templates
+        </button>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-xs text-amber-700">
+            <strong>Preview mode</strong> — showing sample placeholder data ("Sample Client Ltd", example services and fees), since no real client has been selected yet. Actual letters will use the real client's details.
+          </p>
+        </div>
+
+        <div className="rounded-2xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="p-10 text-white" style={{ backgroundColor: brandColor }}>
+            <div className="flex items-center justify-between mb-16">
+              {firm?.logo_url ? (
+                <img src={firm.logo_url} alt={firm.name} className="h-16 max-w-[180px] object-contain" />
+              ) : (
+                <h2 className="text-2xl font-bold">{firm?.name || 'Your Firm Name'}</h2>
+              )}
+              <p className="text-sm text-white/70">{SAMPLE_VALUES['{date}']}</p>
+            </div>
+            <h1 className="text-4xl font-bold mb-2">Letter of Engagement</h1>
+            <p className="text-lg text-white/80">{SAMPLE_VALUES['{client_name}']}</p>
+          </div>
+
+          <div className="p-10 bg-white space-y-6">
+            <div className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
+              {buildPreviewContent(previewing.content, firm?.name)}
+            </div>
+            <div className="pt-4 border-t border-gray-100 text-xs text-gray-400 space-y-1">
+              {firm?.name && <p>{firm.name}</p>}
+              {firm?.address && <p>{firm.address}</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (adding || editing) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
@@ -186,6 +255,13 @@ By signing below, you confirm acceptance of these terms.
             className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
             {saving ? 'Saving...' : 'Save template'}
           </button>
+          <button
+            onClick={() => setPreviewing({ content })}
+            disabled={!content}
+            className="flex-1 bg-brand-gold text-brand-dark font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+          >
+            Preview
+          </button>
           <button onClick={() => { setAdding(false); setEditing(null) }}
             className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
             Cancel
@@ -223,6 +299,10 @@ By signing below, you confirm acceptance of these terms.
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => setPreviewing(t)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-brand-gold/20 text-brand-dark hover:bg-brand-gold/30 transition font-medium">
+                Preview
+              </button>
               <button onClick={() => startEdit(t)}
                 className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-brand-dark hover:bg-gray-200 transition font-medium">
                 Edit
