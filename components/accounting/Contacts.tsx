@@ -144,6 +144,26 @@ export default function Contacts({ clientId }: { clientId: string }) {
     if (!form.name) { setError('Name is required'); setSaving(false); return }
     if (!form.is_customer && !form.is_supplier) { setError('Must be marked as a customer, supplier, or both'); setSaving(false); return }
 
+    if (!editingId) {
+      let duplicateQuery = supabase
+        .from('contacts')
+        .select('id, name')
+        .eq('client_id', clientId)
+
+      if (form.company_number) {
+        duplicateQuery = duplicateQuery.eq('company_number', form.company_number)
+      } else {
+        duplicateQuery = duplicateQuery.ilike('name', form.name.trim())
+      }
+
+      const { data: existing } = await duplicateQuery
+      if (existing && existing.length > 0) {
+        setError(`A contact named "${existing[0].name}" already exists for this client${form.company_number ? ' with the same company number' : ''} — did you mean to edit it instead?`)
+        setSaving(false)
+        return
+      }
+    }
+
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
       .from('firm_users')
