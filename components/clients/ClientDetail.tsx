@@ -16,6 +16,8 @@ type Client = {
   phone: string | null
   industry: string | null
   company_number: string | null
+  registered_address: string | null
+  trading_address: string | null
   vat_registered: boolean
   vat_number: string | null
   year_end_date: string | null
@@ -165,6 +167,14 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
                 <span className="text-sm text-gray-500">Year End</span>
                 <span className="text-sm text-brand-dark font-medium">{client.year_end_date || '—'}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Registered Office</span>
+                <span className="text-sm text-brand-dark font-medium text-right">{client.registered_address || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Trading Address</span>
+                <span className="text-sm text-brand-dark font-medium text-right">{client.trading_address || '—'}</span>
+              </div>
             </div>
           </div>
         )}
@@ -213,6 +223,14 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Partnership UTR</span>
                 <span className="text-sm text-brand-dark font-medium">{client.partnership_utr || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Registered Office</span>
+                <span className="text-sm text-brand-dark font-medium text-right">{client.registered_address || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Trading Address</span>
+                <span className="text-sm text-brand-dark font-medium text-right">{client.trading_address || '—'}</span>
               </div>
             </div>
           </div>
