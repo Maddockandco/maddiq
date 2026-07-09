@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import CompanyLookup from '@/components/clients/CompanyLookup'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 const ENTITY_TYPES = [
   { value: 'individual', label: 'Individual' },
@@ -49,6 +50,7 @@ export default function Contacts({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [filter, setFilter] = useState<'all' | 'customers' | 'suppliers'>('all')
   const [form, setForm] = useState<typeof EMPTY_FORM>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -124,7 +126,18 @@ export default function Contacts({ clientId }: { clientId: string }) {
     setFormOpen(true)
   }
 
+  function handleSaveClick() {
+    if (!form.name) { setError('Name is required'); return }
+    if (!form.is_customer && !form.is_supplier) { setError('Must be marked as a customer, supplier, or both'); return }
+    if (editingId) {
+      setShowConfirm(true)
+    } else {
+      handleSave()
+    }
+  }
+
   async function handleSave() {
+    setShowConfirm(false)
     setSaving(true)
     setError('')
 
@@ -366,8 +379,18 @@ export default function Contacts({ clientId }: { clientId: string }) {
             <textarea value={form.notes} onChange={(e) => updateField('notes', e.target.value)} rows={3} className={inputClass} />
           </div>
 
+          <ConfirmModal
+            isOpen={showConfirm}
+            title="Save changes to this contact?"
+            confirmLabel="Yes, save"
+            cancelLabel="Keep editing"
+            confirming={saving}
+            onConfirm={handleSave}
+            onCancel={() => setShowConfirm(false)}
+          />
+
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSaveClick} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
               {saving ? 'Saving...' : editingId ? 'Save changes' : 'Add contact'}
             </button>
