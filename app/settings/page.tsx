@@ -6,6 +6,7 @@ import BrandingForm from '@/components/settings/BrandingForm'
 import TeamList from '@/components/settings/TeamList'
 import InviteTeamMember from '@/components/settings/InviteTeamMember'
 import EngagementLetterTemplates from '@/components/settings/EngagementLetterTemplates'
+import ClauseLibrary from '@/components/settings/ClauseLibrary'
 import { useRole } from '@/hooks/useRole'
 
 export default function SettingsPage() {
@@ -38,6 +39,14 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-brand-dark mb-1">Engagement Letter Templates</h2>
           <p className="text-sm text-gray-500 mb-4">Create reusable templates for client engagement letters</p>
           <EngagementLetterTemplates />
+        </div>
+      )}
+
+      {can.manageSettings && (
+        <div>
+          <h2 className="text-lg font-semibold text-brand-dark mb-1">Clause Library & Compliance Checklist</h2>
+          <p className="text-sm text-gray-500 mb-4">Manage governing-body clause text and checklist requirements for engagement letters</p>
+          <ClauseLibrary />
         </div>
       )}
 
