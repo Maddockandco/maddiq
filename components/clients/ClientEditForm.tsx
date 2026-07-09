@@ -16,6 +16,11 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
   const [yearEndDate, setYearEndDate] = useState('')
   const [vatRegistered, setVatRegistered] = useState(false)
   const [vatNumber, setVatNumber] = useState('')
+  const [addressLine1, setAddressLine1] = useState('')
+  const [addressLine2, setAddressLine2] = useState('')
+  const [city, setCity] = useState('')
+  const [postcode, setPostcode] = useState('')
+  const [country, setCountry] = useState('United Kingdom')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -41,6 +46,11 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
         setYearEndDate(data.year_end_date || '')
         setVatRegistered(data.vat_registered || false)
         setVatNumber(data.vat_number || '')
+        setAddressLine1(data.address_line1 || '')
+        setAddressLine2(data.address_line2 || '')
+        setCity(data.city || '')
+        setPostcode(data.postcode || '')
+        setCountry(data.country || 'United Kingdom')
       }
       setLoading(false)
     }
@@ -71,6 +81,11 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
         year_end_date: yearEndDate || null,
         vat_registered: vatRegistered,
         vat_number: vatNumber || null,
+        address_line1: addressLine1 || null,
+        address_line2: addressLine2 || null,
+        city: city || null,
+        postcode: postcode || null,
+        country: country || null,
       })
       .eq('id', clientId)
     if (updateError) { setError(updateError.message); setSaving(false); return }
@@ -169,6 +184,34 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
             <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
             <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)}
               placeholder="GB123456789" className={inputClass} />
+          </div>
+        )}
+
+        {type === 'individual' && (
+          <div className="space-y-4 pt-2 border-t border-gray-100">
+            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Home Address</p>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Address line 1</label>
+              <input type="text" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Address line 2</label>
+              <input type="text" value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} className={inputClass} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">City</label>
+                <input type="text" value={city} onChange={(e) => setCity(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-dark mb-1">Postcode</label>
+                <input type="text" value={postcode} onChange={(e) => setPostcode(e.target.value)} className={inputClass} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Country</label>
+              <input type="text" value={country} onChange={(e) => setCountry(e.target.value)} className={inputClass} />
+            </div>
           </div>
         )}
 
