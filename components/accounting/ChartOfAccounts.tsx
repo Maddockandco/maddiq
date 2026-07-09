@@ -4,6 +4,7 @@ import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import { detectIndustry } from '@/lib/industryDetection'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 const ACCOUNT_TYPE_GROUPS = [
   {
@@ -168,6 +169,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [accountType, setAccountType] = useState('expense')
@@ -245,7 +247,18 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setFormOpen(true)
   }
 
+  function handleSaveClick() {
+    if (!code || !name) { setError('Code and name are required'); return }
+    if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); return }
+    if (editingId) {
+      setShowConfirm(true)
+    } else {
+      handleSave()
+    }
+  }
+
   async function handleSave() {
+    setShowConfirm(false)
     setSaving(true)
     setError('')
     if (!code || !name) { setError('Code and name are required'); setSaving(false); return }
@@ -513,8 +526,20 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               Changing an account's type after transactions have been posted to it can affect historical reports. Review Reports after saving to confirm everything still looks correct.
             </div>
           )}
+
+          <ConfirmModal
+            isOpen={showConfirm}
+            title="Save changes to this account?"
+            message="If transactions have already been posted to this account, changing its type or code may affect historical reports."
+            confirmLabel="Yes, save"
+            cancelLabel="Keep editing"
+            confirming={saving}
+            onConfirm={handleSave}
+            onCancel={() => setShowConfirm(false)}
+          />
+
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSaveClick} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
               {saving ? 'Saving...' : editingId ? 'Save changes' : 'Add account'}
             </button>
