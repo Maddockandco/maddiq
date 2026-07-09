@@ -32,6 +32,11 @@ type Client = {
   foreign_income: boolean | null
   partnership_type: string | null
   partnership_utr: string | null
+  address_line1: string | null
+  address_line2: string | null
+  city: string | null
+  postcode: string | null
+  country: string | null
 }
 
 export default function ClientDetail({ clientId }: { clientId: string }) {
@@ -179,6 +184,19 @@ export default function ClientDetail({ clientId }: { clientId: string }) {
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">SA Status</span>
                 <span className="text-sm text-brand-dark font-medium">{client.sa_status || '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-500">Home Address</span>
+                <span className="text-sm text-brand-dark font-medium text-right">
+                  {client.address_line1 ? (
+                    <>
+                      {client.address_line1}
+                      {client.address_line2 && <>, {client.address_line2}</>}
+                      {client.city && <>, {client.city}</>}
+                      {client.postcode && <>, {client.postcode}</>}
+                    </>
+                  ) : '—'}
+                </span>
               </div>
             </div>
           </div>
