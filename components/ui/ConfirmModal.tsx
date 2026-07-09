@@ -10,6 +10,12 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
   danger = false,
+  requireInput = false,
+  inputLabel,
+  inputValue = '',
+  onInputChange,
+  inputPlaceholder,
+  inputError,
 }: {
   isOpen: boolean
   title: string
@@ -20,6 +26,12 @@ export default function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
   danger?: boolean
+  requireInput?: boolean
+  inputLabel?: string
+  inputValue?: string
+  onInputChange?: (value: string) => void
+  inputPlaceholder?: string
+  inputError?: string
 }) {
   if (!isOpen) return null
 
@@ -30,6 +42,21 @@ export default function ConfirmModal({
           <h3 className="text-base font-semibold text-brand-dark">{title}</h3>
           {message && <p className="text-sm text-gray-500 mt-1">{message}</p>}
         </div>
+
+        {requireInput && (
+          <div>
+            {inputLabel && <label className="block text-xs font-medium text-gray-500 mb-1">{inputLabel}</label>}
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => onInputChange?.(e.target.value)}
+              placeholder={inputPlaceholder}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+            />
+            {inputError && <p className="text-red-600 text-xs mt-1">{inputError}</p>}
+          </div>
+        )}
+
         <div className="flex gap-3">
           <button
             onClick={onConfirm}
