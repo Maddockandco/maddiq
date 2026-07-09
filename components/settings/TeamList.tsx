@@ -21,12 +21,77 @@ const roleBadgeColour: Record<string, string> = {
   payroll_manager: 'bg-cyan-100 text-cyan-700',
 }
 
+const roleDescriptions: Record<string, string> = {
+  practice_owner: 'Full access to everything across the practice, including settings, team, and billing.',
+  practice_manager: 'Full access to everything across the practice — same permissions as Practice Owner.',
+  client_manager: 'Manages clients, engagements, pipeline, and directors day-to-day. Cannot manage team or firm settings.',
+  bookkeeper: 'Focused on day-to-day client work — tasks, notes, documents, and viewing tax info. Cannot edit client or tax details.',
+  admin_staff: 'Handles client admin — editing details, tax info, documents, directors, and deadlines. Cannot manage engagements/pipeline or team/settings.',
+  payroll_manager: 'Focused on payroll and CIS — can edit client, tax, payroll, and CIS details. Cannot manage engagements, directors, or share documents.',
+}
+
+const ROLES = ['practice_owner', 'practice_manager', 'client_manager', 'bookkeeper', 'admin_staff', 'payroll_manager']
+
+const PERMISSION_MATRIX = [
+  {
+    category: 'Clients',
+    items: [
+      { label: 'View all clients', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+      { label: 'Add & edit client details', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff', 'payroll_manager'] },
+      { label: 'Delete clients', roles: ['practice_owner', 'practice_manager'] },
+    ],
+  },
+  {
+    category: 'Tax & Compliance',
+    items: [
+      { label: 'View tax info', roles: ['practice_owner', 'practice_manager', 'client_manager', 'bookkeeper', 'admin_staff', 'payroll_manager'] },
+      { label: 'Edit tax info', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+      { label: 'Edit payroll info', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff', 'payroll_manager'] },
+      { label: 'Edit CIS details', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff', 'payroll_manager'] },
+    ],
+  },
+  {
+    category: 'Engagements & Directors',
+    items: [
+      { label: 'Manage engagements', roles: ['practice_owner', 'practice_manager', 'client_manager'] },
+      { label: 'Manage pipeline', roles: ['practice_owner', 'practice_manager', 'client_manager'] },
+      { label: 'Add / edit directors', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+      { label: 'Manage engagement letters', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+    ],
+  },
+  {
+    category: 'Documents & Portal',
+    items: [
+      { label: 'Upload documents', roles: ['practice_owner', 'practice_manager', 'client_manager', 'bookkeeper', 'admin_staff', 'payroll_manager'] },
+      { label: 'Share documents externally', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+      { label: 'Invite clients to portal', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+    ],
+  },
+  {
+    category: 'Tasks & Deadlines',
+    items: [
+      { label: 'Create tasks & notes', roles: ROLES },
+      { label: 'Assign tasks to others', roles: ['practice_owner', 'practice_manager', 'client_manager'] },
+      { label: 'Generate statutory deadlines', roles: ['practice_owner', 'practice_manager', 'client_manager', 'admin_staff'] },
+    ],
+  },
+  {
+    category: 'Team & Settings',
+    items: [
+      { label: 'Manage team members', roles: ['practice_owner', 'practice_manager'] },
+      { label: 'Manage firm settings', roles: ['practice_owner', 'practice_manager'] },
+      { label: 'Billing (unless individually granted)', roles: ['practice_owner', 'practice_manager'] },
+    ],
+  },
+]
+
 export default function TeamList() {
   const [team, setTeam] = useState<any[]>([])
   const [pendingInvites, setPendingInvites] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [showGuide, setShowGuide] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -106,6 +171,57 @@ export default function TeamList() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <button
+          onClick={() => setShowGuide(!showGuide)}
+          className="text-xs font-medium text-brand-dark hover:underline flex items-center gap-1"
+        >
+          {showGuide ? '▾' : '▸'} Role permissions guide
+        </button>
+
+        {showGuide && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mt-3 overflow-x-auto">
+            <table className="w-full min-w-[720px]">
+              <thead>
+                <tr>
+                  <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wider pb-3 pr-4"></th>
+                  {ROLES.map((r) => (
+                    <th key={r} className="text-center text-xs font-semibold text-brand-dark pb-3 px-2">
+                      {roleLabels[r]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PERMISSION_MATRIX.map((group) => (
+                  <>
+                    <tr key={group.category}>
+                      <td colSpan={ROLES.length + 1} className="pt-4 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        {group.category}
+                      </td>
+                    </tr>
+                    {group.items.map((item) => (
+                      <tr key={item.label} className="border-t border-gray-50">
+                        <td className="py-2 pr-4 text-sm text-gray-600">{item.label}</td>
+                        {ROLES.map((r) => (
+                          <td key={r} className="text-center py-2 px-2">
+                            {item.roles.includes(r) ? (
+                              <span className="text-green-600">✓</span>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {pendingInvites.length > 0 && (
         <div className="space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">
@@ -185,6 +301,7 @@ export default function TeamList() {
                       </span>
                     )}
                   </div>
+                  <p className="text-xs text-gray-400 mt-1.5 max-w-md">{roleDescriptions[member.role]}</p>
                 </div>
               </div>
 
