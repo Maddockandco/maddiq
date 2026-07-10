@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
       bank_account_id: authRequest.bank_account_id,
       aspsp_name: authRequest.aspsp_name,
       aspsp_country: authRequest.aspsp_country,
+      aspsp_logo_url: authRequest.aspsp_logo_url,
       session_id: session.session_id,
       enable_banking_account_id: account?.uid || account?.account_id?.iban || null,
       iban: account?.account_id?.iban || null,
