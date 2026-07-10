@@ -1,10 +1,18 @@
 import jwt from 'jsonwebtoken'
 
 const APP_ID = process.env.ENABLE_BANKING_APP_ID!
-const PRIVATE_KEY = (process.env.ENABLE_BANKING_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+const PRIVATE_KEY = (process.env.ENABLE_BANKING_PRIVATE_KEY || '')
+  .trim()
+  .replace(/^"(.*)"$/, '$1') // strip accidental surrounding quotes
+  .replace(/\\n/g, '\n')
 const API_BASE = 'https://api.enablebanking.com'
 
 function buildJWT() {
+  if (!PRIVATE_KEY.includes('BEGIN') || !PRIVATE_KEY.includes('PRIVATE KEY')) {
+    throw new Error(
+      'ENABLE_BANKING_PRIVATE_KEY does not look like a valid PEM key (missing "BEGIN...PRIVATE KEY" header). Check the Vercel environment variable value matches the downloaded key file exactly.'
+    )
+  }
   const iat = Math.floor(Date.now() / 1000)
   return jwt.sign(
     {
@@ -45,9 +53,10 @@ async function enableBankingFetch(path: string, options: RequestInit = {}) {
   return data
 }
 
-// Lists banks available in a given country (e.g. "GB")
+// Lists banks available in a given country (e.g. "GB"). Pass an empty string to list without any country filter.
 export async function listAspsps(country: string) {
-  return enableBankingFetch(`/aspsps?country=${encodeURIComponent(country)}`)
+  const path = country ? `/aspsps?country=${encodeURIComponent(country)}` : '/aspsps'
+  return enableBankingFetch(path)
 }
 
 // Step 1 of the connection flow — returns a URL to redirect the client's browser to
