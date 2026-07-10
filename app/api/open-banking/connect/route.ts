@@ -10,9 +10,18 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const cookieHeader = req.headers.get('cookie')
+
   if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    return NextResponse.json({
+      error: 'Not authenticated',
+      debug: {
+        authError: authError?.message || null,
+        hadCookieHeader: !!cookieHeader,
+        cookieHeaderLength: cookieHeader?.length || 0,
+      },
+    }, { status: 401 })
   }
 
   const { data: firmUser } = await supabase
