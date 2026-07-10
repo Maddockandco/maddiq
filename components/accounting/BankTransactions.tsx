@@ -195,6 +195,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     try {
       const res = await fetch('/api/open-banking/connect', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
@@ -205,7 +206,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         }),
       })
       const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      if (data.error) throw new Error(data.debug ? `${data.error} — ${JSON.stringify(data.debug)}` : data.error)
       window.location.href = data.url
     } catch (err: any) {
       setConnectError(err.message)
