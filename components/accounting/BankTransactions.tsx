@@ -113,6 +113,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [showConnectPicker, setShowConnectPicker] = useState(false)
   const [connectBankAccountId, setConnectBankAccountId] = useState('')
   const [aspspList, setAspspList] = useState<any[]>([])
+  const [aspspSource, setAspspSource] = useState('')
   const [aspspSearch, setAspspSearch] = useState('')
   const [loadingAspsps, setLoadingAspsps] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -177,6 +178,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setAspspList(data.aspsps || [])
+      setAspspSource(data.source || '')
     } catch (err: any) {
       setConnectError(err.message)
     }
@@ -543,8 +545,16 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
             </div>
             {loadingAspsps ? (
               <p className="text-sm text-gray-400">Loading banks...</p>
+            ) : aspspList.length === 0 ? (
+              <p className="text-sm text-amber-600">
+                No banks returned at all, even without a country filter — this points to a Control Panel configuration issue rather than our code. Check that your sandbox application has at least Mock ASPSP enabled under "API applications" in the Enable Banking Control Panel.
+              </p>
             ) : (
-              <div className="max-h-64 overflow-y-auto space-y-1">
+              <>
+                {aspspSource === 'unfiltered_fallback' && (
+                  <p className="text-xs text-amber-600">Showing all available banks — none were tagged specifically under GB.</p>
+                )}
+                <div className="max-h-64 overflow-y-auto space-y-1">
                 {aspspList
                   .filter((b: any) => b.name.toLowerCase().includes(aspspSearch.toLowerCase()))
                   .slice(0, 30)
@@ -567,6 +577,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                     )
                   })}
               </div>
+              </>
             )}
             <button onClick={() => setShowConnectPicker(false)} className="text-xs text-gray-500 hover:underline">
               Cancel
