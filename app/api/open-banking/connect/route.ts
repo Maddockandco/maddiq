@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { startAuthorization } from '@/lib/enableBanking'
 
 export async function POST(req: NextRequest) {
-  const { clientId, bankAccountId, aspspName, aspspCountry } = await req.json()
+  const { clientId, bankAccountId, aspspName, aspspCountry, aspspLogoUrl } = await req.json()
 
   if (!clientId || !bankAccountId || !aspspName || !aspspCountry) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       bank_account_id: bankAccountId,
       aspsp_name: aspspName,
       aspsp_country: aspspCountry,
+      aspsp_logo_url: aspspLogoUrl || null,
     })
     .select()
     .single()
