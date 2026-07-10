@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { getAccountTransactions } from '@/lib/enableBanking'
 
 export async function POST(req: NextRequest) {
@@ -8,7 +9,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing connectionId' }, { status: 400 })
   }
 
-  const supabase = await createClient()
+  const authHeader = req.headers.get('authorization')
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+
+  const supabase = bearerToken
+    ? createSupabaseClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
+      )
+    : await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
 
   const { data: connection } = await supabase
     .from('bank_connections')
@@ -32,7 +47,6 @@ export async function POST(req: NextRequest) {
     const result = await getAccountTransactions(connection.enable_banking_account_id, dateFrom)
     const transactions = result.transactions || []
 
-    // Avoid re-importing anything already pulled in from this connection
     const { data: existing } = await supabase
       .from('bank_transactions')
       .select('reference')
