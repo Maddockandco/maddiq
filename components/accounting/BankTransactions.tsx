@@ -183,7 +183,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setLoadingAspsps(false)
   }
 
-  async function handleConnectBank(aspspName: string, aspspCountry: string) {
+  async function handleConnectBank(aspspName: string, aspspCountry: string, logoUrl?: string) {
     if (!connectBankAccountId) {
       setConnectError('Select which bank account this connection is for')
       return
@@ -199,6 +199,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
           bankAccountId: connectBankAccountId,
           aspspName,
           aspspCountry,
+          aspspLogoUrl: logoUrl || null,
         }),
       })
       const data = await res.json()
@@ -487,17 +488,26 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
               const account = bankAccounts.find((a) => a.id === conn.bank_account_id)
               return (
                 <div key={conn.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-brand-dark">{conn.aspsp_name} ({conn.aspsp_country})</p>
-                    <p className="text-xs text-gray-400">
-                      {account ? `${account.code} — ${account.name}` : 'Unknown account'} ·{' '}
-                      {conn.status === 'active' ? (
-                        <span className="text-green-600">Active</span>
-                      ) : (
-                        <span className="text-red-500 capitalize">{conn.status}</span>
-                      )}
-                      {conn.last_synced_at && ` · Last synced ${new Date(conn.last_synced_at).toLocaleString('en-GB')}`}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {conn.aspsp_logo_url ? (
+                      <img src={conn.aspsp_logo_url} alt="" className="w-8 h-8 object-contain rounded" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-brand-dark flex items-center justify-center flex-shrink-0">
+                        <span className="text-white text-xs font-semibold">{conn.aspsp_name?.[0] || '?'}</span>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-brand-dark">{conn.aspsp_name} ({conn.aspsp_country})</p>
+                      <p className="text-xs text-gray-400">
+                        {account ? `${account.code} — ${account.name}` : 'Unknown account'} ·{' '}
+                        {conn.status === 'active' ? (
+                          <span className="text-green-600">Active</span>
+                        ) : (
+                          <span className="text-red-500 capitalize">{conn.status}</span>
+                        )}
+                        {conn.last_synced_at && ` · Last synced ${new Date(conn.last_synced_at).toLocaleString('en-GB')}`}
+                      </p>
+                    </div>
                   </div>
                   <button
                     onClick={() => handleSync(conn.id)}
@@ -538,16 +548,24 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                 {aspspList
                   .filter((b: any) => b.name.toLowerCase().includes(aspspSearch.toLowerCase()))
                   .slice(0, 30)
-                  .map((b: any) => (
-                    <button
-                      key={`${b.name}-${b.country}`}
-                      onClick={() => handleConnectBank(b.name, b.country)}
-                      disabled={connecting}
-                      className="w-full text-left text-sm bg-white hover:bg-brand-light rounded-lg px-3 py-2 transition disabled:opacity-50"
-                    >
-                      {b.name}
-                    </button>
-                  ))}
+                  .map((b: any) => {
+                    const logoUrl = b.logo || b.logo_url || b.icon || b.image_url
+                    return (
+                      <button
+                        key={`${b.name}-${b.country}`}
+                        onClick={() => handleConnectBank(b.name, b.country, logoUrl)}
+                        disabled={connecting}
+                        className="w-full flex items-center gap-3 text-left text-sm bg-white hover:bg-brand-light rounded-lg px-3 py-2 transition disabled:opacity-50"
+                      >
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="" className="w-6 h-6 object-contain rounded" />
+                        ) : (
+                          <div className="w-6 h-6 rounded bg-gray-100 flex-shrink-0" />
+                        )}
+                        {b.name}
+                      </button>
+                    )
+                  })}
               </div>
             )}
             <button onClick={() => setShowConnectPicker(false)} className="text-xs text-gray-500 hover:underline">
