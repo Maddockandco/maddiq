@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 import { createSession } from '@/lib/enableBanking'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -11,8 +16,6 @@ export async function GET(req: NextRequest) {
   if (!state) {
     return NextResponse.redirect(`${appUrl}/accounting?bank_connect_error=missing_state`)
   }
-
-  const supabase = await createClient()
 
   const { data: authRequest } = await supabase
     .from('bank_auth_requests')
