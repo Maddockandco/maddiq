@@ -1,66 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { startAuthorization } from '@/lib/enableBanking'
+import { createSession } from '@/lib/enableBanking'
 
-export async function POST(req: NextRequest) {
-  const { clientId, bankAccountId, aspspName, aspspCountry, aspspLogoUrl } = await req.json()
+export async function GET(req: NextRequest) {
+  const code = req.nextUrl.searchParams.get('code')
+  const state = req.nextUrl.searchParams.get('state')
+  const bankError = req.nextUrl.searchParams.get('error')
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
 
-  if (!clientId || !bankAccountId || !aspspName || !aspspCountry) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  if (!state) {
+    return NextResponse.redirect(`${appUrl}/accounting?bank_connect_error=missing_state`)
   }
 
   const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  const cookieHeader = req.headers.get('cookie')
 
-  if (!user) {
-    return NextResponse.json({
-      error: 'Not authenticated',
-      debug: {
-        authError: authError?.message || null,
-        hadCookieHeader: !!cookieHeader,
-        cookieHeaderLength: cookieHeader?.length || 0,
-      },
-    }, { status: 401 })
-  }
-
-  const { data: firmUser } = await supabase
-    .from('firm_users')
-    .select('firm_id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!firmUser) {
-    return NextResponse.json({ error: 'Could not find your firm' }, { status: 400 })
-  }
-
-  const { data: authRequest, error: insertError } = await supabase
+  const { data: authRequest } = await supabase
     .from('bank_auth_requests')
-    .insert({
-      firm_id: firmUser.firm_id,
-      client_id: clientId,
-      bank_account_id: bankAccountId,
-      aspsp_name: aspspName,
-      aspsp_country: aspspCountry,
-      aspsp_logo_url: aspspLogoUrl || null,
-    })
-    .select()
+    .select('*')
+    .eq('id', state)
     .single()
 
-  if (insertError || !authRequest) {
-    return NextResponse.json({ error: insertError?.message || 'Could not start connection' }, { status: 500 })
+  if (!authRequest) {
+    return NextResponse.redirect(`${appUrl}/accounting?bank_connect_error=unknown_request`)
+  }
+
+  const returnPath = `/accounting/${authRequest.client_id}/bank-transactions`
+
+  if (bankError || !code) {
+    return NextResponse.redirect(`${appUrl}${returnPath}?bank_connect_error=${bankError || 'no_code'}`)
   }
 
   try {
-    const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/open-banking/callback`
-    const result = await startAuthorization({
-      aspspName,
-      aspspCountry,
-      redirectUrl,
-      state: authRequest.id,
+    const session = await createSession(code)
+    const account = session.accounts?.[0]
+
+    await supabase.from('bank_connections').insert({
+      firm_id: authRequest.firm_id,
+      client_id: authRequest.client_id,
+      bank_account_id: authRequest.bank_account_id,
+      aspsp_name: authRequest.aspsp_name,
+      aspsp_country: authRequest.aspsp_country,
+      aspsp_logo_url: authRequest.aspsp_logo_url,
+      session_id: session.session_id,
+      enable_banking_account_id: account?.uid || account?.account_id?.iban || null,
+      iban: account?.account_id?.iban || null,
+      status: 'active',
+      valid_until: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
     })
-    return NextResponse.json({ url: result.url })
+
+    await supabase.from('bank_auth_requests').delete().eq('id', state)
+
+    return NextResponse.redirect(`${appUrl}${returnPath}?bank_connected=1`)
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.redirect(`${appUrl}${returnPath}?bank_connect_error=${encodeURIComponent(err.message)}`)
   }
 }
