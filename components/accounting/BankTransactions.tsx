@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 
@@ -104,6 +105,32 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   const { can } = useRole()
   const supabase = createClient()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  // Open Banking connection state
+  const [connections, setConnections] = useState<any[]>([])
+  const [showConnectPicker, setShowConnectPicker] = useState(false)
+  const [connectBankAccountId, setConnectBankAccountId] = useState('')
+  const [aspspList, setAspspList] = useState<any[]>([])
+  const [aspspSearch, setAspspSearch] = useState('')
+  const [loadingAspsps, setLoadingAspsps] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState('')
+  const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [callbackBanner, setCallbackBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  useEffect(() => {
+    const connected = searchParams.get('bank_connected')
+    const errorMsg = searchParams.get('bank_connect_error')
+    if (connected) {
+      setCallbackBanner({ type: 'success', message: 'Bank account connected successfully.' })
+      router.replace(`/accounting/${clientId}/bank-transactions`)
+    } else if (errorMsg) {
+      setCallbackBanner({ type: 'error', message: `Connection failed: ${decodeURIComponent(errorMsg)}` })
+      router.replace(`/accounting/${clientId}/bank-transactions`)
+    }
+  }, [searchParams])
 
   useEffect(() => { fetchBankAccounts() }, [clientId])
   useEffect(() => { if (selectedBankAccountId) fetchTransactions() }, [selectedBankAccountId, statusFilter])
@@ -129,7 +156,76 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       if (data.length > 0 && !selectedBankAccountId) setSelectedBankAccountId(data[0].id)
     }
     if (all) setAllAccounts(all.filter((a) => a.account_type !== 'bank'))
+
+    const { data: conns } = await supabase
+      .from('bank_connections')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+    if (conns) setConnections(conns)
+
     setLoading(false)
+  }
+
+  async function openConnectPicker() {
+    setShowConnectPicker(true)
+    setConnectBankAccountId(selectedBankAccountId)
+    setConnectError('')
+    setLoadingAspsps(true)
+    try {
+      const res = await fetch('/api/open-banking/aspsps?country=GB')
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setAspspList(data.aspsps || [])
+    } catch (err: any) {
+      setConnectError(err.message)
+    }
+    setLoadingAspsps(false)
+  }
+
+  async function handleConnectBank(aspspName: string, aspspCountry: string) {
+    if (!connectBankAccountId) {
+      setConnectError('Select which bank account this connection is for')
+      return
+    }
+    setConnecting(true)
+    setConnectError('')
+    try {
+      const res = await fetch('/api/open-banking/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          bankAccountId: connectBankAccountId,
+          aspspName,
+          aspspCountry,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      window.location.href = data.url
+    } catch (err: any) {
+      setConnectError(err.message)
+      setConnecting(false)
+    }
+  }
+
+  async function handleSync(connectionId: string) {
+    setSyncingId(connectionId)
+    try {
+      const res = await fetch('/api/open-banking/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionId }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      await fetchBankAccounts()
+      if (selectedBankAccountId) await fetchTransactions()
+    } catch (err: any) {
+      setCallbackBanner({ type: 'error', message: `Sync failed: ${err.message}` })
+    }
+    setSyncingId(null)
   }
 
   async function fetchTransactions() {
@@ -366,6 +462,101 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
+      {callbackBanner && (
+        <div className={`rounded-xl px-4 py-3 text-sm flex items-center justify-between ${callbackBanner.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+          <span>{callbackBanner.message}</span>
+          <button onClick={() => setCallbackBanner(null)} className="text-xs underline">Dismiss</button>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Open Banking Connections</h3>
+          {can.manageEngagements && (
+            <button onClick={openConnectPicker} className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
+              + Connect Bank
+            </button>
+          )}
+        </div>
+
+        {connections.length === 0 ? (
+          <p className="text-sm text-gray-400">No banks connected yet — transactions can still be imported via CSV below, or connect a bank for automatic syncing.</p>
+        ) : (
+          <div className="space-y-2">
+            {connections.map((conn) => {
+              const account = bankAccounts.find((a) => a.id === conn.bank_account_id)
+              return (
+                <div key={conn.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand-dark">{conn.aspsp_name} ({conn.aspsp_country})</p>
+                    <p className="text-xs text-gray-400">
+                      {account ? `${account.code} — ${account.name}` : 'Unknown account'} ·{' '}
+                      {conn.status === 'active' ? (
+                        <span className="text-green-600">Active</span>
+                      ) : (
+                        <span className="text-red-500 capitalize">{conn.status}</span>
+                      )}
+                      {conn.last_synced_at && ` · Last synced ${new Date(conn.last_synced_at).toLocaleString('en-GB')}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleSync(conn.id)}
+                    disabled={syncingId === conn.id}
+                    className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                  >
+                    {syncingId === conn.id ? 'Syncing...' : 'Sync now'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {showConnectPicker && (
+          <div className="mt-4 bg-gray-50 rounded-xl p-4 space-y-3">
+            {connectError && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{connectError}</div>}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Which bank account is this connection for?</label>
+              <select value={connectBankAccountId} onChange={(e) => setConnectBankAccountId(e.target.value)} className={`${inputClass} w-full`}>
+                {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Search for the client's bank (UK)</label>
+              <input
+                type="text"
+                value={aspspSearch}
+                onChange={(e) => setAspspSearch(e.target.value)}
+                placeholder="e.g. Barclays, HSBC, Monzo..."
+                className={`${inputClass} w-full`}
+              />
+            </div>
+            {loadingAspsps ? (
+              <p className="text-sm text-gray-400">Loading banks...</p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {aspspList
+                  .filter((b: any) => b.name.toLowerCase().includes(aspspSearch.toLowerCase()))
+                  .slice(0, 30)
+                  .map((b: any) => (
+                    <button
+                      key={`${b.name}-${b.country}`}
+                      onClick={() => handleConnectBank(b.name, b.country)}
+                      disabled={connecting}
+                      className="w-full text-left text-sm bg-white hover:bg-brand-light rounded-lg px-3 py-2 transition disabled:opacity-50"
+                    >
+                      {b.name}
+                    </button>
+                  ))}
+              </div>
+            )}
+            <button onClick={() => setShowConnectPicker(false)} className="text-xs text-gray-500 hover:underline">
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <select value={selectedBankAccountId} onChange={(e) => setSelectedBankAccountId(e.target.value)} className={inputClass}>
