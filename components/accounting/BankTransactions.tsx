@@ -221,9 +221,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   async function handleSync(connectionId: string) {
     setSyncingId(connectionId)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/open-banking/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ connectionId }),
       })
       const data = await res.json()
