@@ -91,10 +91,20 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
 
       bankData = bankData.map((a) => {
         const connection = connectionByAccount[a.id]
-        let connectionStatus: 'connected' | 'expired' | 'not_connected' = 'not_connected'
+        let connectionStatus: 'connected' | 'expiring_soon' | 'expired' | 'not_connected' = 'not_connected'
+        let daysUntilExpiry: number | null = null
         if (connection) {
-          const expired = connection.status !== 'active' || (connection.valid_until && new Date(connection.valid_until) < new Date())
-          connectionStatus = expired ? 'expired' : 'connected'
+          const isInactive = connection.status !== 'active'
+          const validUntil = connection.valid_until ? new Date(connection.valid_until) : null
+          const isPastExpiry = validUntil ? validUntil < new Date() : false
+          if (isInactive || isPastExpiry) {
+            connectionStatus = 'expired'
+          } else if (validUntil) {
+            daysUntilExpiry = Math.ceil((validUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            connectionStatus = daysUntilExpiry <= 14 ? 'expiring_soon' : 'connected'
+          } else {
+            connectionStatus = 'connected'
+          }
         }
         return {
           ...a,
@@ -102,6 +112,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
           unreconciledCount: unreconciledCounts[a.id] || 0,
           connection,
           connectionStatus,
+          daysUntilExpiry,
         }
       })
     }
@@ -314,6 +325,11 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               {bank.connectionStatus === 'connected' && (
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 flex-shrink-0">Connected</span>
               )}
+              {bank.connectionStatus === 'expiring_soon' && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 flex-shrink-0">
+                  Expires in {bank.daysUntilExpiry} day{bank.daysUntilExpiry === 1 ? '' : 's'}
+                </span>
+              )}
               {bank.connectionStatus === 'expired' && (
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600 flex-shrink-0">Expired</span>
               )}
@@ -325,17 +341,21 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
             )}
           </div>
 
-          {bank.connectionStatus === 'expired' && (
-            <div className="bg-red-50 rounded-lg px-3 py-2 mb-3">
+          {(bank.connectionStatus === 'expired' || bank.connectionStatus === 'expiring_soon') && (
+            <div className={`rounded-lg px-3 py-2 mb-3 ${bank.connectionStatus === 'expired' ? 'bg-red-50' : 'bg-amber-50'}`}>
               {reconnectError && reconnectingId === bank.id && (
-                <p className="text-xs text-red-600 mb-1">{reconnectError}</p>
+                <p className={`text-xs mb-1 ${bank.connectionStatus === 'expired' ? 'text-red-600' : 'text-amber-700'}`}>{reconnectError}</p>
               )}
               <div className="flex items-center justify-between">
-                <p className="text-xs text-red-600">This bank's connection has expired</p>
+                <p className={`text-xs ${bank.connectionStatus === 'expired' ? 'text-red-600' : 'text-amber-700'}`}>
+                  {bank.connectionStatus === 'expired' ? "This bank's connection has expired" : `Renew before it expires in ${bank.daysUntilExpiry} day${bank.daysUntilExpiry === 1 ? '' : 's'}`}
+                </p>
                 <button
                   onClick={() => handleReconnect(bank)}
                   disabled={reconnectingId === bank.id}
-                  className="text-xs bg-red-600 text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-red-700 transition disabled:opacity-50 flex-shrink-0 ml-2"
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition disabled:opacity-50 flex-shrink-0 ml-2 ${
+                    bank.connectionStatus === 'expired' ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-amber-500 text-white hover:bg-amber-600'
+                  }`}
                 >
                   {reconnectingId === bank.id ? 'Reconnecting...' : 'Reconnect'}
                 </button>
