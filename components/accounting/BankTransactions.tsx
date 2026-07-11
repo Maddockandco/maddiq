@@ -529,8 +529,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   }
 
   async function handleUnreconcile(transactionId: string) {
+    setTxnBusy((prev) => ({ ...prev, [transactionId]: true }))
     const { error } = await supabase.rpc('unreconcile_bank_transaction', { p_transaction_id: transactionId })
-    if (!error) fetchTransactions()
+    setTxnBusy((prev) => ({ ...prev, [transactionId]: false }))
+    if (error) {
+      setTxnError((prev) => ({ ...prev, [transactionId]: error.message }))
+      return
+    }
+    fetchTransactions()
   }
 
   const inputClass = "border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -913,12 +919,16 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       {txn.status === 'reconciled' && can.manageEngagements && (
                         <button
                           onClick={() => handleUnreconcile(txn.id)}
-                          className="text-xs text-red-500 font-medium hover:underline"
+                          disabled={txnBusy[txn.id]}
+                          className="text-xs text-red-500 font-medium hover:underline disabled:opacity-50"
                         >
-                          Unreconcile
+                          {txnBusy[txn.id] ? 'Unreconciling...' : 'Unreconcile'}
                         </button>
                       )}
                     </div>
+                    {txn.status === 'reconciled' && txnError[txn.id] && (
+                      <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{txnError[txn.id]}</div>
+                    )}
                     <div>
                       <textarea
                         value={txnComment[txn.id] ?? txn.notes ?? ''}
