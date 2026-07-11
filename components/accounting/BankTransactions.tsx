@@ -111,6 +111,9 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnOffsetAccount, setTxnOffsetAccount] = useState<Record<string, string>>({})
   const [txnCreateDesc, setTxnCreateDesc] = useState<Record<string, string>>({})
   const [txnComment, setTxnComment] = useState<Record<string, string>>({})
+  const [expandedDetailId, setExpandedDetailId] = useState<string | null>(null)
+  const [detailInfo, setDetailInfo] = useState<Record<string, any>>({})
+  const [detailLoading, setDetailLoading] = useState(false)
   const [txnBusy, setTxnBusy] = useState<Record<string, boolean>>({})
   const [txnError, setTxnError] = useState<Record<string, string>>({})
 
@@ -501,6 +504,30 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     if (!error) fetchTransactions()
   }
 
+  async function toggleDetail(txn: any) {
+    if (expandedDetailId === txn.id) {
+      setExpandedDetailId(null)
+      return
+    }
+    setExpandedDetailId(txn.id)
+    if (!(txn.id in txnComment)) {
+      setTxnComment((prev) => ({ ...prev, [txn.id]: txn.notes || '' }))
+    }
+    if (detailInfo[txn.id] || !txn.matched_type || !txn.matched_id) return
+
+    setDetailLoading(true)
+    let info: any = null
+    if (txn.matched_type === 'sales_receipt') {
+      const { data } = await supabase.from('sales_receipts').select('*, contacts(name)').eq('id', txn.matched_id).single()
+      info = data
+    } else if (txn.matched_type === 'purchase_payment') {
+      const { data } = await supabase.from('purchase_payments').select('*, contacts(name)').eq('id', txn.matched_id).single()
+      info = data
+    }
+    setDetailInfo((prev) => ({ ...prev, [txn.id]: info }))
+    setDetailLoading(false)
+  }
+
   async function handleUnreconcile(transactionId: string) {
     const { error } = await supabase.rpc('unreconcile_bank_transaction', { p_transaction_id: transactionId })
     if (!error) fetchTransactions()
@@ -814,26 +841,95 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         </div>
       ) : !importing && activeAccountTab !== 'reconcile' && (
         <div className="space-y-2">
-          {transactions.map((txn) => (
-            <div key={txn.id} className="bg-white rounded-2xl border border-gray-200 p-4 flex items-center justify-between">
-              <div className="flex-1">
-                <p className="text-sm font-medium text-brand-dark">{txn.description}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {new Date(txn.transaction_date).toLocaleDateString('en-GB')}
-                  {txn.reference && ` · ${txn.reference}`}
-                  {txn.notes && <span className="italic"> · "{txn.notes}"</span>}
-                </p>
+          {transactions.map((txn) => {
+            const isExpanded = expandedDetailId === txn.id
+            const info = detailInfo[txn.id]
+            return (
+              <div key={txn.id} className={`bg-white rounded-2xl border overflow-hidden transition ${isExpanded ? 'border-brand-gold' : 'border-gray-200'}`}>
+                <div className="p-4 flex items-center justify-between">
+                  <button onClick={() => toggleDetail(txn)} className="flex-1 text-left">
+                    <p className="text-sm font-medium text-brand-dark hover:underline">{txn.description}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {new Date(txn.transaction_date).toLocaleDateString('en-GB')}
+                      {txn.reference && ` · ${txn.reference}`}
+                      {txn.notes && <span className="italic"> · 💬 "{txn.notes}"</span>}
+                    </p>
+                  </button>
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => toggleDetail(txn)} className={`text-sm font-semibold hover:underline ${txn.amount >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {txn.amount >= 0 ? '+' : ''}£{txn.amount.toFixed(2)}
+                    </button>
+                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[txn.status]}`}>
+                      {txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}
+                    </span>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="border-t border-gray-100 bg-brand-light/40 p-4 space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider">Date</p>
+                        <p className="text-sm text-brand-dark">{new Date(txn.transaction_date).toLocaleDateString('en-GB')}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider">Reference</p>
+                        <p className="text-sm text-brand-dark">{txn.reference || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider">Status</p>
+                        <p className="text-sm text-brand-dark">{txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider">Amount</p>
+                        <p className={`text-sm font-semibold ${txn.amount >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {txn.amount >= 0 ? '+' : ''}£{txn.amount.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {txn.matched_type && txn.matched_id && (
+                      <div className="bg-white rounded-xl p-4 border border-gray-200">
+                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Matched to</p>
+                        {detailLoading && !info ? (
+                          <p className="text-sm text-gray-400">Loading...</p>
+                        ) : info ? (
+                          <div>
+                            <p className="text-sm font-medium text-brand-dark">{info.contacts?.name}</p>
+                            <p className="text-xs text-gray-400">
+                              {new Date(info.receipt_date || info.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(info.amount).toFixed(2)}
+                              {info.reference && ` · ${info.reference}`}
+                              {info.voided && <span className="text-red-600 font-medium"> · Voided</span>}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 capitalize">{txn.matched_type.replace(/_/g, ' ')} — created directly from this bank line</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Comment</label>
+                      <textarea
+                        value={txnComment[txn.id] ?? txn.notes ?? ''}
+                        onChange={(e) => setTxnComment((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                        placeholder="Add an explanation for this transaction..."
+                        rows={2}
+                        className={`${inputClass} w-full bg-white`}
+                      />
+                      <button
+                        onClick={() => saveComment(txn)}
+                        disabled={txnBusy[txn.id]}
+                        className="mt-2 bg-brand-dark text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                      >
+                        {txnBusy[txn.id] ? 'Saving...' : 'Save comment'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-4">
-                <span className={`text-sm font-semibold ${txn.amount >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  {txn.amount >= 0 ? '+' : ''}£{txn.amount.toFixed(2)}
-                </span>
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[txn.status]}`}>
-                  {txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}
-                </span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
