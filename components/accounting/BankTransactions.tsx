@@ -397,6 +397,32 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   }
 
   // --- Reconciliation ---
+  function scoreCandidate(txn: any, candidate: any) {
+    const candidateAmount = parseFloat(candidate.amount)
+    const amountDiff = Math.abs(Math.abs(txn.amount) - candidateAmount)
+    // Exact = 100, drops off quickly but still allows small differences (fees, FX rounding) through
+    const amountScore = amountDiff === 0 ? 100 : Math.max(0, 100 - amountDiff * 15)
+
+    const txnDesc = (txn.description || '').toLowerCase()
+    const contactName = (candidate.contacts?.name || '').toLowerCase()
+    const nameWords = contactName.split(/\s+/).filter((w: string) => w.length > 2)
+    const nameMatchCount = nameWords.filter((w: string) => txnDesc.includes(w)).length
+    const descScore = nameWords.length > 0 ? (nameMatchCount / nameWords.length) * 50 : 0
+
+    const candidateDate = new Date(candidate.receipt_date || candidate.payment_date)
+    const daysDiff = Math.abs((new Date(txn.transaction_date).getTime() - candidateDate.getTime()) / (1000 * 60 * 60 * 24))
+    const dateScore = Math.max(0, 15 - daysDiff)
+
+    return { score: amountScore + descScore + dateScore, amountDiff, nameMatchCount }
+  }
+
+  function confidenceLabel(result: { amountDiff: number; nameMatchCount: number }) {
+    if (result.amountDiff === 0 && result.nameMatchCount > 0) return { label: 'Exact match', style: 'bg-green-100 text-green-700' }
+    if (result.amountDiff === 0) return { label: 'Exact amount', style: 'bg-green-100 text-green-700' }
+    if (result.amountDiff <= 1) return { label: 'Likely match', style: 'bg-amber-100 text-amber-700' }
+    return { label: 'Possible match', style: 'bg-gray-100 text-gray-500' }
+  }
+
   async function ensureMatchesLoaded(txn: any) {
     if (txnMatchesLoaded[txn.id]) return
 
@@ -408,25 +434,46 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     const alreadyMatchedIds = new Set((matchedIdsRes.data || []).map((r: any) => r.matched_id))
 
-    let matches: any[] = []
+    // Broaden the search to a ±30 day window and a wider amount range, then score
+    // and rank candidates rather than requiring an exact amount match.
+    const txnDate = new Date(txn.transaction_date)
+    const dateFrom = new Date(txnDate.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const dateTo = new Date(txnDate.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const targetAmount = Math.abs(txn.amount)
+    const amountLow = Math.max(0, targetAmount - 10)
+    const amountHigh = targetAmount + 10
+
+    let candidates: any[] = []
     if (txn.amount > 0) {
       const { data } = await supabase
         .from('sales_receipts')
         .select('*, contacts(name)')
         .eq('client_id', clientId)
         .eq('bank_account_id', txn.bank_account_id)
-        .eq('amount', txn.amount)
-      matches = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'sales_receipt' }))
+        .gte('amount', amountLow)
+        .lte('amount', amountHigh)
+        .gte('receipt_date', dateFrom)
+        .lte('receipt_date', dateTo)
+      candidates = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'sales_receipt' }))
     } else {
       const { data } = await supabase
         .from('purchase_payments')
         .select('*, contacts(name)')
         .eq('client_id', clientId)
         .eq('bank_account_id', txn.bank_account_id)
-        .eq('amount', Math.abs(txn.amount))
-      matches = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'purchase_payment' }))
+        .gte('amount', amountLow)
+        .lte('amount', amountHigh)
+        .gte('payment_date', dateFrom)
+        .lte('payment_date', dateTo)
+      candidates = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'purchase_payment' }))
     }
 
+    const scored = candidates
+      .map((c) => ({ ...c, _scoring: scoreCandidate(txn, c) }))
+      .sort((a, b) => b._scoring.score - a._scoring.score)
+      .slice(0, 5)
+
+    const matches = scored
     setTxnMatches((prev) => ({ ...prev, [txn.id]: matches }))
     setTxnMatchesLoaded((prev) => ({ ...prev, [txn.id]: true }))
   }
@@ -1017,6 +1064,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         <div className="space-y-2">
                           {matches.map((m) => {
                             const isSelected = selected?.id === m.id
+                            const confidence = confidenceLabel(m._scoring)
+                            const amountDiff = m._scoring.amountDiff
                             return (
                               <button
                                 key={m.id}
@@ -1026,9 +1075,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 }`}
                               >
                                 <div>
-                                  <p className="text-sm font-medium text-brand-dark">{m.contacts?.name}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-brand-dark">{m.contacts?.name}</p>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confidence.style}`}>{confidence.label}</span>
+                                  </div>
                                   <p className="text-xs text-gray-400">
-                                    {new Date(m.receipt_date || m.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(m.amount).toFixed(2)} · {m.reference || 'no reference'}
+                                    {new Date(m.receipt_date || m.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(m.amount).toFixed(2)}
+                                    {amountDiff > 0 && ` (£${amountDiff.toFixed(2)} difference)`}
+                                    {' · '}{m.reference || 'no reference'}
                                   </p>
                                 </div>
                                 {isSelected && <span className="text-brand-dark text-sm">✓</span>}
