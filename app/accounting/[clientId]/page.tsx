@@ -76,11 +76,34 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         unreconciledCounts[t.bank_account_id] = (unreconciledCounts[t.bank_account_id] || 0) + 1
       })
 
-      bankData = bankData.map((a) => ({
-        ...a,
-        maddiqBalance: balances[a.id] || 0,
-        unreconciledCount: unreconciledCounts[a.id] || 0,
-      }))
+      const { data: connections } = await supabase
+        .from('bank_connections')
+        .select('*')
+        .eq('client_id', params.clientId)
+        .in('bank_account_id', bankIds)
+        .order('created_at', { ascending: false })
+
+      const connectionByAccount: Record<string, any> = {}
+      ;(connections || []).forEach((c: any) => {
+        // Keep only the most recent connection per account (already ordered newest-first)
+        if (!connectionByAccount[c.bank_account_id]) connectionByAccount[c.bank_account_id] = c
+      })
+
+      bankData = bankData.map((a) => {
+        const connection = connectionByAccount[a.id]
+        let connectionStatus: 'connected' | 'expired' | 'not_connected' = 'not_connected'
+        if (connection) {
+          const expired = connection.status !== 'active' || (connection.valid_until && new Date(connection.valid_until) < new Date())
+          connectionStatus = expired ? 'expired' : 'connected'
+        }
+        return {
+          ...a,
+          maddiqBalance: balances[a.id] || 0,
+          unreconciledCount: unreconciledCounts[a.id] || 0,
+          connection,
+          connectionStatus,
+        }
+      })
     }
 
     const layoutResult = await supabase
@@ -163,6 +186,38 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
 
     setEditingBankId(null)
     fetchSummary()
+  }
+
+  const [reconnectingId, setReconnectingId] = useState<string | null>(null)
+  const [reconnectError, setReconnectError] = useState('')
+
+  async function handleReconnect(bank: any) {
+    if (!bank.connection) return
+    setReconnectingId(bank.id)
+    setReconnectError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/open-banking/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({
+          clientId: params.clientId,
+          bankAccountId: bank.id,
+          aspspName: bank.connection.aspsp_name,
+          aspspCountry: bank.connection.aspsp_country,
+          aspspLogoUrl: bank.connection.aspsp_logo_url,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      window.location.href = data.url
+    } catch (err: any) {
+      setReconnectError(err.message)
+      setReconnectingId(null)
+    }
   }
 
   // Widgets spanning the full row (2 columns on md+) vs half-width (bank cards)
@@ -254,13 +309,39 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-brand-dark truncate">{bank.code} — {bank.name}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-sm font-semibold text-brand-dark truncate">{bank.code} — {bank.name}</p>
+              {bank.connectionStatus === 'connected' && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700 flex-shrink-0">Connected</span>
+              )}
+              {bank.connectionStatus === 'expired' && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-600 flex-shrink-0">Expired</span>
+              )}
+            </div>
             {editingBankId !== bank.id && (
               <button onClick={() => openEditBalance(bank)} className="text-xs text-brand-dark font-medium hover:underline flex-shrink-0 ml-2">
                 Edit
               </button>
             )}
           </div>
+
+          {bank.connectionStatus === 'expired' && (
+            <div className="bg-red-50 rounded-lg px-3 py-2 mb-3">
+              {reconnectError && reconnectingId === bank.id && (
+                <p className="text-xs text-red-600 mb-1">{reconnectError}</p>
+              )}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-red-600">This bank's connection has expired</p>
+                <button
+                  onClick={() => handleReconnect(bank)}
+                  disabled={reconnectingId === bank.id}
+                  className="text-xs bg-red-600 text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-red-700 transition disabled:opacity-50 flex-shrink-0 ml-2"
+                >
+                  {reconnectingId === bank.id ? 'Reconnecting...' : 'Reconnect'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {editingBankId === bank.id ? (
             <div className="space-y-3 mb-3">
