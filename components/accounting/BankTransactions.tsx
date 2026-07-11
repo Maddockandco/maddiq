@@ -152,6 +152,13 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   useEffect(() => { fetchBankAccounts() }, [clientId])
   useEffect(() => { if (selectedBankAccountId) fetchTransactions() }, [selectedBankAccountId, statusFilter])
 
+  useEffect(() => {
+    if (activeAccountTab !== 'reconcile') return
+    transactions.forEach((txn) => {
+      if (txn.status === 'unreconciled') ensureMatchesLoaded(txn)
+    })
+  }, [transactions, activeAccountTab])
+
   async function fetchBankAccounts() {
     const { data } = await supabase
       .from('chart_of_accounts')
