@@ -77,6 +77,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [allAccounts, setAllAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<'unreconciled' | 'reconciled' | 'all'>('unreconciled')
+  const [activeAccountTab, setActiveAccountTab] = useState<'reconcile' | 'statements' | 'transactions'>('reconcile')
+
+  function switchAccountTab(tab: 'reconcile' | 'statements' | 'transactions') {
+    setActiveAccountTab(tab)
+    if (tab === 'reconcile') setStatusFilter('unreconciled')
+    else if (tab === 'transactions') setStatusFilter('reconciled')
+    else setStatusFilter('all')
+  }
 
   // CSV import state
   const [importing, setImporting] = useState(false)
@@ -154,7 +162,12 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     if (data) {
       setBankAccounts(data)
-      if (data.length > 0 && !selectedBankAccountId) setSelectedBankAccountId(data[0].id)
+      const accountFromUrl = searchParams.get('account')
+      if (accountFromUrl && data.some((a) => a.id === accountFromUrl)) {
+        setSelectedBankAccountId(accountFromUrl)
+      } else if (data.length > 0 && !selectedBankAccountId) {
+        setSelectedBankAccountId(data[0].id)
+      }
     }
     if (all) setAllAccounts(all.filter((a) => a.account_type !== 'bank'))
 
@@ -597,28 +610,38 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <select value={selectedBankAccountId} onChange={(e) => setSelectedBankAccountId(e.target.value)} className={inputClass}>
-            {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-          </select>
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {(['unreconciled', 'reconciled', 'all'] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-md transition capitalize ${statusFilter === s ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
+        <select value={selectedBankAccountId} onChange={(e) => setSelectedBankAccountId(e.target.value)} className={inputClass}>
+          {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+        </select>
         {can.manageEngagements && !importing && (
           <button onClick={() => setImporting(true)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
             + Import CSV
           </button>
         )}
       </div>
+
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        {([
+          { key: 'reconcile', label: 'Reconcile' },
+          { key: 'statements', label: 'Bank Statements' },
+          { key: 'transactions', label: 'Account Transactions' },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => switchAccountTab(tab.key)}
+            className={`text-sm font-medium px-4 py-2 rounded-md transition ${activeAccountTab === tab.key ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeAccountTab === 'statements' && (
+        <p className="text-xs text-gray-400">Every transaction on this account, as it appears on the bank statement — reconciled or not.</p>
+      )}
+      {activeAccountTab === 'transactions' && (
+        <p className="text-xs text-gray-400">Only transactions that have actually been reconciled into the books.</p>
+      )}
 
       {importing && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
@@ -753,7 +776,11 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         </div>
       ) : transactions.length === 0 && !importing ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm">No {statusFilter !== 'all' ? statusFilter : ''} transactions for this account</p>
+          <p className="text-gray-500 text-sm">
+            {activeAccountTab === 'reconcile' ? 'Nothing left to reconcile on this account' :
+             activeAccountTab === 'transactions' ? 'No reconciled transactions yet' :
+             'No transactions on this account yet'}
+          </p>
         </div>
       ) : !importing && (
         <div className="space-y-2">
@@ -774,12 +801,12 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                   <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[txn.status]}`}>
                     {txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}
                   </span>
-                  {can.manageEngagements && txn.status === 'unreconciled' && (
+                  {activeAccountTab === 'reconcile' && can.manageEngagements && txn.status === 'unreconciled' && (
                     <button onClick={() => openReconcile(txn)} className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
                       Reconcile
                     </button>
                   )}
-                  {can.manageEngagements && txn.status === 'reconciled' && (
+                  {activeAccountTab === 'reconcile' && can.manageEngagements && txn.status === 'reconciled' && (
                     <button onClick={() => handleUnreconcile(txn.id)} className="text-xs text-gray-400 hover:text-red-600 transition">
                       Undo
                     </button>
