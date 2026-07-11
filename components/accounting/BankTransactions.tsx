@@ -109,6 +109,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnMatchesLoaded, setTxnMatchesLoaded] = useState<Record<string, boolean>>({})
   const [txnSelectedMatch, setTxnSelectedMatch] = useState<Record<string, any>>({})
   const [txnOffsetAccount, setTxnOffsetAccount] = useState<Record<string, string>>({})
+  const [txnMatchOffsetAccount, setTxnMatchOffsetAccount] = useState<Record<string, string>>({})
   const [txnCreateDesc, setTxnCreateDesc] = useState<Record<string, string>>({})
   const [txnComment, setTxnComment] = useState<Record<string, string>>({})
   const [expandedDetailId, setExpandedDetailId] = useState<string | null>(null)
@@ -497,6 +498,15 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   async function confirmMatch(txn: any) {
     const match = txnSelectedMatch[txn.id]
     if (!match) return
+
+    const amountDiff = match._scoring?.amountDiff || 0
+    const offsetAccountId = txnMatchOffsetAccount[txn.id]
+
+    if (amountDiff > 0 && !offsetAccountId) {
+      setTxnError((prev) => ({ ...prev, [txn.id]: 'Select an account for the £' + amountDiff.toFixed(2) + ' difference before reconciling' }))
+      return
+    }
+
     setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
     setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
 
@@ -505,6 +515,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       p_matched_type: match.matchType,
       p_matched_id: match.id,
       p_journal_entry_id: match.journal_entry_id,
+      p_offset_account_id: offsetAccountId || null,
     })
 
     if (error) {
@@ -1089,6 +1100,21 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                               </button>
                             )
                           })}
+                        </div>
+                      )}
+                      {selected && (selected._scoring?.amountDiff || 0) > 0 && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            £{selected._scoring.amountDiff.toFixed(2)} difference — where should this go? (e.g. Bank Charges)
+                          </label>
+                          <select
+                            value={txnMatchOffsetAccount[txn.id] || ''}
+                            onChange={(e) => setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                            className={`${inputClass} w-full bg-white`}
+                          >
+                            <option value="">Select account</option>
+                            {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                          </select>
                         </div>
                       )}
                       {selected && (
