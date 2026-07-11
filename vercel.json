@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/ch-sync",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/bank-connection-check",
+      "schedule": "0 6 * * *"
     }
   ]
 }
