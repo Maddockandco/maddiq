@@ -908,8 +908,18 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       </div>
                     )}
 
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-gray-500">Comment</label>
+                      {txn.status === 'reconciled' && can.manageEngagements && (
+                        <button
+                          onClick={() => handleUnreconcile(txn.id)}
+                          className="text-xs text-red-500 font-medium hover:underline"
+                        >
+                          Unreconcile
+                        </button>
+                      )}
+                    </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Comment</label>
                       <textarea
                         value={txnComment[txn.id] ?? txn.notes ?? ''}
                         onChange={(e) => setTxnComment((prev) => ({ ...prev, [txn.id]: e.target.value }))}
