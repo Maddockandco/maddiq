@@ -311,7 +311,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               </p>
             </div>
             <button
-              onClick={() => router.push(`/accounting/${params.clientId}/bank-transactions`)}
+              onClick={() => router.push(`/accounting/${params.clientId}/bank-transactions?account=${bank.id}`)}
               className="bg-brand-gold text-brand-dark text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition whitespace-nowrap"
             >
               {bank.unreconciledCount > 0 ? `Reconcile ${bank.unreconciledCount}` : 'View transactions'}
