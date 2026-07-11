@@ -102,14 +102,17 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [importSaving, setImportSaving] = useState(false)
   const [importError, setImportError] = useState('')
 
-  // Reconciliation state
-  const [reconcilingId, setReconcilingId] = useState<string | null>(null)
-  const [reconcileMode, setReconcileMode] = useState<'match' | 'new'>('match')
-  const [suggestedMatches, setSuggestedMatches] = useState<any[]>([])
-  const [offsetAccountId, setOffsetAccountId] = useState('')
-  const [reconcileDescription, setReconcileDescription] = useState('')
-  const [reconciling, setReconciling] = useState(false)
-  const [reconcileError, setReconcileError] = useState('')
+  // Reconciliation state - keyed per transaction id, so every pending line
+  // shows its own match panel simultaneously (matching the Xero-style layout)
+  const [txnPanel, setTxnPanel] = useState<Record<string, 'match' | 'create' | 'comment'>>({})
+  const [txnMatches, setTxnMatches] = useState<Record<string, any[]>>({})
+  const [txnMatchesLoaded, setTxnMatchesLoaded] = useState<Record<string, boolean>>({})
+  const [txnSelectedMatch, setTxnSelectedMatch] = useState<Record<string, any>>({})
+  const [txnOffsetAccount, setTxnOffsetAccount] = useState<Record<string, string>>({})
+  const [txnCreateDesc, setTxnCreateDesc] = useState<Record<string, string>>({})
+  const [txnComment, setTxnComment] = useState<Record<string, string>>({})
+  const [txnBusy, setTxnBusy] = useState<Record<string, boolean>>({})
+  const [txnError, setTxnError] = useState<Record<string, string>>({})
 
   const { can } = useRole()
   const supabase = createClient()
@@ -390,12 +393,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   }
 
   // --- Reconciliation ---
-  async function openReconcile(txn: any) {
-    setReconcilingId(txn.id)
-    setReconcileMode('match')
-    setOffsetAccountId('')
-    setReconcileDescription(txn.description)
-    setReconcileError('')
+  async function ensureMatchesLoaded(txn: any) {
+    if (txnMatchesLoaded[txn.id]) return
 
     const matchedIdsRes = await supabase
       .from('bank_transactions')
@@ -405,6 +404,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     const alreadyMatchedIds = new Set((matchedIdsRes.data || []).map((r: any) => r.matched_id))
 
+    let matches: any[] = []
     if (txn.amount > 0) {
       const { data } = await supabase
         .from('sales_receipts')
@@ -412,7 +412,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         .eq('client_id', clientId)
         .eq('bank_account_id', txn.bank_account_id)
         .eq('amount', txn.amount)
-      setSuggestedMatches((data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'sales_receipt' })))
+      matches = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'sales_receipt' }))
     } else {
       const { data } = await supabase
         .from('purchase_payments')
@@ -420,55 +420,85 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         .eq('client_id', clientId)
         .eq('bank_account_id', txn.bank_account_id)
         .eq('amount', Math.abs(txn.amount))
-      setSuggestedMatches((data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'purchase_payment' })))
+      matches = (data || []).filter((r: any) => !alreadyMatchedIds.has(r.id)).map((r: any) => ({ ...r, matchType: 'purchase_payment' }))
+    }
+
+    setTxnMatches((prev) => ({ ...prev, [txn.id]: matches }))
+    setTxnMatchesLoaded((prev) => ({ ...prev, [txn.id]: true }))
+  }
+
+  function switchTxnPanel(txn: any, panel: 'match' | 'create' | 'comment') {
+    setTxnPanel((prev) => ({ ...prev, [txn.id]: panel }))
+    setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
+    if (panel === 'match') ensureMatchesLoaded(txn)
+    if (panel === 'create' && !(txn.id in txnCreateDesc)) {
+      setTxnCreateDesc((prev) => ({ ...prev, [txn.id]: txn.description }))
+    }
+    if (panel === 'comment' && !(txn.id in txnComment)) {
+      setTxnComment((prev) => ({ ...prev, [txn.id]: txn.notes || '' }))
     }
   }
 
-  async function handleMatch(match: any) {
-    setReconciling(true)
-    setReconcileError('')
+  function selectMatch(txnId: string, match: any) {
+    setTxnSelectedMatch((prev) => ({ ...prev, [txnId]: prev[txnId]?.id === match.id ? null : match }))
+  }
+
+  async function confirmMatch(txn: any) {
+    const match = txnSelectedMatch[txn.id]
+    if (!match) return
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
+    setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
 
     const { error } = await supabase.rpc('reconcile_bank_transaction_match', {
-      p_transaction_id: reconcilingId,
+      p_transaction_id: txn.id,
       p_matched_type: match.matchType,
       p_matched_id: match.id,
       p_journal_entry_id: match.journal_entry_id,
     })
 
     if (error) {
-      setReconcileError(error.message)
-      setReconciling(false)
+      setTxnError((prev) => ({ ...prev, [txn.id]: error.message }))
+      setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
       return
     }
 
-    setReconcilingId(null)
-    setReconciling(false)
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
     fetchTransactions()
   }
 
-  async function handleCreateNew() {
-    if (!offsetAccountId) {
-      setReconcileError('Select an account')
+  async function confirmCreate(txn: any) {
+    const accountId = txnOffsetAccount[txn.id]
+    if (!accountId) {
+      setTxnError((prev) => ({ ...prev, [txn.id]: 'Select an account' }))
       return
     }
-    setReconciling(true)
-    setReconcileError('')
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
+    setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
 
     const { error } = await supabase.rpc('reconcile_bank_transaction_new', {
-      p_transaction_id: reconcilingId,
-      p_offset_account_id: offsetAccountId,
-      p_description: reconcileDescription,
+      p_transaction_id: txn.id,
+      p_offset_account_id: accountId,
+      p_description: txnCreateDesc[txn.id] || txn.description,
     })
 
     if (error) {
-      setReconcileError(error.message)
-      setReconciling(false)
+      setTxnError((prev) => ({ ...prev, [txn.id]: error.message }))
+      setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
       return
     }
 
-    setReconcilingId(null)
-    setReconciling(false)
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
     fetchTransactions()
+  }
+
+  async function saveComment(txn: any) {
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({ notes: txnComment[txn.id] || null })
+      .eq('id', txn.id)
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
+    if (!error) fetchTransactions()
   }
 
   async function handleUnreconcile(transactionId: string) {
@@ -782,107 +812,182 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
              'No transactions on this account yet'}
           </p>
         </div>
-      ) : !importing && (
+      ) : !importing && activeAccountTab !== 'reconcile' && (
         <div className="space-y-2">
           {transactions.map((txn) => (
-            <div key={txn.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between p-4">
-                <div className="flex-1">
+            <div key={txn.id} className="bg-white rounded-2xl border border-gray-200 p-4 flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-brand-dark">{txn.description}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(txn.transaction_date).toLocaleDateString('en-GB')}
+                  {txn.reference && ` · ${txn.reference}`}
+                  {txn.notes && <span className="italic"> · "{txn.notes}"</span>}
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className={`text-sm font-semibold ${txn.amount >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  {txn.amount >= 0 ? '+' : ''}£{txn.amount.toFixed(2)}
+                </span>
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[txn.status]}`}>
+                  {txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!importing && activeAccountTab === 'reconcile' && transactions.length > 0 && (
+        <div className="space-y-4">
+          {transactions.map((txn) => {
+            const panel = txnPanel[txn.id] || 'match'
+            const selected = txnSelectedMatch[txn.id]
+            const busy = txnBusy[txn.id]
+            const error = txnError[txn.id]
+            const matches = txnMatches[txn.id] || []
+
+            return (
+              <div key={txn.id} className="grid grid-cols-1 lg:grid-cols-2 gap-0 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                {/* Left — the actual bank statement line */}
+                <div className={`p-5 bg-white border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col justify-center transition ${selected ? 'bg-brand-gold/10' : ''}`}>
+                  <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Bank statement line</p>
                   <p className="text-sm font-medium text-brand-dark">{txn.description}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-400 mt-0.5 mb-3">
                     {new Date(txn.transaction_date).toLocaleDateString('en-GB')}
                     {txn.reference && ` · ${txn.reference}`}
                   </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-sm font-semibold ${txn.amount >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    {txn.amount >= 0 ? '+' : ''}£{txn.amount.toFixed(2)}
-                  </span>
-                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_STYLES[txn.status]}`}>
-                    {txn.status === 'reconciled' ? (MATCH_TYPE_LABELS[txn.matched_type] || 'Reconciled') : 'Unreconciled'}
-                  </span>
-                  {activeAccountTab === 'reconcile' && can.manageEngagements && txn.status === 'unreconciled' && (
-                    <button onClick={() => openReconcile(txn)} className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
-                      Reconcile
-                    </button>
-                  )}
-                  {activeAccountTab === 'reconcile' && can.manageEngagements && txn.status === 'reconciled' && (
-                    <button onClick={() => handleUnreconcile(txn.id)} className="text-xs text-gray-400 hover:text-red-600 transition">
-                      Undo
-                    </button>
+                  <div className="flex gap-6">
+                    <div>
+                      <p className="text-xs text-gray-400">Spent</p>
+                      <p className="text-sm font-semibold text-red-600">{txn.amount < 0 ? `£${Math.abs(txn.amount).toFixed(2)}` : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Received</p>
+                      <p className="text-sm font-semibold text-green-700">{txn.amount >= 0 ? `£${txn.amount.toFixed(2)}` : '—'}</p>
+                    </div>
+                  </div>
+                  {txn.notes && (
+                    <p className="text-xs text-gray-400 italic mt-3">💬 "{txn.notes}"</p>
                   )}
                 </div>
-              </div>
 
-              {reconcilingId === txn.id && (
-                <div className="border-t border-gray-100 bg-gray-50 p-4 space-y-4">
-                  {reconcileError && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{reconcileError}</div>}
-
-                  <div className="flex gap-1 bg-white rounded-lg p-1 w-fit border border-gray-200">
-                    <button onClick={() => setReconcileMode('match')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${reconcileMode === 'match' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}>
-                      Match existing
-                    </button>
-                    <button onClick={() => setReconcileMode('new')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${reconcileMode === 'new' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}>
-                      Create new entry
-                    </button>
+                {/* Right — match / create / comment panel */}
+                <div className={`p-5 bg-brand-light/40 transition ${selected ? 'bg-brand-gold/10' : ''}`}>
+                  <div className="flex gap-1 bg-white rounded-lg p-1 w-fit border border-gray-200 mb-3">
+                    {([
+                      { key: 'match', label: 'Match' },
+                      { key: 'create', label: 'Create' },
+                      { key: 'comment', label: 'Comment' },
+                    ] as const).map((t) => (
+                      <button
+                        key={t.key}
+                        onClick={() => switchTxnPanel(txn, t.key)}
+                        className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${panel === t.key ? 'bg-brand-dark text-white' : 'text-gray-500'}`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
 
-                  {reconcileMode === 'match' ? (
-                    suggestedMatches.length === 0 ? (
-                      <p className="text-sm text-gray-400">No matching {txn.amount > 0 ? 'receipts' : 'payments'} found for £{Math.abs(txn.amount).toFixed(2)} on this bank account — try "Create new entry" instead.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {suggestedMatches.map((m) => (
-                          <div key={m.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-gray-200">
-                            <div>
-                              <p className="text-sm font-medium text-brand-dark">{m.contacts?.name}</p>
-                              <p className="text-xs text-gray-400">
-                                {new Date(m.receipt_date || m.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(m.amount).toFixed(2)} · {m.reference || 'no reference'}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => handleMatch(m)}
-                              disabled={reconciling}
-                              className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
-                            >
-                              Match
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  ) : (
+                  {error && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2 mb-3">{error}</div>}
+
+                  {panel === 'match' && (
+                    <div className="space-y-3">
+                      {matches.length === 0 ? (
+                        <p className="text-sm text-gray-400">No matching {txn.amount > 0 ? 'receipts' : 'payments'} found for £{Math.abs(txn.amount).toFixed(2)} — try "Create" instead.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {matches.map((m) => {
+                            const isSelected = selected?.id === m.id
+                            return (
+                              <button
+                                key={m.id}
+                                onClick={() => selectMatch(txn.id, m)}
+                                className={`w-full text-left flex items-center justify-between rounded-lg px-4 py-2.5 border-2 transition ${
+                                  isSelected ? 'border-brand-gold bg-white' : 'border-transparent bg-white hover:border-gray-200'
+                                }`}
+                              >
+                                <div>
+                                  <p className="text-sm font-medium text-brand-dark">{m.contacts?.name}</p>
+                                  <p className="text-xs text-gray-400">
+                                    {new Date(m.receipt_date || m.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(m.amount).toFixed(2)} · {m.reference || 'no reference'}
+                                  </p>
+                                </div>
+                                {isSelected && <span className="text-brand-dark text-sm">✓</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {selected && (
+                        <button
+                          onClick={() => confirmMatch(txn)}
+                          disabled={busy}
+                          className="w-full bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                        >
+                          {busy ? 'Reconciling...' : 'Reconcile'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {panel === 'create' && (
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Offset account (e.g. Bank Charges, Interest Received)</label>
-                        <select value={offsetAccountId} onChange={(e) => setOffsetAccountId(e.target.value)} className={`${inputClass} w-full`}>
+                        <select
+                          value={txnOffsetAccount[txn.id] || ''}
+                          onChange={(e) => setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                          className={`${inputClass} w-full bg-white`}
+                        >
                           <option value="">Select account</option>
                           {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-                        <input type="text" value={reconcileDescription} onChange={(e) => setReconcileDescription(e.target.value)} className={`${inputClass} w-full`} />
+                        <input
+                          type="text"
+                          value={txnCreateDesc[txn.id] ?? txn.description}
+                          onChange={(e) => setTxnCreateDesc((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                          className={`${inputClass} w-full bg-white`}
+                        />
                       </div>
                       <button
-                        onClick={handleCreateNew}
-                        disabled={reconciling}
-                        className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                        onClick={() => confirmCreate(txn)}
+                        disabled={busy}
+                        className="w-full bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
                       >
-                        {reconciling ? 'Reconciling...' : 'Create entry & reconcile'}
+                        {busy ? 'Reconciling...' : 'Create entry & reconcile'}
                       </button>
                     </div>
                   )}
 
-                  <button onClick={() => setReconcilingId(null)} className="text-sm text-gray-500 hover:underline">
-                    Cancel
-                  </button>
+                  {panel === 'comment' && (
+                    <div className="space-y-3">
+                      <textarea
+                        value={txnComment[txn.id] ?? txn.notes ?? ''}
+                        onChange={(e) => setTxnComment((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                        placeholder="Add an explanation for this transaction — it stays attached even once reconciled."
+                        rows={3}
+                        className={`${inputClass} w-full bg-white`}
+                      />
+                      <button
+                        onClick={() => saveComment(txn)}
+                        disabled={busy}
+                        className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                      >
+                        {busy ? 'Saving...' : 'Save comment'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
+
   )
 }
