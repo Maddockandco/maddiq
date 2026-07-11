@@ -116,6 +116,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [txnBusy, setTxnBusy] = useState<Record<string, boolean>>({})
   const [txnError, setTxnError] = useState<Record<string, string>>({})
+  const [txnUnreconcileError, setTxnUnreconcileError] = useState<Record<string, string>>({})
 
   const { can } = useRole()
   const supabase = createClient()
@@ -530,10 +531,11 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   async function handleUnreconcile(transactionId: string) {
     setTxnBusy((prev) => ({ ...prev, [transactionId]: true }))
+    setTxnUnreconcileError((prev) => ({ ...prev, [transactionId]: '' }))
     const { error } = await supabase.rpc('unreconcile_bank_transaction', { p_transaction_id: transactionId })
     setTxnBusy((prev) => ({ ...prev, [transactionId]: false }))
     if (error) {
-      setTxnError((prev) => ({ ...prev, [transactionId]: error.message }))
+      setTxnUnreconcileError((prev) => ({ ...prev, [transactionId]: error.message }))
       return
     }
     fetchTransactions()
@@ -926,8 +928,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         </button>
                       )}
                     </div>
-                    {txn.status === 'reconciled' && txnError[txn.id] && (
-                      <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{txnError[txn.id]}</div>
+                    {txn.status === 'reconciled' && txnUnreconcileError[txn.id] && (
+                      <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2">{txnUnreconcileError[txn.id]}</div>
                     )}
                     <div>
                       <textarea
