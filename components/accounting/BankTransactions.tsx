@@ -109,6 +109,20 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnMatchesLoaded, setTxnMatchesLoaded] = useState<Record<string, boolean>>({})
   const [txnSelectedMatch, setTxnSelectedMatch] = useState<Record<string, any>>({})
   const [txnOffsetAccount, setTxnOffsetAccount] = useState<Record<string, string>>({})
+  const [txnLearnedRule, setTxnLearnedRule] = useState<Record<string, any>>({})
+  const [txnLearnedLoaded, setTxnLearnedLoaded] = useState<Record<string, boolean>>({})
+
+  function normalizePattern(description: string): string {
+    return (description || '')
+      .toLowerCase()
+      .replace(/[0-9]+/g, '')
+      .replace(/[^a-z\s]/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+      .slice(0, 3)
+      .join(' ')
+  }
   const [txnMatchOffsetAccount, setTxnMatchOffsetAccount] = useState<Record<string, string>>({})
   const [txnCreateDesc, setTxnCreateDesc] = useState<Record<string, string>>({})
   const [txnComment, setTxnComment] = useState<Record<string, string>>({})
@@ -155,7 +169,10 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   useEffect(() => {
     if (activeAccountTab !== 'reconcile') return
     transactions.forEach((txn) => {
-      if (txn.status === 'unreconciled') ensureMatchesLoaded(txn)
+      if (txn.status === 'unreconciled') {
+        ensureMatchesLoaded(txn)
+        checkLearnedRule(txn)
+      }
     })
   }, [transactions, activeAccountTab])
 
@@ -431,6 +448,32 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     return { label: 'Possible match', style: 'bg-gray-100 text-gray-500' }
   }
 
+  async function checkLearnedRule(txn: any) {
+    if (txnLearnedLoaded[txn.id]) return
+    const pattern = normalizePattern(txn.description)
+    if (!pattern) {
+      setTxnLearnedLoaded((prev) => ({ ...prev, [txn.id]: true }))
+      return
+    }
+
+    const { data } = await supabase
+      .from('bank_transaction_rules')
+      .select('*')
+      .eq('client_id', clientId)
+      .eq('pattern', pattern)
+      .maybeSingle()
+
+    setTxnLearnedRule((prev) => ({ ...prev, [txn.id]: data || null }))
+    setTxnLearnedLoaded((prev) => ({ ...prev, [txn.id]: true }))
+  }
+
+  async function applyLearnedRule(txn: any) {
+    const rule = txnLearnedRule[txn.id]
+    if (!rule) return
+    setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: rule.offset_account_id }))
+    await confirmCreate(txn, rule.offset_account_id)
+  }
+
   async function ensureMatchesLoaded(txn: any) {
     if (txnMatchesLoaded[txn.id]) return
 
@@ -535,8 +578,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     fetchTransactions()
   }
 
-  async function confirmCreate(txn: any) {
-    const accountId = txnOffsetAccount[txn.id]
+  async function confirmCreate(txn: any, overrideAccountId?: string) {
+    const accountId = overrideAccountId || txnOffsetAccount[txn.id]
     if (!accountId) {
       setTxnError((prev) => ({ ...prev, [txn.id]: 'Select an account' }))
       return
@@ -554,6 +597,39 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       setTxnError((prev) => ({ ...prev, [txn.id]: error.message }))
       setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
       return
+    }
+
+    // Remember this pairing for next time — same normalized pattern, same offset account
+    const pattern = normalizePattern(txn.description)
+    if (pattern) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
+      if (firmUser) {
+        const { data: existingRule } = await supabase
+          .from('bank_transaction_rules')
+          .select('id, usage_count, offset_account_id')
+          .eq('client_id', clientId)
+          .eq('pattern', pattern)
+          .maybeSingle()
+
+        if (existingRule) {
+          await supabase
+            .from('bank_transaction_rules')
+            .update({
+              offset_account_id: accountId,
+              usage_count: existingRule.offset_account_id === accountId ? existingRule.usage_count + 1 : 1,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingRule.id)
+        } else {
+          await supabase.from('bank_transaction_rules').insert({
+            firm_id: firmUser.firm_id,
+            client_id: clientId,
+            pattern,
+            offset_account_id: accountId,
+          })
+        }
+      }
     }
 
     setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
@@ -1028,6 +1104,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
             const busy = txnBusy[txn.id]
             const error = txnError[txn.id]
             const matches = txnMatches[txn.id] || []
+            const learnedRule = txnLearnedRule[txn.id]
+            const learnedAccount = learnedRule ? allAccounts.find((a) => a.id === learnedRule.offset_account_id) : null
 
             return (
               <div key={txn.id} className="grid grid-cols-1 lg:grid-cols-2 gap-0 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
@@ -1071,6 +1149,22 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       </button>
                     ))}
                   </div>
+
+                  {learnedAccount && !selected && (
+                    <div className="bg-brand-gold/20 rounded-lg px-3 py-2 mb-3 flex items-center justify-between gap-3">
+                      <p className="text-xs text-brand-dark">
+                        💡 Usually coded to <strong>{learnedAccount.code} — {learnedAccount.name}</strong>
+                        {learnedRule.usage_count > 1 && ` (${learnedRule.usage_count}× before)`}
+                      </p>
+                      <button
+                        onClick={() => applyLearnedRule(txn)}
+                        disabled={busy}
+                        className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50 flex-shrink-0"
+                      >
+                        {busy ? 'Applying...' : 'Use this'}
+                      </button>
+                    </div>
+                  )}
 
                   {error && <div className="bg-red-50 text-red-600 text-xs rounded-lg px-3 py-2 mb-3">{error}</div>}
 
