@@ -36,6 +36,7 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [saveError, setSaveError] = useState<Record<string, string>>({})
   const [showAttachPicker, setShowAttachPicker] = useState<Record<string, boolean>>({})
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({})
 
   useEffect(() => { fetchAll() }, [clientId])
 
@@ -122,11 +123,28 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
     }
   }
 
-  function openReview(extraction: any) {
+  function normalizePattern(description: string): string {
+    return (description || '')
+      .toLowerCase()
+      .replace(/[0-9]+/g, '')
+      .replace(/[^a-z\s]/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+      .slice(0, 3)
+      .join(' ')
+  }
+
+  async function openReview(extraction: any) {
     if (reviewingId === extraction.id) { setReviewingId(null); return }
     setReviewingId(extraction.id)
     const d = extraction.extracted_data
     if (!d) return
+
+    if (!previewUrls[extraction.id]) {
+      const { data: signed } = await supabase.storage.from('documents').createSignedUrl(extraction.file_path, 3600)
+      if (signed) setPreviewUrls((prev) => ({ ...prev, [extraction.id]: signed.signedUrl }))
+    }
 
     setSaveError((prev) => ({ ...prev, [extraction.id]: '' }))
     const direction: 'purchase' | 'sale' = d.direction === 'sale' ? 'sale' : 'purchase'
@@ -138,29 +156,42 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
     const relevantContacts = contacts.filter((c) => (direction === 'purchase' ? c.is_supplier : c.is_customer))
     const match = relevantContacts.find((c) => c.name.toLowerCase() === nameToMatch) ||
       relevantContacts.find((c) => c.name.toLowerCase().includes(nameToMatch) || nameToMatch.includes(c.name.toLowerCase()))
-    setDraftContactId((prev) => ({ ...prev, [extraction.id]: match?.id || '' }))
+    const contactId = match?.id || ''
+    setDraftContactId((prev) => ({ ...prev, [extraction.id]: contactId }))
     setDraftNewContactName((prev) => ({ ...prev, [extraction.id]: match ? '' : (d.vendor_or_customer_name || '') }))
 
     const category = direction === 'purchase' ? 'expense' : 'income'
     const defaultAccount = postableAccountsFor(category)[0]
     const applicableRates = relevantVatRates(category)
 
+    // Look up any learned rules for this contact, so past coding decisions get suggested automatically
+    let learnedRules: any[] = []
+    if (contactId) {
+      const { data } = await supabase.from('receipt_line_rules').select('*').eq('client_id', clientId).eq('contact_id', contactId)
+      if (data) learnedRules = data
+    }
+
     function bestRateMatch(vatPercent: number | null | undefined) {
       if (vatPercent == null) return defaultAccount?.default_vat_rate_id || ''
-      // Prefer an exact percentage match among the direction-appropriate rates,
-      // falling back to the account's own default if nothing matches closely
       const exact = applicableRates.find((r) => r.rate === vatPercent)
       if (exact) return exact.id
       return defaultAccount?.default_vat_rate_id || ''
     }
 
-    const lines = (d.line_items && d.line_items.length > 0 ? d.line_items : [{ description: d.vendor_or_customer_name || 'Item', quantity: 1, unit_price: d.total_amount || 0, vat_rate_percent: null }]).map((l: any) => ({
-      description: l.description || '',
-      quantity: String(l.quantity || 1),
-      unit_price: String(l.unit_price || 0),
-      accountId: defaultAccount?.id || '',
-      vatRateId: bestRateMatch(l.vat_rate_percent),
-    }))
+    const rawLines = d.line_items && d.line_items.length > 0 ? d.line_items : [{ description: d.vendor_or_customer_name || 'Item', quantity: 1, unit_price: d.total_amount || 0, vat_rate_percent: null }]
+
+    const lines = rawLines.map((l: any) => {
+      const pattern = normalizePattern(l.description)
+      const learned = learnedRules.find((r) => r.pattern === pattern)
+      return {
+        description: l.description || '',
+        quantity: String(l.quantity || 1),
+        unit_price: String(l.unit_price || 0),
+        accountId: learned?.account_id || defaultAccount?.id || '',
+        vatRateId: learned?.vat_rate_id || bestRateMatch(l.vat_rate_percent),
+        isLearned: !!learned,
+      }
+    })
     setDraftLines((prev) => ({ ...prev, [extraction.id]: lines }))
   }
 
@@ -304,6 +335,42 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
         await supabase.from('document_extractions').update({ status: 'linked', linked_type: 'sales_invoice', linked_id: invoice.id }).eq('id', extraction.id)
       }
 
+      // Learn from this coding decision for next time this contact sends a similar line item
+      for (const l of lines) {
+        const pattern = normalizePattern(l.description)
+        if (!pattern) continue
+
+        const { data: existingRule } = await supabase
+          .from('receipt_line_rules')
+          .select('id, usage_count, account_id, vat_rate_id')
+          .eq('client_id', clientId)
+          .eq('contact_id', contactId)
+          .eq('pattern', pattern)
+          .maybeSingle()
+
+        if (existingRule) {
+          const sameAsBefore = existingRule.account_id === l.accountId && existingRule.vat_rate_id === (l.vatRateId || null)
+          await supabase
+            .from('receipt_line_rules')
+            .update({
+              account_id: l.accountId,
+              vat_rate_id: l.vatRateId || null,
+              usage_count: sameAsBefore ? existingRule.usage_count + 1 : 1,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingRule.id)
+        } else {
+          await supabase.from('receipt_line_rules').insert({
+            firm_id: firmUser.firm_id,
+            client_id: clientId,
+            contact_id: contactId,
+            pattern,
+            account_id: l.accountId,
+            vat_rate_id: l.vatRateId || null,
+          })
+        }
+      }
+
       setReviewingId(null)
       fetchAll()
     } catch (err: any) {
@@ -416,7 +483,21 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
                 )}
 
                 {isReviewing && d && (
-                  <div className="border-t border-gray-100 bg-brand-light/40 p-5 space-y-4">
+                  <div className="border-t border-gray-100 bg-brand-light/40 p-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                      <div className="lg:sticky lg:top-4 lg:self-start bg-white rounded-xl border border-gray-200 overflow-hidden" style={{ maxHeight: '600px' }}>
+                        {previewUrls[ext.id] ? (
+                          ext.file_name.toLowerCase().endsWith('.pdf') ? (
+                            <iframe src={previewUrls[ext.id]} className="w-full" style={{ height: '600px' }} title="Document preview" />
+                          ) : (
+                            <img src={previewUrls[ext.id]} alt="Document preview" className="w-full h-auto object-contain" style={{ maxHeight: '600px' }} />
+                          )
+                        ) : (
+                          <p className="text-sm text-gray-400 p-8 text-center">Loading preview...</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-4">
                     {d.confidence && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${d.confidence === 'high' ? 'bg-green-100 text-green-700' : d.confidence === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>
                         {d.confidence} confidence
@@ -476,9 +557,14 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-xs font-medium text-gray-500">Line items</label>
+                      <div className="flex items-center gap-2">
+                        <label className="block text-xs font-medium text-gray-500">Line items</label>
+                        {(draftLines[ext.id] || []).some((l: any) => l.isLearned) && (
+                          <span className="text-xs text-brand-dark">💡 some lines pre-filled from past coding for this contact</span>
+                        )}
+                      </div>
                       {(draftLines[ext.id] || []).map((line, i) => (
-                        <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                        <div key={i} className={`grid grid-cols-12 gap-2 items-center ${line.isLearned ? 'bg-brand-gold/10 rounded-lg p-1' : ''}`}>
                           <input
                             type="text"
                             value={line.description}
@@ -552,6 +638,8 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
                         ))}
                       </div>
                     )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
