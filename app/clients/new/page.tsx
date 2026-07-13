@@ -11,6 +11,7 @@ export default function NewClientPage() {
   const [name, setName] = useState('')
   const [type, setType] = useState('company')
   const [status, setStatus] = useState('prospect')
+  const [usesAccounting, setUsesAccounting] = useState(false)
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [industry, setIndustry] = useState('')
@@ -187,6 +188,7 @@ export default function NewClientPage() {
       .insert({
         firm_id: firmUser.firm_id,
         name, type, status,
+        uses_accounting: usesAccounting,
         email: email || null,
         phone: phone || null,
         industry: industry || null,
@@ -304,6 +306,15 @@ export default function NewClientPage() {
         {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-6">{error}</div>}
 
         <div className="bg-white rounded-2xl shadow-sm p-8 space-y-6">
+
+          <label className="flex items-center gap-3 cursor-pointer bg-brand-light rounded-xl p-4">
+            <input type="checkbox" checked={usesAccounting} onChange={(e) => setUsesAccounting(e.target.checked)}
+              className="w-5 h-5 accent-brand-dark" />
+            <div>
+              <span className="text-sm font-semibold text-brand-dark block">Add this client to the Accounting system</span>
+              <span className="text-xs text-gray-500">Only clients ticked here appear in the Accounting section — you can turn this on later too</span>
+            </div>
+          </label>
 
           {/* Client Type */}
           <div>
