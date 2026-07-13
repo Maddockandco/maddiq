@@ -150,18 +150,58 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [connectError, setConnectError] = useState('')
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [callbackBanner, setCallbackBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [accountPickerRequest, setAccountPickerRequest] = useState<any>(null)
+  const [selectingAccountIndex, setSelectingAccountIndex] = useState<number | null>(null)
+  const [accountPickerError, setAccountPickerError] = useState('')
 
   useEffect(() => {
     const connected = searchParams.get('bank_connected')
     const errorMsg = searchParams.get('bank_connect_error')
+    const selectAccountId = searchParams.get('bank_select_account')
     if (connected) {
       setCallbackBanner({ type: 'success', message: 'Bank account connected successfully.' })
       router.replace(`/accounting/${clientId}/bank-transactions`)
     } else if (errorMsg) {
       setCallbackBanner({ type: 'error', message: `Connection failed: ${decodeURIComponent(errorMsg)}` })
       router.replace(`/accounting/${clientId}/bank-transactions`)
+    } else if (selectAccountId) {
+      loadAccountPicker(selectAccountId)
     }
   }, [searchParams])
+
+  async function loadAccountPicker(authRequestId: string) {
+    const { data } = await supabase
+      .from('bank_auth_requests')
+      .select('*')
+      .eq('id', authRequestId)
+      .single()
+    if (data) setAccountPickerRequest(data)
+  }
+
+  async function handleSelectAccount(accountIndex: number) {
+    setSelectingAccountIndex(accountIndex)
+    setAccountPickerError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/open-banking/select-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ authRequestId: accountPickerRequest.id, accountIndex }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setAccountPickerRequest(null)
+      setCallbackBanner({ type: 'success', message: 'Bank account connected successfully.' })
+      router.replace(`/accounting/${clientId}/bank-transactions`)
+      fetchBankAccounts()
+    } catch (err: any) {
+      setAccountPickerError(err.message)
+    }
+    setSelectingAccountIndex(null)
+  }
 
   useEffect(() => { fetchBankAccounts() }, [clientId])
   useEffect(() => { if (selectedBankAccountId) fetchTransactions() }, [selectedBankAccountId, statusFilter])
@@ -694,6 +734,39 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
+      {accountPickerRequest && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-brand-dark">Which account should we connect?</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {accountPickerRequest.aspsp_name} returned more than one account — pick the one that matches this bank account in Maddiq.
+              </p>
+            </div>
+            {accountPickerError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">{accountPickerError}</div>}
+            <div className="space-y-2">
+              {(accountPickerRequest.accounts_json || []).map((acc: any, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => handleSelectAccount(i)}
+                  disabled={selectingAccountIndex !== null}
+                  className="w-full text-left bg-gray-50 hover:bg-brand-light rounded-lg px-4 py-3 transition disabled:opacity-50"
+                >
+                  <p className="text-sm font-medium text-brand-dark">
+                    {acc.name || acc.product || acc.account_id?.iban || `Account ${i + 1}`}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {acc.account_id?.iban && `IBAN: ${acc.account_id.iban}`}
+                    {acc.currency && ` · ${acc.currency}`}
+                  </p>
+                  {selectingAccountIndex === i && <p className="text-xs text-brand-dark mt-1">Connecting...</p>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {callbackBanner && (
         <div className={`rounded-xl px-4 py-3 text-sm flex items-center justify-between ${callbackBanner.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
           <span>{callbackBanner.message}</span>
