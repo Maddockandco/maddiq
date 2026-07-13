@@ -264,6 +264,21 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     return category === 'expense' || category === 'income'
   }
 
+  function getRelevantVatRates(type: string) {
+    const category = TYPE_TO_CATEGORY[type]
+    const universal = ['no_vat']
+    const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
+    const incomeOnly = ['zero_ec_goods_income', 'zero_ec_services_income', 'oss_digital_services', 'toms_margin', 'flat_rate']
+
+    if (category === 'expense') {
+      return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
+    }
+    if (category === 'income') {
+      return vatRates.filter((r) => r.code.endsWith('_income') || universal.includes(r.code) || incomeOnly.includes(r.code))
+    }
+    return vatRates
+  }
+
   function isLeafAccount(id: string | null) {
     if (!id) return true // brand new account — can't have children yet
     return !accounts.some((a) => a.parent_id === id)
@@ -578,7 +593,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                       <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
                       <select value={vatRateId} onChange={(e) => setVatRateId(e.target.value)} className={inputClass}>
                         <option value="">Select VAT rate</option>
-                        {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                        {getRelevantVatRates(accountType).map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                       </select>
                       <p className="text-xs text-gray-400 mt-1">
                         Required — this rate is applied automatically whenever this account is used
