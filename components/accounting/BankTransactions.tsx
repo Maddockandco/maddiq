@@ -109,6 +109,12 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnMatchesLoaded, setTxnMatchesLoaded] = useState<Record<string, boolean>>({})
   const [txnSelectedMatch, setTxnSelectedMatch] = useState<Record<string, any>>({})
   const [txnOffsetAccount, setTxnOffsetAccount] = useState<Record<string, string>>({})
+  const [txnAddingAccount, setTxnAddingAccount] = useState<Record<string, 'create' | 'match_diff' | null>>({})
+  const [txnNewAccountCode, setTxnNewAccountCode] = useState<Record<string, string>>({})
+  const [txnNewAccountName, setTxnNewAccountName] = useState<Record<string, string>>({})
+  const [txnNewAccountType, setTxnNewAccountType] = useState<Record<string, string>>({})
+  const [txnAddAccountSaving, setTxnAddAccountSaving] = useState<Record<string, boolean>>({})
+  const [txnAddAccountError, setTxnAddAccountError] = useState<Record<string, string>>({})
   const [txnLearnedRule, setTxnLearnedRule] = useState<Record<string, any>>({})
   const [txnLearnedLoaded, setTxnLearnedLoaded] = useState<Record<string, boolean>>({})
 
@@ -591,6 +597,51 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   function selectMatch(txnId: string, match: any) {
     setTxnSelectedMatch((prev) => ({ ...prev, [txnId]: prev[txnId]?.id === match.id ? null : match }))
+  }
+
+  async function handleAddAccountInline(txn: any, target: 'create' | 'match_diff') {
+    const code = txnNewAccountCode[txn.id]?.trim()
+    const name = txnNewAccountName[txn.id]?.trim()
+    const type = txnNewAccountType[txn.id] || 'overhead'
+
+    if (!code || !name) {
+      setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: 'Code and name are required' }))
+      return
+    }
+
+    setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: true }))
+    setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: '' }))
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
+    if (!firmUser) {
+      setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: 'Could not find your firm' }))
+      setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
+      return
+    }
+
+    const { data: newAccount, error } = await supabase
+      .from('chart_of_accounts')
+      .insert({ firm_id: firmUser.firm_id, client_id: clientId, code, name, account_type: type })
+      .select()
+      .single()
+
+    if (error) {
+      setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: error.message }))
+      setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
+      return
+    }
+
+    setAllAccounts((prev) => [...prev, newAccount].sort((a, b) => a.code.localeCompare(b.code)))
+    if (target === 'create') {
+      setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
+    } else {
+      setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
+    }
+    setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
+    setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: '' }))
+    setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: '' }))
+    setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
   }
 
   async function confirmMatch(txn: any) {
@@ -1290,13 +1341,72 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                             £{selected._scoring.amountDiff.toFixed(2)} difference — where should this go? (e.g. Bank Charges)
                           </label>
                           <select
-                            value={txnMatchOffsetAccount[txn.id] || ''}
-                            onChange={(e) => setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                            value={txnAddingAccount[txn.id] === 'match_diff' ? '__add_new__' : (txnMatchOffsetAccount[txn.id] || '')}
+                            onChange={(e) => {
+                              if (e.target.value === '__add_new__') {
+                                setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'match_diff' }))
+                              } else {
+                                setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
+                                setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
+                              }
+                            }}
                             className={`${inputClass} w-full bg-white`}
                           >
                             <option value="">Select account</option>
+                            <option value="__add_new__">+ Add new account...</option>
                             {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                           </select>
+
+                          {txnAddingAccount[txn.id] === 'match_diff' && (
+                            <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2 mt-2">
+                              {txnAddAccountError[txn.id] && (
+                                <p className="text-xs text-red-600">{txnAddAccountError[txn.id]}</p>
+                              )}
+                              <div className="grid grid-cols-2 gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Code (e.g. 6100)"
+                                  value={txnNewAccountCode[txn.id] || ''}
+                                  onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                  className={`${inputClass} w-full`}
+                                />
+                                <select
+                                  value={txnNewAccountType[txn.id] || 'overhead'}
+                                  onChange={(e) => setTxnNewAccountType((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                  className={`${inputClass} w-full`}
+                                >
+                                  <option value="overhead">Overhead</option>
+                                  <option value="direct_costs">Direct Costs</option>
+                                  <option value="sales">Sales</option>
+                                  <option value="other_income">Other Income</option>
+                                  <option value="current_asset">Current Asset</option>
+                                  <option value="current_liability">Current Liability</option>
+                                </select>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="Account name (e.g. Bank Charges)"
+                                value={txnNewAccountName[txn.id] || ''}
+                                onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                className={`${inputClass} w-full`}
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleAddAccountInline(txn, 'match_diff')}
+                                  disabled={txnAddAccountSaving[txn.id]}
+                                  className="bg-brand-dark text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                                >
+                                  {txnAddAccountSaving[txn.id] ? 'Adding...' : 'Add account'}
+                                </button>
+                                <button
+                                  onClick={() => setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))}
+                                  className="text-xs text-gray-500 hover:underline px-2"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                       {selected && (
@@ -1316,14 +1426,73 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Offset account (e.g. Bank Charges, Interest Received)</label>
                         <select
-                          value={txnOffsetAccount[txn.id] || ''}
-                          onChange={(e) => setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                          value={txnAddingAccount[txn.id] === 'create' ? '__add_new__' : (txnOffsetAccount[txn.id] || '')}
+                          onChange={(e) => {
+                            if (e.target.value === '__add_new__') {
+                              setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'create' }))
+                            } else {
+                              setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
+                              setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
+                            }
+                          }}
                           className={`${inputClass} w-full bg-white`}
                         >
                           <option value="">Select account</option>
+                          <option value="__add_new__">+ Add new account...</option>
                           {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </select>
                       </div>
+
+                      {txnAddingAccount[txn.id] === 'create' && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                          {txnAddAccountError[txn.id] && (
+                            <p className="text-xs text-red-600">{txnAddAccountError[txn.id]}</p>
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              placeholder="Code (e.g. 6100)"
+                              value={txnNewAccountCode[txn.id] || ''}
+                              onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                              className={`${inputClass} w-full`}
+                            />
+                            <select
+                              value={txnNewAccountType[txn.id] || 'overhead'}
+                              onChange={(e) => setTxnNewAccountType((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                              className={`${inputClass} w-full`}
+                            >
+                              <option value="overhead">Overhead</option>
+                              <option value="direct_costs">Direct Costs</option>
+                              <option value="sales">Sales</option>
+                              <option value="other_income">Other Income</option>
+                              <option value="current_asset">Current Asset</option>
+                              <option value="current_liability">Current Liability</option>
+                            </select>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Account name (e.g. Bank Charges)"
+                            value={txnNewAccountName[txn.id] || ''}
+                            onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                            className={`${inputClass} w-full`}
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleAddAccountInline(txn, 'create')}
+                              disabled={txnAddAccountSaving[txn.id]}
+                              className="bg-brand-dark text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                            >
+                              {txnAddAccountSaving[txn.id] ? 'Adding...' : 'Add account'}
+                            </button>
+                            <button
+                              onClick={() => setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))}
+                              className="text-xs text-gray-500 hover:underline px-2"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
                         <input
