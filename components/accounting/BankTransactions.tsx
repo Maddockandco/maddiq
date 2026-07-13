@@ -657,6 +657,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setAllAccounts((prev) => [...prev, newAccount].sort((a, b) => a.code.localeCompare(b.code)))
     if (target === 'create') {
       setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
+      setTxnVatRateId((prev) => ({ ...prev, [txn.id]: guessVatRateForAccount(newAccount.name) }))
     } else {
       setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
     }
@@ -698,6 +699,18 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
     fetchTransactions()
+  }
+
+  function guessVatRateForAccount(accountName: string): string {
+    const name = (accountName || '').toLowerCase()
+    // Accounts that are typically outside the scope of VAT or exempt
+    if (/bank charge|bank fee|interest|insurance|salary|salaries|wage|paye|ni\b|national insurance|rent\b|dividend|loan/.test(name)) {
+      const exempt = vatRates.find((r) => r.rate === 0 || /exempt/i.test(r.name))
+      return exempt?.id || ''
+    }
+    // Otherwise default to standard rate, since that's the most common case for genuine expenses
+    const standard = vatRates.find((r) => r.rate === 20 || /standard/i.test(r.name))
+    return standard?.id || ''
   }
 
   function calcVatFromGross(grossAmount: number, ratePercent: number) {
@@ -1375,6 +1388,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                           <select
                             value={txnAddingAccount[txn.id] === 'match_diff' ? '__add_new__' : (txnMatchOffsetAccount[txn.id] || '')}
                             onChange={(e) => {
+                              setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
                               if (e.target.value === '__add_new__') {
                                 setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'match_diff' }))
                               } else {
@@ -1476,11 +1490,16 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         <select
                           value={txnAddingAccount[txn.id] === 'create' ? '__add_new__' : (txnOffsetAccount[txn.id] || '')}
                           onChange={(e) => {
+                            setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
                             if (e.target.value === '__add_new__') {
                               setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'create' }))
                             } else {
                               setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
                               setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
+                              const account = allAccounts.find((a) => a.id === e.target.value)
+                              if (account && !(txn.id in txnVatRateId)) {
+                                setTxnVatRateId((prev) => ({ ...prev, [txn.id]: guessVatRateForAccount(account.name) }))
+                              }
                             }
                           }}
                           className={`${inputClass} w-full bg-white`}
@@ -1567,7 +1586,9 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">VAT</label>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                          VAT {txnVatRateId[txn.id] && <span className="text-brand-dark font-normal">(auto-suggested — change if needed)</span>}
+                        </label>
                         <select
                           value={txnVatRateId[txn.id] || ''}
                           onChange={(e) => setTxnVatRateId((prev) => ({ ...prev, [txn.id]: e.target.value }))}
