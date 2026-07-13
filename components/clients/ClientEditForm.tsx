@@ -21,6 +21,9 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
   const [city, setCity] = useState('')
   const [postcode, setPostcode] = useState('')
   const [country, setCountry] = useState('United Kingdom')
+  const [registeredAddress, setRegisteredAddress] = useState('')
+  const [tradingAddress, setTradingAddress] = useState('')
+  const [usesAccounting, setUsesAccounting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -51,6 +54,9 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
         setCity(data.city || '')
         setPostcode(data.postcode || '')
         setCountry(data.country || 'United Kingdom')
+        setRegisteredAddress(data.registered_address || '')
+        setUsesAccounting(data.uses_accounting || false)
+        setTradingAddress(data.trading_address || '')
       }
       setLoading(false)
     }
@@ -86,6 +92,9 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
         city: city || null,
         postcode: postcode || null,
         country: country || null,
+        registered_address: registeredAddress || null,
+        uses_accounting: usesAccounting,
+        trading_address: tradingAddress || null,
       })
       .eq('id', clientId)
     if (updateError) { setError(updateError.message); setSaving(false); return }
@@ -107,6 +116,15 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
         <h2 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Edit Client</h2>
 
         {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
+
+        <label className="flex items-center gap-3 cursor-pointer bg-brand-light rounded-xl p-4">
+          <input type="checkbox" checked={usesAccounting} onChange={(e) => setUsesAccounting(e.target.checked)}
+            className="w-5 h-5 accent-brand-dark" />
+          <div>
+            <span className="text-sm font-semibold text-brand-dark block">Add this client to the Accounting system</span>
+            <span className="text-xs text-gray-500">Only clients ticked here appear in the Accounting section — untick to hide a client that won't use bookkeeping features</span>
+          </div>
+        </label>
 
         <div>
           <label className="block text-sm font-medium text-brand-dark mb-1">Client type</label>
@@ -184,6 +202,22 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
             <label className="block text-sm font-medium text-brand-dark mb-1">VAT number</label>
             <input type="text" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)}
               placeholder="GB123456789" className={inputClass} />
+          </div>
+        )}
+
+        {['company', 'partnership'].includes(type) && (
+          <div className="space-y-4 pt-2 border-t border-gray-100">
+            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Addresses</p>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Registered office address</label>
+              <input type="text" value={registeredAddress} onChange={(e) => setRegisteredAddress(e.target.value)}
+                placeholder="As registered with Companies House, if applicable" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Trading address</label>
+              <input type="text" value={tradingAddress} onChange={(e) => setTradingAddress(e.target.value)}
+                placeholder="Where the business actually operates, if different" className={inputClass} />
+            </div>
           </div>
         )}
 
