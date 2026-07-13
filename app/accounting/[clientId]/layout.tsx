@@ -72,6 +72,7 @@ export default function AccountingLayout({
     { href: `${basePath}/bank-transactions`, label: 'Bank Transactions' },
     { href: `${basePath}/journal-entries`, label: 'Journal Entries' },
     { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
+    { href: `${basePath}/capture`, label: 'Capture (Receipts & Invoices)' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
