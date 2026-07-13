@@ -113,6 +113,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnNewAccountCode, setTxnNewAccountCode] = useState<Record<string, string>>({})
   const [txnNewAccountName, setTxnNewAccountName] = useState<Record<string, string>>({})
   const [txnNewAccountType, setTxnNewAccountType] = useState<Record<string, string>>({})
+  const [txnNewAccountParent, setTxnNewAccountParent] = useState<Record<string, string>>({})
   const [txnAddAccountSaving, setTxnAddAccountSaving] = useState<Record<string, boolean>>({})
   const [txnAddAccountError, setTxnAddAccountError] = useState<Record<string, string>>({})
   const [txnLearnedRule, setTxnLearnedRule] = useState<Record<string, any>>({})
@@ -209,7 +210,15 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setSelectingAccountIndex(null)
   }
 
+  const [vatRates, setVatRates] = useState<any[]>([])
+  const [txnVatRateId, setTxnVatRateId] = useState<Record<string, string>>({})
+
   useEffect(() => { fetchBankAccounts() }, [clientId])
+  useEffect(() => {
+    supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
+      if (data) setVatRates(data)
+    })
+  }, [])
   useEffect(() => { if (selectedBankAccountId) fetchTransactions() }, [selectedBankAccountId, statusFilter])
 
   useEffect(() => {
@@ -241,7 +250,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     const { data: all } = await supabase
       .from('chart_of_accounts')
-      .select('id, code, name, account_type')
+      .select('id, code, name, account_type, parent_id')
       .eq('client_id', clientId)
       .eq('is_active', true)
       .order('code')
@@ -609,6 +618,12 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
       return
     }
 
+    const duplicateCode = allAccounts.some((a) => a.code === code) || bankAccounts.some((a) => a.code === code)
+    if (duplicateCode) {
+      setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: `Code ${code} is already used by another account — pick a different one` }))
+      return
+    }
+
     setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: true }))
     setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: '' }))
 
@@ -622,7 +637,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     const { data: newAccount, error } = await supabase
       .from('chart_of_accounts')
-      .insert({ firm_id: firmUser.firm_id, client_id: clientId, code, name, account_type: type })
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        code,
+        name,
+        account_type: type,
+        parent_id: txnNewAccountParent[txn.id] || null,
+      })
       .select()
       .single()
 
@@ -641,6 +663,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
     setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: '' }))
     setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: '' }))
+    setTxnNewAccountParent((prev) => ({ ...prev, [txn.id]: '' }))
     setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
   }
 
@@ -677,6 +700,11 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     fetchTransactions()
   }
 
+  function calcVatFromGross(grossAmount: number, ratePercent: number) {
+    if (!ratePercent) return 0
+    return Math.round((Math.abs(grossAmount) * ratePercent / (100 + ratePercent)) * 100) / 100
+  }
+
   async function confirmCreate(txn: any, overrideAccountId?: string) {
     const accountId = overrideAccountId || txnOffsetAccount[txn.id]
     if (!accountId) {
@@ -686,10 +714,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
     setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
 
+    const selectedRate = vatRates.find((r) => r.id === txnVatRateId[txn.id])
+    const vatAmount = selectedRate ? calcVatFromGross(txn.amount, selectedRate.rate) : 0
+
     const { error } = await supabase.rpc('reconcile_bank_transaction_new', {
       p_transaction_id: txn.id,
       p_offset_account_id: accountId,
       p_description: txnCreateDesc[txn.id] || txn.description,
+      p_vat_amount: vatAmount,
     })
 
     if (error) {
@@ -1363,13 +1395,18 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 <p className="text-xs text-red-600">{txnAddAccountError[txn.id]}</p>
                               )}
                               <div className="grid grid-cols-2 gap-2">
-                                <input
-                                  type="text"
-                                  placeholder="Code (e.g. 6100)"
-                                  value={txnNewAccountCode[txn.id] || ''}
-                                  onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
-                                  className={`${inputClass} w-full`}
-                                />
+                                <div>
+                                  <input
+                                    type="text"
+                                    placeholder="Code (e.g. 6100)"
+                                    value={txnNewAccountCode[txn.id] || ''}
+                                    onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                    className={`${inputClass} w-full`}
+                                  />
+                                  {txnNewAccountCode[txn.id] && (allAccounts.some((a) => a.code === txnNewAccountCode[txn.id]) || bankAccounts.some((a) => a.code === txnNewAccountCode[txn.id])) && (
+                                    <p className="text-xs text-red-600 mt-1">Code already in use</p>
+                                  )}
+                                </div>
                                 <select
                                   value={txnNewAccountType[txn.id] || 'overhead'}
                                   onChange={(e) => setTxnNewAccountType((prev) => ({ ...prev, [txn.id]: e.target.value }))}
@@ -1390,6 +1427,17 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
                                 className={`${inputClass} w-full`}
                               />
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional, for sub-accounts)</label>
+                                <select
+                                  value={txnNewAccountParent[txn.id] || ''}
+                                  onChange={(e) => setTxnNewAccountParent((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                  className={`${inputClass} w-full`}
+                                >
+                                  <option value="">None — top-level account</option>
+                                  {allAccounts.filter((a) => !a.parent_id).map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                                </select>
+                              </div>
                               <div className="flex gap-2">
                                 <button
                                   onClick={() => handleAddAccountInline(txn, 'match_diff')}
@@ -1449,13 +1497,18 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                             <p className="text-xs text-red-600">{txnAddAccountError[txn.id]}</p>
                           )}
                           <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="text"
-                              placeholder="Code (e.g. 6100)"
-                              value={txnNewAccountCode[txn.id] || ''}
-                              onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
-                              className={`${inputClass} w-full`}
-                            />
+                            <div>
+                              <input
+                                type="text"
+                                placeholder="Code (e.g. 6100)"
+                                value={txnNewAccountCode[txn.id] || ''}
+                                onChange={(e) => setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                className={`${inputClass} w-full`}
+                              />
+                              {txnNewAccountCode[txn.id] && (allAccounts.some((a) => a.code === txnNewAccountCode[txn.id]) || bankAccounts.some((a) => a.code === txnNewAccountCode[txn.id])) && (
+                                <p className="text-xs text-red-600 mt-1">Code already in use</p>
+                              )}
+                            </div>
                             <select
                               value={txnNewAccountType[txn.id] || 'overhead'}
                               onChange={(e) => setTxnNewAccountType((prev) => ({ ...prev, [txn.id]: e.target.value }))}
@@ -1476,6 +1529,17 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                             onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
                             className={`${inputClass} w-full`}
                           />
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional, for sub-accounts)</label>
+                            <select
+                              value={txnNewAccountParent[txn.id] || ''}
+                              onChange={(e) => setTxnNewAccountParent((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                              className={`${inputClass} w-full`}
+                            >
+                              <option value="">None — top-level account</option>
+                              {allAccounts.filter((a) => !a.parent_id).map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                            </select>
+                          </div>
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleAddAccountInline(txn, 'create')}
@@ -1501,6 +1565,30 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                           onChange={(e) => setTxnCreateDesc((prev) => ({ ...prev, [txn.id]: e.target.value }))}
                           className={`${inputClass} w-full bg-white`}
                         />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">VAT</label>
+                        <select
+                          value={txnVatRateId[txn.id] || ''}
+                          onChange={(e) => setTxnVatRateId((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                          className={`${inputClass} w-full bg-white`}
+                        >
+                          <option value="">No VAT</option>
+                          {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                        </select>
+                        {(() => {
+                          const rate = vatRates.find((r) => r.id === txnVatRateId[txn.id])
+                          if (!rate) return null
+                          const vat = calcVatFromGross(txn.amount, rate.rate)
+                          const net = Math.abs(txn.amount) - vat
+                          return (
+                            <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                              <span>Net: <strong className="text-brand-dark">£{net.toFixed(2)}</strong></span>
+                              <span>VAT: <strong className="text-brand-dark">£{vat.toFixed(2)}</strong></span>
+                              <span>Gross: <strong className="text-brand-dark">£{Math.abs(txn.amount).toFixed(2)}</strong></span>
+                            </div>
+                          )
+                        })()}
                       </div>
                       <button
                         onClick={() => confirmCreate(txn)}
