@@ -41,7 +41,7 @@ export async function extractDocumentData(fileBytes: ArrayBuffer, fileName: stri
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 4096,
       messages: [
         {
           role: 'user',
