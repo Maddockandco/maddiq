@@ -143,12 +143,23 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
 
     const category = direction === 'purchase' ? 'expense' : 'income'
     const defaultAccount = postableAccountsFor(category)[0]
-    const lines = (d.line_items && d.line_items.length > 0 ? d.line_items : [{ description: d.vendor_or_customer_name || 'Item', quantity: 1, unit_price: d.total_amount || 0 }]).map((l: any) => ({
+    const applicableRates = relevantVatRates(category)
+
+    function bestRateMatch(vatPercent: number | null | undefined) {
+      if (vatPercent == null) return defaultAccount?.default_vat_rate_id || ''
+      // Prefer an exact percentage match among the direction-appropriate rates,
+      // falling back to the account's own default if nothing matches closely
+      const exact = applicableRates.find((r) => r.rate === vatPercent)
+      if (exact) return exact.id
+      return defaultAccount?.default_vat_rate_id || ''
+    }
+
+    const lines = (d.line_items && d.line_items.length > 0 ? d.line_items : [{ description: d.vendor_or_customer_name || 'Item', quantity: 1, unit_price: d.total_amount || 0, vat_rate_percent: null }]).map((l: any) => ({
       description: l.description || '',
       quantity: String(l.quantity || 1),
       unit_price: String(l.unit_price || 0),
       accountId: defaultAccount?.id || '',
-      vatRateId: defaultAccount?.default_vat_rate_id || '',
+      vatRateId: bestRateMatch(l.vat_rate_percent),
     }))
     setDraftLines((prev) => ({ ...prev, [extraction.id]: lines }))
   }
