@@ -207,6 +207,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   useEffect(() => { if (selectedBankAccountId) fetchTransactions() }, [selectedBankAccountId, statusFilter])
 
   useEffect(() => {
+    const autoConnect = searchParams.get('auto_connect')
+    if (autoConnect && selectedBankAccountId && !showConnectPicker) {
+      openConnectPicker()
+      router.replace(`/accounting/${clientId}/bank-transactions?account=${selectedBankAccountId}`)
+    }
+  }, [selectedBankAccountId])
+
+  useEffect(() => {
     if (activeAccountTab !== 'reconcile') return
     transactions.forEach((txn) => {
       if (txn.status === 'unreconciled') {
