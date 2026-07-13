@@ -703,9 +703,10 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
   function guessVatRateForAccount(accountName: string): string {
     const name = (accountName || '').toLowerCase()
-    // Accounts that are typically outside the scope of VAT or exempt
+    // Accounts that are typically exempt from VAT (not zero-rated - a real distinction:
+    // exempt supplies can't reclaim related input VAT, zero-rated ones can)
     if (/bank charge|bank fee|interest|insurance|salary|salaries|wage|paye|ni\b|national insurance|rent\b|dividend|loan/.test(name)) {
-      const exempt = vatRates.find((r) => r.rate === 0 || /exempt/i.test(r.name))
+      const exempt = vatRates.find((r) => /exempt/i.test(r.name)) || vatRates.find((r) => r.rate === 0)
       return exempt?.id || ''
     }
     // Otherwise default to standard rate, since that's the most common case for genuine expenses
