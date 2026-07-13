@@ -67,7 +67,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       supabase.from('purchase_bills').select('*, contacts(name)').eq('client_id', clientId).order('bill_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_supplier', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
-      supabase.from('vat_rates').select('*').eq('type', 'purchases').order('rate', { ascending: true }),
+      supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
     ])
     if (billsRes.data) setBills(billsRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
