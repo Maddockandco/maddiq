@@ -65,12 +65,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     const [invoicesRes, contactsRes, accountsRes, vatRes] = await Promise.all([
       supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
     ])
     if (invoicesRes.data) setInvoices(invoicesRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
-    if (accountsRes.data) setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type)))
+    if (accountsRes.data) {
+      const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
+      setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type) && !parentIds.has(a.id)))
+    }
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
   }
