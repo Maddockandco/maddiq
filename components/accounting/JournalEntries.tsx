@@ -60,13 +60,17 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
 
     const accountsResult = await supabase
       .from('chart_of_accounts')
-      .select('id, code, name, account_type')
+      .select('id, code, name, account_type, parent_id')
       .eq('client_id', clientId)
       .eq('is_active', true)
       .order('code', { ascending: true })
 
     if (entriesResult.data) setEntries(entriesResult.data)
-    if (accountsResult.data) setAccounts(accountsResult.data.filter((a) => a.account_type !== 'bank'))
+    if (accountsResult.data) {
+      const all = accountsResult.data
+      const parentIds = new Set(all.map((a) => a.parent_id).filter(Boolean))
+      setAccounts(all.filter((a) => a.account_type !== 'bank' && !parentIds.has(a.id)))
+    }
     setLoading(false)
   }
 
