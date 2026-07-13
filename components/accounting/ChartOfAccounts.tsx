@@ -181,6 +181,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [suggestedIndustry, setSuggestedIndustry] = useState<string | null>(null)
   const [vatRates, setVatRates] = useState<any[]>([])
   const [vatRateId, setVatRateId] = useState('')
+  const [isIntendedGroup, setIsIntendedGroup] = useState(false)
   const { can } = useRole()
   const supabase = createClient()
 
@@ -240,6 +241,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setAccountType('expense')
     setParentId('')
     setVatRateId('')
+    setIsIntendedGroup(false)
     setEditingId(null)
     setError('')
     setFormOpen(true)
@@ -251,6 +253,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setAccountType(account.account_type)
     setParentId(account.parent_id || '')
     setVatRateId(account.default_vat_rate_id || '')
+    setIsIntendedGroup(false)
     setEditingId(account.id)
     setError('')
     setFormOpen(true)
@@ -269,7 +272,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   function handleSaveClick() {
     if (!code || !name) { setError('Code and name are required'); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); return }
-    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !vatRateId) {
+    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !isIntendedGroup && !vatRateId) {
       setError('A VAT rate is required for this account, since it can be posted to directly')
       return
     }
@@ -286,7 +289,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setError('')
     if (!code || !name) { setError('Code and name are required'); setSaving(false); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); setSaving(false); return }
-    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !vatRateId) {
+    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !isIntendedGroup && !vatRateId) {
       setError('A VAT rate is required for this account, since it can be posted to directly')
       setSaving(false)
       return
@@ -553,15 +556,35 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
 
             {isVatRelevantType(accountType) && (
               isLeafAccount(editingId) ? (
-                <div className="md:col-span-3">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
-                  <select value={vatRateId} onChange={(e) => setVatRateId(e.target.value)} className={inputClass}>
-                    <option value="">Select VAT rate</option>
-                    {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Required — this rate is applied automatically whenever this account is used
-                  </p>
+                <div className="md:col-span-3 space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isIntendedGroup}
+                      onChange={(e) => { setIsIntendedGroup(e.target.checked); if (e.target.checked) setVatRateId('') }}
+                      className="w-4 h-4 accent-brand-dark"
+                    />
+                    <span className="text-sm text-brand-dark">
+                      This will be a group/heading account — I'll add sub-accounts under it and never post to it directly
+                    </span>
+                  </label>
+
+                  {isIntendedGroup ? (
+                    <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-3">
+                      No VAT rate needed — this account exists purely as a heading. Add sub-accounts underneath it (each with their own VAT rate) once it's created.
+                    </p>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
+                      <select value={vatRateId} onChange={(e) => setVatRateId(e.target.value)} className={inputClass}>
+                        <option value="">Select VAT rate</option>
+                        {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Required — this rate is applied automatically whenever this account is used
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="md:col-span-3 bg-gray-50 rounded-lg px-4 py-3">
