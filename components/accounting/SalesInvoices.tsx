@@ -66,7 +66,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
-      supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
+      supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
     ])
     if (invoicesRes.data) setInvoices(invoicesRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
