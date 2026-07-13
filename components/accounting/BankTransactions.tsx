@@ -114,6 +114,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [txnNewAccountName, setTxnNewAccountName] = useState<Record<string, string>>({})
   const [txnNewAccountType, setTxnNewAccountType] = useState<Record<string, string>>({})
   const [txnNewAccountParent, setTxnNewAccountParent] = useState<Record<string, string>>({})
+  const [txnNewAccountVatRateId, setTxnNewAccountVatRateId] = useState<Record<string, string>>({})
   const [txnAddAccountSaving, setTxnAddAccountSaving] = useState<Record<string, boolean>>({})
   const [txnAddAccountError, setTxnAddAccountError] = useState<Record<string, string>>({})
   const [txnLearnedRule, setTxnLearnedRule] = useState<Record<string, any>>({})
@@ -250,7 +251,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
 
     const { data: all } = await supabase
       .from('chart_of_accounts')
-      .select('id, code, name, account_type, parent_id')
+      .select('id, code, name, account_type, parent_id, default_vat_rate_id')
       .eq('client_id', clientId)
       .eq('is_active', true)
       .order('code')
@@ -612,9 +613,16 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     const code = txnNewAccountCode[txn.id]?.trim()
     const name = txnNewAccountName[txn.id]?.trim()
     const type = txnNewAccountType[txn.id] || 'overhead'
+    const isVatRelevant = ['direct_costs', 'expense', 'overhead', 'sales', 'other_income'].includes(type)
+    const newAccountVatRateId = txnNewAccountVatRateId[txn.id] || ''
 
     if (!code || !name) {
       setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: 'Code and name are required' }))
+      return
+    }
+
+    if (isVatRelevant && !newAccountVatRateId) {
+      setTxnAddAccountError((prev) => ({ ...prev, [txn.id]: 'A VAT rate is required for this account type' }))
       return
     }
 
@@ -644,6 +652,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         name,
         account_type: type,
         parent_id: txnNewAccountParent[txn.id] || null,
+        default_vat_rate_id: isVatRelevant ? newAccountVatRateId : null,
       })
       .select()
       .single()
@@ -657,7 +666,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setAllAccounts((prev) => [...prev, newAccount].sort((a, b) => a.code.localeCompare(b.code)))
     if (target === 'create') {
       setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
-      setTxnVatRateId((prev) => ({ ...prev, [txn.id]: guessVatRateForAccount(newAccount.name) }))
+      setTxnVatRateId((prev) => ({ ...prev, [txn.id]: newAccount.default_vat_rate_id || '' }))
     } else {
       setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: newAccount.id }))
     }
@@ -665,6 +674,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setTxnNewAccountCode((prev) => ({ ...prev, [txn.id]: '' }))
     setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: '' }))
     setTxnNewAccountParent((prev) => ({ ...prev, [txn.id]: '' }))
+    setTxnNewAccountVatRateId((prev) => ({ ...prev, [txn.id]: '' }))
     setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
   }
 
@@ -701,17 +711,15 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     fetchTransactions()
   }
 
-  function guessVatRateForAccount(accountName: string): string {
-    const name = (accountName || '').toLowerCase()
-    // Accounts that are typically exempt from VAT (not zero-rated - a real distinction:
-    // exempt supplies can't reclaim related input VAT, zero-rated ones can)
-    if (/bank charge|bank fee|interest|insurance|salary|salaries|wage|paye|ni\b|national insurance|rent\b|dividend|loan/.test(name)) {
-      const exempt = vatRates.find((r) => /exempt/i.test(r.name)) || vatRates.find((r) => r.rate === 0)
-      return exempt?.id || ''
-    }
-    // Otherwise default to standard rate, since that's the most common case for genuine expenses
-    const standard = vatRates.find((r) => r.rate === 20 || /standard/i.test(r.name))
-    return standard?.id || ''
+  function postableAccounts() {
+    // Only leaf accounts (no children) can be posted to - group/parent accounts are headings only
+    const parentIds = new Set(allAccounts.map((a) => a.parent_id).filter(Boolean))
+    return allAccounts.filter((a) => !parentIds.has(a.id))
+  }
+
+  function getAccountVatRateId(accountId: string): string {
+    const account = allAccounts.find((a) => a.id === accountId)
+    return account?.default_vat_rate_id || ''
   }
 
   function calcVatFromGross(grossAmount: number, ratePercent: number) {
@@ -1401,7 +1409,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                           >
                             <option value="">Select account</option>
                             <option value="__add_new__">+ Add new account...</option>
-                            {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                            {postableAccounts().map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                           </select>
 
                           {txnAddingAccount[txn.id] === 'match_diff' && (
@@ -1442,6 +1450,19 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
                                 className={`${inputClass} w-full`}
                               />
+                              {['direct_costs', 'expense', 'overhead', 'sales', 'other_income'].includes(txnNewAccountType[txn.id] || 'overhead') && (
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
+                                  <select
+                                    value={txnNewAccountVatRateId[txn.id] || ''}
+                                    onChange={(e) => setTxnNewAccountVatRateId((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                    className={`${inputClass} w-full`}
+                                  >
+                                    <option value="">Select VAT rate</option>
+                                    {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                                  </select>
+                                </div>
+                              )}
                               <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional, for sub-accounts)</label>
                                 <select
@@ -1499,7 +1520,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                               setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
                               const account = allAccounts.find((a) => a.id === e.target.value)
                               if (account && !(txn.id in txnVatRateId)) {
-                                setTxnVatRateId((prev) => ({ ...prev, [txn.id]: guessVatRateForAccount(account.name) }))
+                                setTxnVatRateId((prev) => ({ ...prev, [txn.id]: account.default_vat_rate_id || '' }))
                               }
                             }
                           }}
@@ -1507,7 +1528,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         >
                           <option value="">Select account</option>
                           <option value="__add_new__">+ Add new account...</option>
-                          {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                          {postableAccounts().map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                         </select>
                       </div>
 
@@ -1549,6 +1570,19 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                             onChange={(e) => setTxnNewAccountName((prev) => ({ ...prev, [txn.id]: e.target.value }))}
                             className={`${inputClass} w-full`}
                           />
+                          {['direct_costs', 'expense', 'overhead', 'sales', 'other_income'].includes(txnNewAccountType[txn.id] || 'overhead') && (
+                            <div>
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
+                              <select
+                                value={txnNewAccountVatRateId[txn.id] || ''}
+                                onChange={(e) => setTxnNewAccountVatRateId((prev) => ({ ...prev, [txn.id]: e.target.value }))}
+                                className={`${inputClass} w-full`}
+                              >
+                                <option value="">Select VAT rate</option>
+                                {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                              </select>
+                            </div>
+                          )}
                           <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional, for sub-accounts)</label>
                             <select
