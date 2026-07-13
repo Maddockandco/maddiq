@@ -274,6 +274,7 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
             total,
             notes: `Created from receipt capture: ${extraction.file_name}`,
             created_by: user!.id,
+            source_extraction_id: extraction.id,
           })
           .select()
           .single()
@@ -313,6 +314,7 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
             total,
             notes: `Created from receipt capture: ${extraction.file_name}`,
             created_by: user!.id,
+            source_extraction_id: extraction.id,
           })
           .select()
           .single()
@@ -396,7 +398,7 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
     const d = extraction.extracted_data
     const summary = `Receipt: ${d?.vendor_or_customer_name || ''} — £${d?.total_amount || ''} on ${d?.document_date || ''}`
 
-    await supabase.from('bank_transactions').update({ notes: summary }).eq('id', transactionId)
+    await supabase.from('bank_transactions').update({ notes: summary, source_extraction_id: extraction.id }).eq('id', transactionId)
     await supabase.from('document_extractions').update({ status: 'linked', linked_type: 'bank_transaction', linked_id: transactionId }).eq('id', extraction.id)
 
     setSaving((prev) => ({ ...prev, [extraction.id]: false }))
