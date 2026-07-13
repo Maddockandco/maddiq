@@ -35,25 +35,40 @@ export async function GET(req: NextRequest) {
 
   try {
     const session = await createSession(code)
-    const account = session.accounts?.[0]
+    const accounts = session.accounts || []
 
-    await supabase.from('bank_connections').insert({
-      firm_id: authRequest.firm_id,
-      client_id: authRequest.client_id,
-      bank_account_id: authRequest.bank_account_id,
-      aspsp_name: authRequest.aspsp_name,
-      aspsp_country: authRequest.aspsp_country,
-      aspsp_logo_url: authRequest.aspsp_logo_url,
-      session_id: session.session_id,
-      enable_banking_account_id: account?.uid || account?.account_id?.iban || null,
-      iban: account?.account_id?.iban || null,
-      status: 'active',
-      valid_until: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-    })
+    if (accounts.length === 0) {
+      return NextResponse.redirect(`${appUrl}${returnPath}?bank_connect_error=no_accounts_found`)
+    }
 
-    await supabase.from('bank_auth_requests').delete().eq('id', state)
+    if (accounts.length === 1) {
+      const account = accounts[0]
+      await supabase.from('bank_connections').insert({
+        firm_id: authRequest.firm_id,
+        client_id: authRequest.client_id,
+        bank_account_id: authRequest.bank_account_id,
+        aspsp_name: authRequest.aspsp_name,
+        aspsp_country: authRequest.aspsp_country,
+        aspsp_logo_url: authRequest.aspsp_logo_url,
+        session_id: session.session_id,
+        enable_banking_account_id: account?.uid || account?.account_id?.iban || null,
+        iban: account?.account_id?.iban || null,
+        status: 'active',
+        valid_until: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      })
 
-    return NextResponse.redirect(`${appUrl}${returnPath}?bank_connected=1`)
+      await supabase.from('bank_auth_requests').delete().eq('id', state)
+
+      return NextResponse.redirect(`${appUrl}${returnPath}?bank_connected=1`)
+    }
+
+    // Multiple accounts on this bank login — store them and let the person choose
+    await supabase
+      .from('bank_auth_requests')
+      .update({ session_id: session.session_id, accounts_json: accounts })
+      .eq('id', state)
+
+    return NextResponse.redirect(`${appUrl}${returnPath}?bank_select_account=${state}`)
   } catch (err: any) {
     return NextResponse.redirect(`${appUrl}${returnPath}?bank_connect_error=${encodeURIComponent(err.message)}`)
   }
