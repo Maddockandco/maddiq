@@ -137,6 +137,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
   const [expandedDetailId, setExpandedDetailId] = useState<string | null>(null)
   const [detailInfo, setDetailInfo] = useState<Record<string, any>>({})
   const [detailLoading, setDetailLoading] = useState(false)
+  const [sourceDocUrls, setSourceDocUrls] = useState<Record<string, string>>({})
   const [txnBusy, setTxnBusy] = useState<Record<string, boolean>>({})
   const [txnError, setTxnError] = useState<Record<string, string>>({})
   const [txnUnreconcileError, setTxnUnreconcileError] = useState<Record<string, string>>({})
@@ -824,6 +825,13 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     if (!(txn.id in txnComment)) {
       setTxnComment((prev) => ({ ...prev, [txn.id]: txn.notes || '' }))
     }
+    if (txn.source_extraction_id && !sourceDocUrls[txn.id]) {
+      const { data: extraction } = await supabase.from('document_extractions').select('file_path').eq('id', txn.source_extraction_id).single()
+      if (extraction) {
+        const { data: signed } = await supabase.storage.from('documents').createSignedUrl(extraction.file_path, 3600)
+        if (signed) setSourceDocUrls((prev) => ({ ...prev, [txn.id]: signed.signedUrl }))
+      }
+    }
     if (detailInfo[txn.id] || !txn.matched_type || !txn.matched_id) return
 
     setDetailLoading(true)
@@ -1238,6 +1246,17 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         </p>
                       </div>
                     </div>
+
+                    {sourceDocUrls[txn.id] && (
+                      <a
+                        href={sourceDocUrls[txn.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 bg-brand-gold/20 text-brand-dark text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-gold/30 transition"
+                      >
+                        📎 View attached receipt/invoice
+                      </a>
+                    )}
 
                     {txn.matched_type && txn.matched_id && (
                       <div className="bg-white rounded-xl p-4 border border-gray-200">
