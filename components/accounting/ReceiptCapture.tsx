@@ -18,6 +18,7 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [reviewingId, setReviewingId] = useState<string | null>(null)
 
   const [allAccounts, setAllAccounts] = useState<any[]>([])
@@ -332,7 +333,19 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-3">Capture a Receipt or Invoice</h3>
-        <label className="block border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-brand-gold transition">
+        <label
+          onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true) }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setIsDraggingOver(false)
+            const f = e.dataTransfer.files?.[0]
+            if (f) handleFileUpload(f)
+          }}
+          className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition ${
+            isDraggingOver ? 'border-brand-gold bg-brand-gold/10' : 'border-gray-200 hover:border-brand-gold'
+          }`}
+        >
           <input
             type="file"
             accept="image/*,application/pdf"
@@ -340,7 +353,9 @@ export default function ReceiptCapture({ clientId }: { clientId: string }) {
             disabled={uploading}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f) }}
           />
-          <p className="text-sm text-gray-500">{uploading ? 'Uploading and extracting...' : 'Click to upload a photo, scan, or PDF of a receipt or invoice'}</p>
+          <p className="text-sm text-gray-500">
+            {uploading ? 'Uploading and extracting...' : isDraggingOver ? 'Drop it here' : 'Drag & drop a photo, scan, or PDF here — or click to browse'}
+          </p>
         </label>
         {uploadError && <p className="text-xs text-red-600 mt-2">{uploadError}</p>}
       </div>
