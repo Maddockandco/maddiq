@@ -722,6 +722,22 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     return account?.default_vat_rate_id || ''
   }
 
+  function getRelevantVatRates(accountType: string) {
+    const expenseTypes = ['direct_costs', 'expense', 'overhead']
+    const incomeTypes = ['sales', 'revenue', 'other_income']
+    const universal = ['no_vat']
+    const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
+    const incomeOnly = ['zero_ec_goods_income', 'zero_ec_services_income', 'oss_digital_services', 'toms_margin', 'flat_rate']
+
+    if (expenseTypes.includes(accountType)) {
+      return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
+    }
+    if (incomeTypes.includes(accountType)) {
+      return vatRates.filter((r) => r.code.endsWith('_income') || universal.includes(r.code) || incomeOnly.includes(r.code))
+    }
+    return vatRates
+  }
+
   function calcVatFromGross(grossAmount: number, ratePercent: number) {
     if (!ratePercent) return 0
     return Math.round((Math.abs(grossAmount) * ratePercent / (100 + ratePercent)) * 100) / 100
@@ -1459,7 +1475,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                     className={`${inputClass} w-full`}
                                   >
                                     <option value="">Select VAT rate</option>
-                                    {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                                    {getRelevantVatRates(txnNewAccountType[txn.id] || 'overhead').map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                                   </select>
                                 </div>
                               )}
@@ -1579,7 +1595,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 className={`${inputClass} w-full`}
                               >
                                 <option value="">Select VAT rate</option>
-                                {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                                {getRelevantVatRates(txnNewAccountType[txn.id] || 'overhead').map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                               </select>
                             </div>
                           )}
@@ -1630,7 +1646,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                           className={`${inputClass} w-full bg-white`}
                         >
                           <option value="">No VAT</option>
-                          {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                          {getRelevantVatRates(allAccounts.find((a) => a.id === txnOffsetAccount[txn.id])?.account_type || '').map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                         </select>
                         {(() => {
                           const rate = vatRates.find((r) => r.id === txnVatRateId[txn.id])
