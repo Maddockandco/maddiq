@@ -182,6 +182,8 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [vatRates, setVatRates] = useState<any[]>([])
   const [vatRateId, setVatRateId] = useState('')
   const [isIntendedGroup, setIsIntendedGroup] = useState(false)
+  const [quickFixVatRate, setQuickFixVatRate] = useState<Record<string, string>>({})
+  const [quickFixSaving, setQuickFixSaving] = useState<Record<string, boolean>>({})
   const { can } = useRole()
   const supabase = createClient()
 
@@ -282,6 +284,30 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   function isLeafAccount(id: string | null) {
     if (!id) return true // brand new account — can't have children yet
     return !accounts.some((a) => a.parent_id === id)
+  }
+
+  async function handleQuickFixVat(account: any) {
+    const rateId = quickFixVatRate[account.id]
+    if (!rateId) return
+    setQuickFixSaving((prev) => ({ ...prev, [account.id]: true }))
+
+    const { error: updateError } = await supabase
+      .from('chart_of_accounts')
+      .update({ default_vat_rate_id: rateId })
+      .eq('id', account.id)
+
+    if (!updateError) {
+      await logAudit({
+        entityType: 'chart_of_accounts',
+        entityId: account.id,
+        action: 'updated',
+        oldData: { default_vat_rate_id: null },
+        newData: { default_vat_rate_id: rateId },
+        description: `Backfilled missing VAT rate for "${account.code} — ${account.name}"`,
+      })
+      fetchAccounts()
+    }
+    setQuickFixSaving((prev) => ({ ...prev, [account.id]: false }))
   }
 
   function handleSaveClick() {
@@ -460,8 +486,45 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     </div>
   )
 
+  const accountsMissingVat = accounts.filter(
+    (a) => isVatRelevantType(a.account_type) && isLeafAccount(a.id) && !a.default_vat_rate_id
+  )
+
   return (
     <div className="space-y-6">
+      {accountsMissingVat.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <p className="text-sm font-semibold text-amber-700 mb-1">
+            {accountsMissingVat.length} account{accountsMissingVat.length === 1 ? '' : 's'} need{accountsMissingVat.length === 1 ? 's' : ''} a VAT rate
+          </p>
+          <p className="text-xs text-amber-600 mb-4">
+            These were likely created before VAT rates became required. Set one for each below — transactions posted to these accounts won't auto-fill VAT until you do.
+          </p>
+          <div className="space-y-2">
+            {accountsMissingVat.map((a) => (
+              <div key={a.id} className="flex items-center gap-3 bg-white rounded-lg px-4 py-2.5">
+                <span className="text-sm text-brand-dark flex-1">{a.code} — {a.name}</span>
+                <select
+                  value={quickFixVatRate[a.id] || ''}
+                  onChange={(e) => setQuickFixVatRate((prev) => ({ ...prev, [a.id]: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                >
+                  <option value="">Select VAT rate</option>
+                  {getRelevantVatRates(a.account_type).map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                </select>
+                <button
+                  onClick={() => handleQuickFixVat(a)}
+                  disabled={!quickFixVatRate[a.id] || quickFixSaving[a.id]}
+                  className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                >
+                  {quickFixSaving[a.id] ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {can.manageEngagements && (
         <div className="flex justify-end gap-3">
           {accounts.length === 0 && !showIndustryPicker && (
