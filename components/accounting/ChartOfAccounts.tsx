@@ -179,10 +179,17 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [showIndustryPicker, setShowIndustryPicker] = useState(false)
   const [selectedIndustry, setSelectedIndustry] = useState('general')
   const [suggestedIndustry, setSuggestedIndustry] = useState<string | null>(null)
+  const [vatRates, setVatRates] = useState<any[]>([])
+  const [vatRateId, setVatRateId] = useState('')
   const { can } = useRole()
   const supabase = createClient()
 
   useEffect(() => { fetchAccounts() }, [clientId])
+  useEffect(() => {
+    supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
+      if (data) setVatRates(data)
+    })
+  }, [])
 
   async function fetchAccounts() {
     const { data } = await supabase
@@ -232,6 +239,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setName('')
     setAccountType('expense')
     setParentId('')
+    setVatRateId('')
     setEditingId(null)
     setError('')
     setFormOpen(true)
@@ -242,14 +250,29 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setName(account.name)
     setAccountType(account.account_type)
     setParentId(account.parent_id || '')
+    setVatRateId(account.default_vat_rate_id || '')
     setEditingId(account.id)
     setError('')
     setFormOpen(true)
   }
 
+  function isVatRelevantType(type: string) {
+    const category = TYPE_TO_CATEGORY[type]
+    return category === 'expense' || category === 'income'
+  }
+
+  function isLeafAccount(id: string | null) {
+    if (!id) return true // brand new account — can't have children yet
+    return !accounts.some((a) => a.parent_id === id)
+  }
+
   function handleSaveClick() {
     if (!code || !name) { setError('Code and name are required'); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); return }
+    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !vatRateId) {
+      setError('A VAT rate is required for this account, since it can be posted to directly')
+      return
+    }
     if (editingId) {
       setShowConfirm(true)
     } else {
@@ -263,6 +286,11 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setError('')
     if (!code || !name) { setError('Code and name are required'); setSaving(false); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); setSaving(false); return }
+    if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !vatRateId) {
+      setError('A VAT rate is required for this account, since it can be posted to directly')
+      setSaving(false)
+      return
+    }
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -281,6 +309,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
           name,
           account_type: accountType,
           parent_id: parentId || null,
+          default_vat_rate_id: isVatRelevantType(accountType) ? (vatRateId || null) : null,
         })
         .eq('id', editingId)
         .select()
@@ -311,6 +340,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
           name,
           account_type: accountType,
           parent_id: parentId || null,
+          default_vat_rate_id: isVatRelevantType(accountType) ? (vatRateId || null) : null,
         })
         .select()
         .single()
@@ -520,6 +550,27 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                 e.g. set parent to "Motor Expenses" to create a sub-account like "Fuel" or "Insurance"
               </p>
             </div>
+
+            {isVatRelevantType(accountType) && (
+              isLeafAccount(editingId) ? (
+                <div className="md:col-span-3">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Default VAT rate *</label>
+                  <select value={vatRateId} onChange={(e) => setVatRateId(e.target.value)} className={inputClass}>
+                    <option value="">Select VAT rate</option>
+                    {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Required — this rate is applied automatically whenever this account is used
+                  </p>
+                </div>
+              ) : (
+                <div className="md:col-span-3 bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500">
+                    This account has sub-accounts, so it's a group/heading account — it can't be posted to directly, and doesn't need a VAT rate of its own. Post transactions to one of its sub-accounts instead.
+                  </p>
+                </div>
+              )
+            )}
           </div>
           {editingId && (
             <div className="bg-amber-50 text-amber-700 text-xs rounded-lg px-4 py-3">
@@ -575,7 +626,22 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                   <Fragment key={parent.id}>
                     <tr className="border-b border-gray-100 bg-white">
                       <td className="px-6 py-3 text-sm font-mono text-gray-600">{parent.code}</td>
-                      <td className="px-6 py-3 text-sm font-semibold text-brand-dark">{parent.name}</td>
+                      <td className="px-6 py-3 text-sm font-semibold text-brand-dark">
+                        {parent.name}
+                        {isVatRelevantType(parent.account_type) && (
+                          isLeafAccount(parent.id) ? (
+                            parent.default_vat_rate_id ? (
+                              <span className="block text-xs font-normal text-gray-400">
+                                VAT: {vatRates.find((r) => r.id === parent.default_vat_rate_id)?.name || '—'}
+                              </span>
+                            ) : (
+                              <span className="block text-xs font-normal text-red-500">No VAT rate set</span>
+                            )
+                          ) : (
+                            <span className="block text-xs font-normal text-gray-400">Group account</span>
+                          )
+                        )}
+                      </td>
                       <td className="px-6 py-3">
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_STYLES[TYPE_TO_CATEGORY[parent.account_type] || parent.account_type] || TYPE_STYLES.expense}`}>
                           {TYPE_LABELS[parent.account_type] || parent.account_type.replace(/_/g, ' ')}
@@ -608,7 +674,22 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                     {children.map((child) => (
                       <tr key={child.id} className={`border-b border-gray-100 bg-gray-50 ${!child.is_active ? 'opacity-50' : ''}`}>
                         <td className="px-6 py-3 text-sm font-mono text-gray-500 pl-10">{child.code}</td>
-                        <td className="px-6 py-3 text-sm text-gray-600 pl-10">↳ {child.name}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600 pl-10">
+                          ↳ {child.name}
+                          {isVatRelevantType(child.account_type) && (
+                            isLeafAccount(child.id) ? (
+                              child.default_vat_rate_id ? (
+                                <span className="block text-xs font-normal text-gray-400">
+                                  VAT: {vatRates.find((r) => r.id === child.default_vat_rate_id)?.name || '—'}
+                                </span>
+                              ) : (
+                                <span className="block text-xs font-normal text-red-500">No VAT rate set</span>
+                              )
+                            ) : (
+                              <span className="block text-xs font-normal text-gray-400">Group account</span>
+                            )
+                          )}
+                        </td>
                         <td className="px-6 py-3">
                           <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_STYLES[TYPE_TO_CATEGORY[child.account_type] || child.account_type] || TYPE_STYLES.expense}`}>
                             {TYPE_LABELS[child.account_type] || child.account_type.replace(/_/g, ' ')}
