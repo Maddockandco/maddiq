@@ -76,7 +76,7 @@ const TYPE_STYLES: Record<string, string> = {
   expense: 'bg-amber-100 text-amber-700',
 }
 
-type TemplateAccount = { code: string; name: string; account_type: string }
+type TemplateAccount = { code: string; name: string; account_type: string; vatCode?: string | null; parentCode?: string }
 
 const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; vatSchemes: string[]; accounts: TemplateAccount[] }> = {
   general: {
@@ -90,12 +90,15 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
-      { code: '4000', name: 'Sales / Fees', account_type: 'sales' },
-      { code: '5000', name: 'Cost of Sales', account_type: 'direct_costs' },
-      { code: '6000', name: 'General Expenses', account_type: 'overhead' },
-      { code: '6100', name: 'Professional Fees', account_type: 'overhead' },
-      { code: '6200', name: 'Software & Subscriptions', account_type: 'overhead' },
-      { code: '6300', name: 'Travel & Subsistence', account_type: 'overhead' },
+      { code: '4000', name: 'Sales / Fees', account_type: 'sales', vatCode: 'standard_income' },
+      { code: '5000', name: 'Cost of Sales', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '6000', name: 'General Expenses', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6100', name: 'Professional Fees', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6200', name: 'Software & Subscriptions', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6300', name: 'Travel', account_type: 'overhead' },
+      { code: '6301', name: 'Travel — Public Transport & Flights', account_type: 'overhead', vatCode: 'zero_expense', parentCode: '6300' },
+      { code: '6302', name: 'Travel — Taxis & Car Hire', account_type: 'overhead', vatCode: 'standard_expense', parentCode: '6300' },
+      { code: '6400', name: 'Subsistence', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
   hospitality: {
@@ -111,15 +114,19 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '4000', name: 'Food Sales', account_type: 'sales' },
-      { code: '4010', name: 'Beverage Sales', account_type: 'sales' },
-      { code: '4020', name: 'Room / Accommodation Sales', account_type: 'sales' },
-      { code: '4030', name: 'Service Charge Income', account_type: 'sales' },
-      { code: '5000', name: 'Cost of Sales — Food', account_type: 'direct_costs' },
-      { code: '5010', name: 'Cost of Sales — Beverage', account_type: 'direct_costs' },
-      { code: '6000', name: 'Wages & Salaries', account_type: 'overhead' },
+      { code: '4001', name: 'Food Sales — Eat-in / Hot Takeaway', account_type: 'sales', vatCode: 'standard_income', parentCode: '4000' },
+      { code: '4002', name: 'Food Sales — Cold Takeaway', account_type: 'sales', vatCode: 'zero_income', parentCode: '4000' },
+      { code: '4010', name: 'Beverage Sales', account_type: 'sales', vatCode: 'standard_income' },
+      { code: '4020', name: 'Room / Accommodation Sales', account_type: 'sales', vatCode: 'standard_income' },
+      { code: '4030', name: 'Service Charge Income', account_type: 'sales', vatCode: 'standard_income' },
+      { code: '5000', name: 'Cost of Sales — Food', account_type: 'direct_costs', vatCode: 'zero_expense' },
+      { code: '5010', name: 'Cost of Sales — Beverage', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '6000', name: 'Wages & Salaries', account_type: 'overhead', vatCode: 'no_vat' },
       { code: '6100', name: 'Rent & Rates', account_type: 'overhead' },
-      { code: '6200', name: 'Utilities', account_type: 'overhead' },
-      { code: '6300', name: 'Repairs & Maintenance', account_type: 'overhead' },
+      { code: '6101', name: 'Rent', account_type: 'overhead', vatCode: 'exempt_expense', parentCode: '6100' },
+      { code: '6102', name: 'Business Rates', account_type: 'overhead', vatCode: 'no_vat', parentCode: '6100' },
+      { code: '6200', name: 'Utilities', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6300', name: 'Repairs & Maintenance', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
   construction: {
@@ -135,12 +142,16 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '4000', name: 'Contract Income', account_type: 'sales' },
-      { code: '5000', name: 'Materials', account_type: 'direct_costs' },
-      { code: '5100', name: 'Subcontractor Costs', account_type: 'direct_costs' },
-      { code: '5200', name: 'Plant & Equipment Hire', account_type: 'direct_costs' },
-      { code: '6000', name: 'Wages & Salaries', account_type: 'overhead' },
-      { code: '6100', name: 'Insurance', account_type: 'overhead' },
+      { code: '4001', name: 'Contract Income — Standard', account_type: 'sales', vatCode: 'standard_income', parentCode: '4000' },
+      { code: '4002', name: 'Contract Income — Reverse Charge (CIS)', account_type: 'sales', vatCode: 'reverse_charge_construction', parentCode: '4000' },
+      { code: '5000', name: 'Materials', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '5100', name: 'Subcontractor Costs', account_type: 'direct_costs', vatCode: 'reverse_charge_construction' },
+      { code: '5200', name: 'Plant & Equipment Hire', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '6000', name: 'Wages & Salaries', account_type: 'overhead', vatCode: 'no_vat' },
+      { code: '6100', name: 'Insurance', account_type: 'overhead', vatCode: 'exempt_expense' },
       { code: '6200', name: 'Vehicle Costs', account_type: 'overhead' },
+      { code: '6201', name: 'Vehicle Costs — Fuel & Repairs', account_type: 'overhead', vatCode: 'standard_expense', parentCode: '6200' },
+      { code: '6202', name: 'Vehicle Costs — Insurance', account_type: 'overhead', vatCode: 'exempt_expense', parentCode: '6200' },
     ],
   },
   property: {
@@ -153,13 +164,13 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1400', name: 'Tenant Deposits Held', account_type: 'current_liability' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
-      { code: '4000', name: 'Rental Income', account_type: 'sales' },
-      { code: '4100', name: 'Service Charge Income', account_type: 'sales' },
-      { code: '5000', name: 'Letting Agent Fees', account_type: 'direct_costs' },
-      { code: '5100', name: 'Repairs & Maintenance', account_type: 'direct_costs' },
-      { code: '6000', name: 'Mortgage Interest', account_type: 'overhead' },
-      { code: '6100', name: 'Insurance', account_type: 'overhead' },
-      { code: '6200', name: 'Ground Rent & Service Charges', account_type: 'overhead' },
+      { code: '4000', name: 'Rental Income', account_type: 'sales', vatCode: 'exempt_income' },
+      { code: '4100', name: 'Service Charge Income', account_type: 'sales', vatCode: 'exempt_income' },
+      { code: '5000', name: 'Letting Agent Fees', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '5100', name: 'Repairs & Maintenance', account_type: 'direct_costs', vatCode: 'standard_expense' },
+      { code: '6000', name: 'Mortgage Interest', account_type: 'overhead', vatCode: 'no_vat' },
+      { code: '6100', name: 'Insurance', account_type: 'overhead', vatCode: 'exempt_expense' },
+      { code: '6200', name: 'Ground Rent & Service Charges', account_type: 'overhead', vatCode: 'exempt_expense' },
     ],
   },
 }
@@ -426,6 +437,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       code: a.code,
       name: a.name,
       account_type: a.account_type,
+      default_vat_rate_id: a.vatCode ? (vatRates.find((r) => r.code === a.vatCode)?.id || null) : null,
     }))
 
     const { data: inserted, error: insertError } = await supabase
@@ -437,6 +449,19 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       setError(insertError.message)
       setSaving(false)
       return
+    }
+
+    // Second pass — wire up parent/child relationships now that the accounts have real IDs
+    const codeToId: Record<string, string> = {}
+    inserted.forEach((row: any) => { codeToId[row.code] = row.id })
+
+    const parentUpdates = template.accounts
+      .filter((a) => a.parentCode)
+      .map((a) => ({ id: codeToId[a.code], parent_id: codeToId[a.parentCode!] }))
+      .filter((u) => u.id && u.parent_id)
+
+    for (const update of parentUpdates) {
+      await supabase.from('chart_of_accounts').update({ parent_id: update.parent_id }).eq('id', update.id)
     }
 
     // Best-effort default VAT scheme flag — the actual VAT Schemes selector UI
