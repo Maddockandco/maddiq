@@ -20,6 +20,7 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
   const [payments, setPayments] = useState<any[]>([])
   const [replacedBy, setReplacedBy] = useState<any>(null)
   const [bankAccounts, setBankAccounts] = useState<any[]>([])
+  const [sourceDocUrl, setSourceDocUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [posting, setPosting] = useState(false)
   const [postError, setPostError] = useState('')
@@ -78,6 +79,13 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
       .order('code')
 
     setBill(b)
+    if (b?.source_extraction_id) {
+      const { data: extraction } = await supabase.from('document_extractions').select('file_path').eq('id', b.source_extraction_id).single()
+      if (extraction) {
+        const { data: signed } = await supabase.storage.from('documents').createSignedUrl(extraction.file_path, 3600)
+        if (signed) setSourceDocUrl(signed.signedUrl)
+      }
+    }
     setLines(billLines || [])
     setPayments(allocations || [])
     setReplacedBy(replacement)
@@ -180,6 +188,17 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
       >
         ← Back to bills
       </button>
+
+      {sourceDocUrl && (
+        <a
+          href={sourceDocUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 bg-brand-gold/20 text-brand-dark text-sm font-medium px-4 py-2 rounded-lg hover:bg-brand-gold/30 transition"
+        >
+          📎 View original captured document
+        </a>
+      )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <div className="flex items-start justify-between mb-6">
