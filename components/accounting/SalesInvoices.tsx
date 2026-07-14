@@ -50,6 +50,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [contactId, setContactId] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState('')
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
@@ -120,6 +121,16 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setLines([{ ...EMPTY_LINE }])
     setError('')
     setReplacesInvoiceId(null)
+    setInvoiceNumberInput('')
+    suggestNextInvoiceNumber()
+  }
+
+  async function suggestNextInvoiceNumber() {
+    const { count } = await supabase
+      .from('sales_invoices')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', clientId)
+    setInvoiceNumberInput(`INV-${String((count || 0) + 1).padStart(4, '0')}`)
   }
 
   function handleContactChange(id: string) {
@@ -159,11 +170,8 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
     const { subtotal, vatTotal, total } = calculateTotals()
 
-    const { count } = await supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .eq('client_id', clientId)
-    const invoiceNumber = `INV-${String((count || 0) + 1).padStart(4, '0')}`
+    const invoiceNumber = invoiceNumberInput.trim()
+    if (!invoiceNumber) { setError('Invoice number is required'); setSaving(false); return }
 
     const { data: invoice, error: invoiceError } = await supabase
       .from('sales_invoices')
@@ -299,7 +307,11 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
           </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Invoice number</label>
+              <input type="text" value={invoiceNumberInput} onChange={(e) => setInvoiceNumberInput(e.target.value)} className={inputClass} />
+            </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
               <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
@@ -466,7 +478,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                           disabled={postingId === inv.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === inv.id ? 'Finalising...' : 'Finalise'}
+                          {postingId === inv.id ? 'Posting...' : 'Post to ledger'}
                         </button>
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
