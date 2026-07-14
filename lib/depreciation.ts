@@ -5,6 +5,7 @@
 export type DepreciableAsset = {
   id: string
   description: string
+  category: string // the Fixed Asset Register category (main_pool, car_main_rate, structures_buildings, goodwill, etc.)
   cost: number
   date_acquired: string
   date_disposed: string | null
@@ -13,6 +14,19 @@ export type DepreciableAsset = {
   useful_life_years: number | null
   depreciation_rate_percent: number | null
   accumulated_depreciation: number
+}
+
+export const REPORTING_CATEGORIES = ['Plant & Machinery', 'Motor Vehicles', 'Land & Buildings', 'Goodwill'] as const
+export type ReportingCategory = typeof REPORTING_CATEGORIES[number]
+
+// Maps the Fixed Asset Register's capital-allowances category to the accounting/reporting
+// category used for the Balance Sheet and P&L - these are genuinely different classifications
+// (tax pooling rules vs how a set of statutory accounts presents fixed assets)
+export function getReportingCategory(assetCategory: string): ReportingCategory {
+  if (assetCategory === 'structures_buildings') return 'Land & Buildings'
+  if (['car_zero_emission', 'car_main_rate', 'car_special_rate'].includes(assetCategory)) return 'Motor Vehicles'
+  if (assetCategory === 'goodwill') return 'Goodwill'
+  return 'Plant & Machinery' // main_pool, special_rate_pool, and any fallback
 }
 
 function daysBetween(a: Date, b: Date) {
@@ -31,6 +45,7 @@ export function calculateDepreciation(params: {
   const lines: {
     assetId: string
     description: string
+    category: ReportingCategory
     cost: number
     openingNbv: number
     charge: number
@@ -75,6 +90,7 @@ export function calculateDepreciation(params: {
     lines.push({
       assetId: asset.id,
       description: asset.description,
+      category: getReportingCategory(asset.category),
       cost: asset.cost,
       openingNbv: Math.round(openingNbv * 100) / 100,
       charge: Math.round(charge * 100) / 100,
@@ -84,7 +100,56 @@ export function calculateDepreciation(params: {
 
   const totalDepreciation = Math.round(lines.reduce((sum, l) => sum + l.charge, 0) * 100) / 100
 
-  return { lines, totalDepreciation }
+  // Build the full per-category movement schedule - Cost side is always derivable live
+  // from the register itself (no snapshot needed); Depreciation side uses the charge
+  // just computed above, plus whatever's already accumulated on each asset
+  const categoryBreakdown = REPORTING_CATEGORIES.map((category) => {
+    const categoryAssets = params.assets.filter((a) => getReportingCategory(a.category) === category)
+
+    const costBf = categoryAssets
+      .filter((a) => new Date(a.date_acquired) < periodStart)
+      .reduce((sum, a) => sum + a.cost, 0)
+
+    const costAdditions = categoryAssets
+      .filter((a) => {
+        const acquired = new Date(a.date_acquired)
+        return acquired >= periodStart && acquired <= periodEnd
+      })
+      .reduce((sum, a) => sum + a.cost, 0)
+
+    const disposedInPeriod = categoryAssets.filter((a) => {
+      if (!a.date_disposed) return false
+      const disposed = new Date(a.date_disposed)
+      return disposed >= periodStart && disposed <= periodEnd
+    })
+    const costDisposals = disposedInPeriod.reduce((sum, a) => sum + a.cost, 0)
+    const accumDepDisposals = disposedInPeriod.reduce((sum, a) => sum + a.accumulated_depreciation, 0)
+
+    const costCf = costBf + costAdditions - costDisposals
+
+    const accumDepBf = categoryAssets
+      .filter((a) => new Date(a.date_acquired) < periodStart)
+      .reduce((sum, a) => sum + a.accumulated_depreciation, 0)
+
+    const charge = lines.filter((l) => l.category === category).reduce((sum, l) => sum + l.charge, 0)
+    const accumDepCf = accumDepBf + charge - accumDepDisposals
+
+    return {
+      category,
+      costBf: Math.round(costBf * 100) / 100,
+      costAdditions: Math.round(costAdditions * 100) / 100,
+      costDisposals: Math.round(costDisposals * 100) / 100,
+      costCf: Math.round(costCf * 100) / 100,
+      accumDepBf: Math.round(accumDepBf * 100) / 100,
+      charge: Math.round(charge * 100) / 100,
+      accumDepDisposals: Math.round(accumDepDisposals * 100) / 100,
+      accumDepCf: Math.round(accumDepCf * 100) / 100,
+      nbvCf: Math.round((costCf - accumDepCf) * 100) / 100,
+      nbvBf: Math.round((costBf - accumDepBf) * 100) / 100,
+    }
+  }).filter((c) => c.costBf !== 0 || c.costAdditions !== 0 || c.costCf !== 0)
+
+  return { lines, totalDepreciation, categoryBreakdown }
 }
 
 // Computes the gain/loss on disposal - the difference between proceeds and the asset's
