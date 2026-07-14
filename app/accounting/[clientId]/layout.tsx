@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -14,7 +15,6 @@ export default function AccountingLayout({
 }) {
   const { clientId } = params
   const pathname = usePathname()
-  const router = useRouter()
   const supabase = createClient()
 
   const [clientName, setClientName] = useState('')
@@ -106,15 +106,16 @@ export default function AccountingLayout({
         {isOpen && (
           <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[200px] z-10">
             {subPages.map((p) => (
-              <button
+              <Link
                 key={p.href}
-                onClick={() => { router.push(p.href); setIsOpen(false) }}
-                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
+                href={p.href}
+                onClick={() => setIsOpen(false)}
+                className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition ${
                   pathname === p.href ? 'text-brand-gold font-semibold' : 'text-brand-dark'
                 }`}
               >
                 {p.label}
-              </button>
+              </Link>
             ))}
           </div>
         )}
@@ -129,13 +130,13 @@ export default function AccountingLayout({
         <h1 className="text-white text-xl font-semibold mb-4">{clientName || 'Loading client...'}</h1>
 
         <nav className="flex items-center gap-2">
-          <button onClick={() => router.push(basePath)} className={tabClass(pathname === basePath)}>
+          <Link href={basePath} className={tabClass(pathname === basePath)}>
             Dashboard
-          </button>
+          </Link>
 
-          <button onClick={() => router.push(`${basePath}/contacts`)} className={tabClass(pathname === `${basePath}/contacts`)}>
+          <Link href={`${basePath}/contacts`} className={tabClass(pathname === `${basePath}/contacts`)}>
             Contacts
-          </button>
+          </Link>
 
           {renderDropdown('Sales', salesDropdownOpen, setSalesDropdownOpen, salesDropdownRef, isOnSalesSubPage, salesSubPages)}
 
@@ -143,13 +144,13 @@ export default function AccountingLayout({
 
           {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
 
-          <button onClick={() => router.push(`${basePath}/fixed-assets`)} className={tabClass(pathname === `${basePath}/fixed-assets`)}>
+          <Link href={`${basePath}/fixed-assets`} className={tabClass(pathname === `${basePath}/fixed-assets`)}>
             Fixed Assets
-          </button>
+          </Link>
 
-          <button onClick={() => router.push(`${basePath}/reports`)} className={tabClass(pathname === `${basePath}/reports`)}>
+          <Link href={`${basePath}/reports`} className={tabClass(pathname === `${basePath}/reports`)}>
             Reports
-          </button>
+          </Link>
         </nav>
       </div>
 
