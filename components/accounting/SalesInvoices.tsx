@@ -466,7 +466,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                           disabled={postingId === inv.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === inv.id ? 'Posting...' : 'Post to ledger'}
+                          {postingId === inv.id ? 'Finalising...' : 'Finalise'}
                         </button>
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
