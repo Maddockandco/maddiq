@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import { calculateDisposalGainLoss } from '@/lib/depreciation'
 
 const CATEGORY_LABELS: Record<string, string> = {
   main_pool: 'Main Pool (general plant & machinery)',
@@ -22,6 +23,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
   const { can } = useRole()
 
   const [assets, setAssets] = useState<any[]>([])
+  const [allAccounts, setAllAccounts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<'active' | 'disposed' | 'all'>('active')
   const [formOpen, setFormOpen] = useState(false)
@@ -38,15 +40,27 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
   const [co2, setCo2] = useState('')
   const [supplierName, setSupplierName] = useState('')
   const [notes, setNotes] = useState('')
+  const [depreciationMethod, setDepreciationMethod] = useState('straight_line')
+  const [usefulLifeYears, setUsefulLifeYears] = useState('5')
+  const [depreciationRatePercent, setDepreciationRatePercent] = useState('20')
 
   const [disposingAsset, setDisposingAsset] = useState<any>(null)
   const [disposalDate, setDisposalDate] = useState(new Date().toISOString().split('T')[0])
   const [disposalProceeds, setDisposalProceeds] = useState('')
   const [disposalReason, setDisposalReason] = useState('')
   const [disposalError, setDisposalError] = useState('')
+  const [gainLossAccountId, setGainLossAccountId] = useState('')
   const [disposing, setDisposing] = useState(false)
 
   useEffect(() => { fetchAssets() }, [clientId, statusFilter])
+  useEffect(() => {
+    supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code').then(({ data }) => {
+      if (data) {
+        const parentIds = new Set(data.map((a) => a.parent_id).filter(Boolean))
+        setAllAccounts(data.filter((a) => !parentIds.has(a.id)))
+      }
+    })
+  }, [clientId])
 
   async function fetchAssets() {
     setLoading(true)
@@ -67,6 +81,9 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
     setCo2('')
     setSupplierName('')
     setNotes('')
+    setDepreciationMethod('straight_line')
+    setUsefulLifeYears('5')
+    setDepreciationRatePercent('20')
     setEditingId(null)
     setError('')
     setFormOpen(true)
@@ -81,6 +98,9 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
     setCo2(asset.co2_emissions != null ? String(asset.co2_emissions) : '')
     setSupplierName(asset.supplier_name || '')
     setNotes(asset.notes || '')
+    setDepreciationMethod(asset.depreciation_method || 'straight_line')
+    setUsefulLifeYears(asset.useful_life_years != null ? String(asset.useful_life_years) : '5')
+    setDepreciationRatePercent(asset.depreciation_rate_percent != null ? String(asset.depreciation_rate_percent) : '20')
     setEditingId(asset.id)
     setError('')
     setFormOpen(true)
@@ -117,6 +137,9 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
       co2_emissions: CAR_CATEGORIES.includes(category) ? (co2 ? parseInt(co2) : (category === 'car_zero_emission' ? 0 : null)) : null,
       supplier_name: supplierName || null,
       notes: notes || null,
+      depreciation_method: depreciationMethod,
+      useful_life_years: depreciationMethod === 'straight_line' ? parseFloat(usefulLifeYears) || 5 : null,
+      depreciation_rate_percent: depreciationMethod === 'reducing_balance' ? parseFloat(depreciationRatePercent) || 20 : null,
     }
 
     if (editingId) {
@@ -139,6 +162,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
     setDisposalProceeds('')
     setDisposalReason('')
     setDisposalError('')
+    setGainLossAccountId('')
   }
 
   async function handleDispose() {
@@ -146,8 +170,29 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
       setDisposalError('Disposal proceeds are required — enter 0 if the asset was scrapped with no value')
       return
     }
+
+    const { gainLoss } = calculateDisposalGainLoss({
+      id: disposingAsset.id,
+      description: disposingAsset.description,
+      cost: parseFloat(disposingAsset.cost),
+      date_acquired: disposingAsset.date_acquired,
+      date_disposed: disposalDate,
+      disposal_proceeds: parseFloat(disposalProceeds),
+      depreciation_method: disposingAsset.depreciation_method || 'straight_line',
+      useful_life_years: disposingAsset.useful_life_years,
+      depreciation_rate_percent: disposingAsset.depreciation_rate_percent,
+      accumulated_depreciation: parseFloat(disposingAsset.accumulated_depreciation || 0),
+    })
+
+    if (gainLoss !== 0 && !gainLossAccountId) {
+      setDisposalError(`Select an account to post the £${Math.abs(gainLoss).toFixed(2)} ${gainLoss > 0 ? 'gain' : 'loss'} on disposal to`)
+      return
+    }
+
     setDisposing(true)
     setDisposalError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
 
     const { error: disposeError } = await supabase
       .from('fixed_assets')
@@ -159,6 +204,39 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
       .eq('id', disposingAsset.id)
 
     if (disposeError) { setDisposalError(disposeError.message); setDisposing(false); return }
+
+    if (gainLoss !== 0) {
+      const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+      if (firmUser) {
+        const { data: entry } = await supabase
+          .from('journal_entries')
+          .insert({
+            firm_id: firmUser.firm_id,
+            client_id: clientId,
+            entry_date: disposalDate,
+            reference: 'DISPOSAL',
+            description: `Gain/loss on disposal of "${disposingAsset.description}"`,
+            source: 'disposal',
+            created_by: firmUser.id,
+          })
+          .select()
+          .single()
+
+        if (entry) {
+          const isGain = gainLoss > 0
+          await supabase.from('journal_lines').insert([
+            {
+              journal_entry_id: entry.id,
+              account_id: gainLossAccountId,
+              debit: isGain ? 0 : Math.abs(gainLoss),
+              credit: isGain ? Math.abs(gainLoss) : 0,
+              description: `${isGain ? 'Gain' : 'Loss'} on disposal`,
+              sort_order: 0,
+            },
+          ])
+        }
+      }
+    }
 
     setDisposingAsset(null)
     setDisposing(false)
@@ -243,6 +321,29 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
             <span className="text-sm text-brand-dark">Brand new (not second-hand) — affects Full Expensing eligibility</span>
           </label>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Depreciation Method</label>
+              <select value={depreciationMethod} onChange={(e) => setDepreciationMethod(e.target.value)} className={inputClass}>
+                <option value="straight_line">Straight Line</option>
+                <option value="reducing_balance">Reducing Balance</option>
+                <option value="none">None (not depreciated)</option>
+              </select>
+            </div>
+            {depreciationMethod === 'straight_line' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Useful Life (years)</label>
+                <input type="number" value={usefulLifeYears} onChange={(e) => setUsefulLifeYears(e.target.value)} className={inputClass} />
+              </div>
+            )}
+            {depreciationMethod === 'reducing_balance' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Depreciation Rate (%)</label>
+                <input type="number" value={depreciationRatePercent} onChange={(e) => setDepreciationRatePercent(e.target.value)} className={inputClass} />
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
@@ -303,6 +404,37 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
                 placeholder="e.g. sold, scrapped, traded in"
               />
             </div>
+
+            {disposalProceeds && (() => {
+              const { nbv, gainLoss } = calculateDisposalGainLoss({
+                id: disposingAsset.id,
+                description: disposingAsset.description,
+                cost: parseFloat(disposingAsset.cost),
+                date_acquired: disposingAsset.date_acquired,
+                date_disposed: disposalDate,
+                disposal_proceeds: parseFloat(disposalProceeds) || 0,
+                depreciation_method: disposingAsset.depreciation_method || 'straight_line',
+                useful_life_years: disposingAsset.useful_life_years,
+                depreciation_rate_percent: disposingAsset.depreciation_rate_percent,
+                accumulated_depreciation: parseFloat(disposingAsset.accumulated_depreciation || 0),
+              })
+              return (
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                  <p className="text-xs text-gray-500">
+                    Net Book Value: £{nbv.toFixed(2)} · {gainLoss === 0 ? 'No gain or loss' : gainLoss > 0 ? `Gain of £${gainLoss.toFixed(2)}` : `Loss of £${Math.abs(gainLoss).toFixed(2)}`}
+                  </p>
+                  {gainLoss !== 0 && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Post {gainLoss > 0 ? 'gain' : 'loss'} to</label>
+                      <select value={gainLossAccountId} onChange={(e) => setGainLossAccountId(e.target.value)} className={inputClass}>
+                        <option value="">Select account</option>
+                        {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             <div className="flex gap-3">
               <button
                 onClick={handleDispose}
@@ -337,6 +469,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Category</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Acquired</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Cost</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Net Book Value</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
                 <th></th>
               </tr>
@@ -354,6 +487,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
                   </td>
                   <td className="px-6 py-3 text-sm text-gray-600">{new Date(a.date_acquired).toLocaleDateString('en-GB')}</td>
                   <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(a.cost).toFixed(2)}</td>
+                  <td className="px-6 py-3 text-sm text-gray-600">£{(parseFloat(a.cost) - parseFloat(a.accumulated_depreciation || 0)).toFixed(2)}</td>
                   <td className="px-6 py-3">
                     {a.date_disposed ? (
                       <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">
