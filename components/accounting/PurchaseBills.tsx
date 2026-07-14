@@ -466,7 +466,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                           disabled={postingId === bill.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === bill.id ? 'Posting...' : 'Post to ledger'}
+                          {postingId === bill.id ? 'Finalising...' : 'Finalise'}
                         </button>
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && parseFloat(bill.amount_paid) === 0 && (
