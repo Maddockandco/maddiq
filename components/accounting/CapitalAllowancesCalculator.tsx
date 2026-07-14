@@ -1,0 +1,331 @@
+'use client'
+
+import { useEffect, useState, Fragment } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useRole } from '@/hooks/useRole'
+import DatePicker from '@/components/ui/DatePicker'
+import ConfirmModal from '@/components/ui/ConfirmModal'
+import { calculateCapitalAllowances } from '@/lib/capitalAllowances'
+
+export default function CapitalAllowancesCalculator({ clientId }: { clientId: string }) {
+  const supabase = createClient()
+  const { can } = useRole()
+
+  const [periods, setPeriods] = useState<any[]>([])
+  const [assets, setAssets] = useState<any[]>([])
+  const [isCompany, setIsCompany] = useState(true)
+  const [loading, setLoading] = useState(true)
+
+  const [creatingPeriod, setCreatingPeriod] = useState(false)
+  const [periodStart, setPeriodStart] = useState('')
+  const [periodEnd, setPeriodEnd] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+
+  const [result, setResult] = useState<any>(null)
+
+  useEffect(() => { fetchAll() }, [clientId])
+
+  async function fetchAll() {
+    setLoading(true)
+    const [periodsRes, assetsRes, clientRes] = await Promise.all([
+      supabase.from('capital_allowances_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
+      supabase.from('fixed_assets').select('*').eq('client_id', clientId),
+      supabase.from('clients').select('type').eq('id', clientId).single(),
+    ])
+    if (periodsRes.data) setPeriods(periodsRes.data)
+    if (assetsRes.data) setAssets(assetsRes.data)
+    if (clientRes.data) setIsCompany(clientRes.data.type === 'company')
+    setLoading(false)
+  }
+
+  function openNewPeriod() {
+    setError('')
+    setResult(null)
+    const lastFinalized = periods.find((p) => p.status === 'finalized')
+    if (lastFinalized) {
+      const nextStart = new Date(lastFinalized.period_end)
+      nextStart.setDate(nextStart.getDate() + 1)
+      const nextEnd = new Date(nextStart)
+      nextEnd.setFullYear(nextEnd.getFullYear() + 1)
+      nextEnd.setDate(nextEnd.getDate() - 1)
+      setPeriodStart(nextStart.toISOString().split('T')[0])
+      setPeriodEnd(nextEnd.toISOString().split('T')[0])
+    } else {
+      setPeriodStart(new Date().toISOString().split('T')[0])
+      const end = new Date()
+      end.setFullYear(end.getFullYear() + 1)
+      end.setDate(end.getDate() - 1)
+      setPeriodEnd(end.toISOString().split('T')[0])
+    }
+    setCreatingPeriod(true)
+  }
+
+  function runCalculation() {
+    setError('')
+    if (!periodStart || !periodEnd || new Date(periodEnd) <= new Date(periodStart)) {
+      setError('Enter a valid period start and end date')
+      return
+    }
+
+    const lastFinalized = periods.find((p) => p.status === 'finalized' && new Date(p.period_end) < new Date(periodStart))
+    const priorBalances = lastFinalized
+      ? {
+          main_pool_cf: parseFloat(lastFinalized.main_pool_cf),
+          special_rate_pool_cf: parseFloat(lastFinalized.special_rate_pool_cf),
+          car_main_rate_pool_cf: parseFloat(lastFinalized.car_main_rate_pool_cf),
+          car_special_rate_pool_cf: parseFloat(lastFinalized.car_special_rate_pool_cf),
+        }
+      : { main_pool_cf: 0, special_rate_pool_cf: 0, car_main_rate_pool_cf: 0, car_special_rate_pool_cf: 0 }
+
+    const calc = calculateCapitalAllowances({
+      assets: assets.map((a) => ({
+        id: a.id,
+        description: a.description,
+        category: a.category,
+        date_acquired: a.date_acquired,
+        cost: parseFloat(a.cost),
+        is_new: a.is_new,
+        co2_emissions: a.co2_emissions,
+        date_disposed: a.date_disposed,
+        disposal_proceeds: a.disposal_proceeds != null ? parseFloat(a.disposal_proceeds) : null,
+      })),
+      priorBalances,
+      periodStart,
+      periodEnd,
+      isCompany,
+    })
+
+    setResult(calc)
+  }
+
+  async function handleFinalize() {
+    setSaving(true)
+    setError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
+    if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
+
+    const { error: insertError } = await supabase.from('capital_allowances_periods').insert({
+      firm_id: firmUser.firm_id,
+      client_id: clientId,
+      period_start: periodStart,
+      period_end: periodEnd,
+      status: 'finalized',
+      main_pool_bf: result.mainPool.bf,
+      main_pool_additions: result.mainPool.additions,
+      main_pool_disposals: result.mainPool.disposals,
+      main_pool_aia: result.mainPool.aia,
+      main_pool_fya: result.mainPool.fullExpensing + result.mainPool.fya40,
+      main_pool_wda: result.mainPool.wda,
+      main_pool_cf: result.mainPool.cf,
+      special_rate_pool_bf: result.specialRatePool.bf,
+      special_rate_pool_additions: result.specialRatePool.additions,
+      special_rate_pool_disposals: result.specialRatePool.disposals,
+      special_rate_pool_aia: result.specialRatePool.aia + result.specialRatePool.srAllowance,
+      special_rate_pool_wda: result.specialRatePool.wda,
+      special_rate_pool_cf: result.specialRatePool.cf,
+      car_main_rate_pool_bf: result.carMainRatePool.bf,
+      car_main_rate_pool_additions: result.carMainRatePool.additions,
+      car_main_rate_pool_disposals: result.carMainRatePool.disposals,
+      car_main_rate_pool_wda: result.carMainRatePool.wda,
+      car_main_rate_pool_cf: result.carMainRatePool.cf,
+      car_special_rate_pool_bf: result.carSpecialRatePool.bf,
+      car_special_rate_pool_additions: result.carSpecialRatePool.additions,
+      car_special_rate_pool_disposals: result.carSpecialRatePool.disposals,
+      car_special_rate_pool_wda: result.carSpecialRatePool.wda,
+      car_special_rate_pool_cf: result.carSpecialRatePool.cf,
+      car_zero_emission_fya: result.carZeroEmissionFya,
+      sba_claimed: result.sbaClaimed,
+      balancing_charges: result.balancingCharges.reduce((s: number, b: any) => s + b.amount, 0),
+      total_allowances: result.totalAllowances,
+      aia_used: result.aiaUsed,
+      created_by: user!.id,
+      finalized_at: new Date().toISOString(),
+    })
+
+    if (insertError) { setError(insertError.message); setSaving(false); setShowConfirm(false); return }
+
+    setShowConfirm(false)
+    setCreatingPeriod(false)
+    setResult(null)
+    setSaving(false)
+    fetchAll()
+  }
+
+  if (loading) return <p className="text-sm text-gray-400">Loading...</p>
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <p className="text-xs text-amber-700">
+          This calculator applies current HMRC capital allowance rules based on the Fixed Asset Register. AIA is allocated to the Special Rate Pool first (since it converts lower relief rates into 100%), then to Main Pool assets not eligible for Full Expensing. This is a planning tool — review every figure before it goes on a return, especially AIA allocation across any connected companies, which isn't yet accounted for here.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Accounting Periods</h3>
+        {can.manageEngagements && !creatingPeriod && (
+          <button onClick={openNewPeriod} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+            + New Period
+          </button>
+        )}
+      </div>
+
+      {creatingPeriod && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Period Start</label>
+              <DatePicker value={periodStart} onChange={setPeriodStart} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Period End</label>
+              <DatePicker value={periodEnd} onChange={setPeriodEnd} />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={runCalculation} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+              Calculate
+            </button>
+            <button onClick={() => { setCreatingPeriod(false); setResult(null) }} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+
+          {result && (
+            <div className="space-y-4 pt-4 border-t border-gray-100">
+              <div className="bg-brand-light rounded-xl p-4">
+                <p className="text-xs text-gray-500">AIA available this period: £{result.aiaLimit.toLocaleString()} · Used: £{result.aiaUsed.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-brand-dark mt-1">Total allowances: £{result.totalAllowances.toLocaleString()}</p>
+              </div>
+
+              {result.balancingCharges.length > 0 && (
+                <div className="bg-red-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-red-700 mb-1">Balancing charges</p>
+                  {result.balancingCharges.map((b: any, i: number) => (
+                    <p key={i} className="text-xs text-red-600">{b.asset}: £{b.amount.toFixed(2)} — {b.reason}</p>
+                  ))}
+                </div>
+              )}
+
+              {result.fullReliefDisposalWarnings.length > 0 && (
+                <div className="bg-amber-50 rounded-lg p-3 space-y-1">
+                  {result.fullReliefDisposalWarnings.map((w: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-700">{w}</p>
+                  ))}
+                </div>
+              )}
+
+              <PoolTable title="Main Pool" data={result.mainPool} extraRows={[
+                { label: 'Full Expensing', value: result.mainPool.fullExpensing },
+                { label: 'AIA', value: result.mainPool.aia },
+                { label: '40% FYA', value: result.mainPool.fya40 },
+                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.mainPool.wda },
+              ]} />
+
+              <PoolTable title="Special Rate Pool" data={result.specialRatePool} extraRows={[
+                { label: 'AIA', value: result.specialRatePool.aia },
+                { label: '50% Special Rate Allowance', value: result.specialRatePool.srAllowance },
+                { label: 'WDA (6%)', value: result.specialRatePool.wda },
+              ]} />
+
+              <PoolTable title="Car — Main Rate Pool" data={result.carMainRatePool} extraRows={[
+                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.carMainRatePool.wda },
+              ]} />
+
+              <PoolTable title="Car — Special Rate Pool" data={result.carSpecialRatePool} extraRows={[
+                { label: 'WDA (6%)', value: result.carSpecialRatePool.wda },
+              ]} />
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400">Zero-emission cars (100% FYA)</p>
+                  <p className="text-sm font-semibold text-brand-dark">£{result.carZeroEmissionFya.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Structures & Buildings ({result.sbaAssetCount} building{result.sbaAssetCount === 1 ? '' : 's'})</p>
+                  <p className="text-sm font-semibold text-brand-dark">£{result.sbaClaimed.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {can.manageEngagements && (
+                <button onClick={() => setShowConfirm(true)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+                  Finalize This Period
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={showConfirm}
+        title="Finalize this accounting period?"
+        message={`Total allowances of £${result?.totalAllowances.toLocaleString()} will be recorded, and the carried-forward pool balances will seed the next period. This can't be edited afterward — you'd need to reverse it.`}
+        confirmLabel="Finalize Period"
+        confirming={saving}
+        danger
+        onConfirm={handleFinalize}
+        onCancel={() => setShowConfirm(false)}
+      />
+
+      {!creatingPeriod && periods.length === 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+          <p className="text-sm text-gray-400">No accounting periods calculated yet</p>
+        </div>
+      )}
+
+      {!creatingPeriod && periods.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-brand-dark">
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Period</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total Allowances</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((p, i) => (
+                <tr key={p.id} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                  <td className="px-6 py-3 text-sm text-brand-dark">
+                    {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')}
+                  </td>
+                  <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(p.total_allowances).toLocaleString()}</td>
+                  <td className="px-6 py-3">
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-green-100 text-green-700 capitalize">{p.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PoolTable({ title, data, extraRows }: { title: string; data: any; extraRows: { label: string; value: number }[] }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-2">{title}</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <span className="text-gray-500">Brought forward</span><span className="text-right text-brand-dark">£{data.bf.toFixed(2)}</span>
+        <span className="text-gray-500">Additions</span><span className="text-right text-brand-dark">£{data.additions.toFixed(2)}</span>
+        <span className="text-gray-500">Disposals</span><span className="text-right text-brand-dark">−£{data.disposals.toFixed(2)}</span>
+        {extraRows.map((r, i) => (
+          <Fragment key={i}>
+            <span className="text-gray-500">{r.label}</span>
+            <span className="text-right text-brand-dark">£{r.value.toFixed(2)}</span>
+          </Fragment>
+        ))}
+        <span className="text-gray-700 font-semibold pt-1 border-t border-gray-100">Carried forward</span>
+        <span className="text-right text-brand-dark font-semibold pt-1 border-t border-gray-100">£{data.cf.toFixed(2)}</span>
+      </div>
+    </div>
+  )
+}
