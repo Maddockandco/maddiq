@@ -321,6 +321,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   }
 
   function isVatRelevantType(type: string) {
+    if (type === 'depreciation') return false
     const category = TYPE_TO_CATEGORY[type]
     return category === 'expense' || category === 'income'
   }
