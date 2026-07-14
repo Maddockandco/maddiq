@@ -545,6 +545,33 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       }, { onConflict: 'client_id,reporting_category' })
     }
 
+    // Auto-wire the six control accounts, using the same codeToId lookup as the parent/child
+    // wiring above — every template uses consistent codes for these, so this removes the
+    // manual "map control accounts in Settings" step entirely. Property has no VAT account
+    // (VAT-exempt lettings), so vat_account_id will correctly stay null for that template.
+    const { data: existingSettings } = await supabase
+      .from('accounting_settings')
+      .select('client_id')
+      .eq('client_id', clientId)
+      .maybeSingle()
+
+    const controlAccountsPayload = {
+      client_id: clientId,
+      firm_id: firmUser.firm_id,
+      debtors_account_id: codeToId['1100'] || null,
+      creditors_account_id: codeToId['2000'] || null,
+      vat_account_id: codeToId['2100'] || null,
+      default_sales_account_id: codeToId['4000'] || null,
+      default_purchase_account_id: codeToId['5000'] || null,
+      default_bank_account_id: codeToId['1000'] || null,
+    }
+
+    if (existingSettings) {
+      await supabase.from('accounting_settings').update(controlAccountsPayload).eq('client_id', clientId)
+    } else {
+      await supabase.from('accounting_settings').insert(controlAccountsPayload)
+    }
+
     await logAudit({
       entityType: 'chart_of_accounts',
       entityId: clientId,
