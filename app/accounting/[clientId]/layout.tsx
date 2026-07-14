@@ -143,6 +143,10 @@ export default function AccountingLayout({
 
           {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
 
+          <button onClick={() => router.push(`${basePath}/fixed-assets`)} className={tabClass(pathname === `${basePath}/fixed-assets`)}>
+            Fixed Assets
+          </button>
+
           <button onClick={() => router.push(`${basePath}/reports`)} className={tabClass(pathname === `${basePath}/reports`)}>
             Reports
           </button>
