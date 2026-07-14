@@ -1,6 +1,6 @@
 'use client'
-import FixedAssetRegister from '@/components/accounting/FixedAssetRegister'
+import FixedAssetsWorkspace from '@/components/accounting/FixedAssetsWorkspace'
 
 export default function FixedAssetsPage({ params }: { params: { clientId: string } }) {
-  return <FixedAssetRegister clientId={params.clientId} />
+  return <FixedAssetsWorkspace clientId={params.clientId} />
 }
