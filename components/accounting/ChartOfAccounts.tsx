@@ -87,6 +87,14 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1000', name: 'Bank Current Account', account_type: 'bank' },
       { code: '1100', name: 'Trade Debtors', account_type: 'current_asset' },
       { code: '1200', name: 'Prepayments', account_type: 'prepayment' },
+      { code: '1500', name: 'Plant & Machinery at Cost', account_type: 'fixed_asset' },
+      { code: '1501', name: 'Motor Vehicles at Cost', account_type: 'fixed_asset' },
+      { code: '1502', name: 'Land & Buildings at Cost', account_type: 'fixed_asset' },
+      { code: '1503', name: 'Goodwill at Cost', account_type: 'fixed_asset' },
+      { code: '1600', name: 'Accumulated Depreciation — Plant & Machinery', account_type: 'fixed_asset' },
+      { code: '1601', name: 'Accumulated Depreciation — Motor Vehicles', account_type: 'fixed_asset' },
+      { code: '1602', name: 'Accumulated Depreciation — Land & Buildings', account_type: 'fixed_asset' },
+      { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
@@ -99,6 +107,10 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6301', name: 'Travel — Public Transport & Flights', account_type: 'overhead', vatCode: 'zero_expense', parentCode: '6300' },
       { code: '6302', name: 'Travel — Taxis & Car Hire', account_type: 'overhead', vatCode: 'standard_expense', parentCode: '6300' },
       { code: '6400', name: 'Subsistence', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6500', name: 'Depreciation — Plant & Machinery', account_type: 'depreciation' },
+      { code: '6501', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
+      { code: '6502', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
+      { code: '6503', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
     ],
   },
   hospitality: {
@@ -110,6 +122,14 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1010', name: 'Till / Cash Account', account_type: 'bank' },
       { code: '1100', name: 'Trade Debtors', account_type: 'current_asset' },
       { code: '1300', name: 'Stock — Food & Beverage', account_type: 'inventory' },
+      { code: '1500', name: 'Plant & Machinery at Cost', account_type: 'fixed_asset' },
+      { code: '1501', name: 'Motor Vehicles at Cost', account_type: 'fixed_asset' },
+      { code: '1502', name: 'Land & Buildings at Cost', account_type: 'fixed_asset' },
+      { code: '1503', name: 'Goodwill at Cost', account_type: 'fixed_asset' },
+      { code: '1600', name: 'Accumulated Depreciation — Plant & Machinery', account_type: 'fixed_asset' },
+      { code: '1601', name: 'Accumulated Depreciation — Motor Vehicles', account_type: 'fixed_asset' },
+      { code: '1602', name: 'Accumulated Depreciation — Land & Buildings', account_type: 'fixed_asset' },
+      { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
@@ -127,6 +147,10 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6102', name: 'Business Rates', account_type: 'overhead', vatCode: 'no_vat', parentCode: '6100' },
       { code: '6200', name: 'Utilities', account_type: 'overhead', vatCode: 'standard_expense' },
       { code: '6300', name: 'Repairs & Maintenance', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6400', name: 'Depreciation — Plant & Machinery', account_type: 'depreciation' },
+      { code: '6401', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
+      { code: '6402', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
+      { code: '6403', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
     ],
   },
   construction: {
@@ -137,6 +161,14 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1000', name: 'Bank Current Account', account_type: 'bank' },
       { code: '1100', name: 'Trade Debtors', account_type: 'current_asset' },
       { code: '1150', name: 'Retention Debtors', account_type: 'current_asset' },
+      { code: '1500', name: 'Plant & Machinery at Cost', account_type: 'fixed_asset' },
+      { code: '1501', name: 'Motor Vehicles at Cost', account_type: 'fixed_asset' },
+      { code: '1502', name: 'Land & Buildings at Cost', account_type: 'fixed_asset' },
+      { code: '1503', name: 'Goodwill at Cost', account_type: 'fixed_asset' },
+      { code: '1600', name: 'Accumulated Depreciation — Plant & Machinery', account_type: 'fixed_asset' },
+      { code: '1601', name: 'Accumulated Depreciation — Motor Vehicles', account_type: 'fixed_asset' },
+      { code: '1602', name: 'Accumulated Depreciation — Land & Buildings', account_type: 'fixed_asset' },
+      { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2050', name: 'CIS Tax Withheld', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
@@ -152,6 +184,10 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6200', name: 'Vehicle Costs', account_type: 'overhead' },
       { code: '6201', name: 'Vehicle Costs — Fuel & Repairs', account_type: 'overhead', vatCode: 'standard_expense', parentCode: '6200' },
       { code: '6202', name: 'Vehicle Costs — Insurance', account_type: 'overhead', vatCode: 'exempt_expense', parentCode: '6200' },
+      { code: '6300', name: 'Depreciation — Plant & Machinery', account_type: 'depreciation' },
+      { code: '6301', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
+      { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
+      { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
     ],
   },
   property: {
@@ -162,6 +198,14 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1000', name: 'Bank Current Account', account_type: 'bank' },
       { code: '1100', name: 'Rent Debtors', account_type: 'current_asset' },
       { code: '1400', name: 'Tenant Deposits Held', account_type: 'current_liability' },
+      { code: '1500', name: 'Plant & Machinery at Cost', account_type: 'fixed_asset' },
+      { code: '1501', name: 'Motor Vehicles at Cost', account_type: 'fixed_asset' },
+      { code: '1502', name: 'Land & Buildings at Cost', account_type: 'fixed_asset' },
+      { code: '1503', name: 'Goodwill at Cost', account_type: 'fixed_asset' },
+      { code: '1600', name: 'Accumulated Depreciation — Plant & Machinery', account_type: 'fixed_asset' },
+      { code: '1601', name: 'Accumulated Depreciation — Motor Vehicles', account_type: 'fixed_asset' },
+      { code: '1602', name: 'Accumulated Depreciation — Land & Buildings', account_type: 'fixed_asset' },
+      { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '4000', name: 'Rental Income', account_type: 'sales', vatCode: 'exempt_income' },
@@ -171,6 +215,10 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6000', name: 'Mortgage Interest', account_type: 'overhead', vatCode: 'no_vat' },
       { code: '6100', name: 'Insurance', account_type: 'overhead', vatCode: 'exempt_expense' },
       { code: '6200', name: 'Ground Rent & Service Charges', account_type: 'overhead', vatCode: 'exempt_expense' },
+      { code: '6300', name: 'Depreciation — Plant & Machinery', account_type: 'depreciation' },
+      { code: '6301', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
+      { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
+      { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
     ],
   },
 }
@@ -470,6 +518,32 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .from('clients')
       .update({ vat_schemes_enabled: template.vatSchemes })
       .eq('id', clientId)
+
+    // Auto-wire the depreciation account mappings per category, so the Depreciation calculator
+    // and Fixed Asset Note never need manual account selection for a client seeded from a template
+    const categoryMappings = [
+      { category: 'Plant & Machinery', costName: 'Plant & Machinery at Cost', accumDepName: 'Accumulated Depreciation — Plant & Machinery', expenseName: 'Depreciation — Plant & Machinery' },
+      { category: 'Motor Vehicles', costName: 'Motor Vehicles at Cost', accumDepName: 'Accumulated Depreciation — Motor Vehicles', expenseName: 'Depreciation — Motor Vehicles' },
+      { category: 'Land & Buildings', costName: 'Land & Buildings at Cost', accumDepName: 'Accumulated Depreciation — Land & Buildings', expenseName: 'Depreciation — Land & Buildings' },
+      { category: 'Goodwill', costName: 'Goodwill at Cost', accumDepName: 'Accumulated Amortisation — Goodwill', expenseName: 'Amortisation — Goodwill' },
+    ]
+
+    for (const m of categoryMappings) {
+      const costAccount = inserted.find((row: any) => row.name === m.costName)
+      const accumDepAccount = inserted.find((row: any) => row.name === m.accumDepName)
+      const expenseAccount = inserted.find((row: any) => row.name === m.expenseName)
+
+      if (!costAccount && !accumDepAccount && !expenseAccount) continue
+
+      await supabase.from('depreciation_account_mappings').upsert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        reporting_category: m.category,
+        cost_account_id: costAccount?.id || null,
+        accumulated_depreciation_account_id: accumDepAccount?.id || null,
+        depreciation_expense_account_id: expenseAccount?.id || null,
+      }, { onConflict: 'client_id,reporting_category' })
+    }
 
     await logAudit({
       entityType: 'chart_of_accounts',
