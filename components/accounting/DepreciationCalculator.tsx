@@ -13,14 +13,12 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
   const [periods, setPeriods] = useState<any[]>([])
   const [assets, setAssets] = useState<any[]>([])
-  const [allAccounts, setAllAccounts] = useState<any[]>([])
+  const [mappings, setMappings] = useState<any[]>([])
   const [yearEndDate, setYearEndDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
-  const [expenseAccountId, setExpenseAccountId] = useState('')
-  const [accumDepAccountId, setAccumDepAccountId] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -30,25 +28,21 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
   async function fetchAll() {
     setLoading(true)
-    const [periodsRes, assetsRes, accountsRes, clientRes] = await Promise.all([
+    const [periodsRes, assetsRes, mappingsRes, clientRes] = await Promise.all([
       supabase.from('depreciation_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('depreciation_account_mappings').select('*').eq('client_id', clientId),
       supabase.from('clients').select('year_end_date').eq('id', clientId).single(),
     ])
     const periodsData = periodsRes.data || []
     const assetsData = assetsRes.data || []
     setPeriods(periodsData)
     setAssets(assetsData)
-    if (accountsRes.data) {
-      const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
-      setAllAccounts(accountsRes.data.filter((a) => !parentIds.has(a.id)))
-    }
+    setMappings(mappingsRes.data || [])
     const yearEnd = clientRes.data?.year_end_date || null
     setYearEndDate(yearEnd)
     setLoading(false)
 
-    // Automatically show the current period's calculation - no click needed to see it
     autoRunCurrentPeriod(periodsData, assetsData, yearEnd)
   }
 
@@ -80,6 +74,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
       assets: source.map((a) => ({
         id: a.id,
         description: a.description,
+        category: a.category,
         cost: parseFloat(a.cost),
         date_acquired: a.date_acquired,
         date_disposed: a.date_disposed,
@@ -96,12 +91,23 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
     setResult(calc)
   }
 
+  function mappingFor(category: string) {
+    return mappings.find((m) => m.reporting_category === category)
+  }
+
   function handlePostClick() {
-    if (!expenseAccountId || !accumDepAccountId) {
-      setError('Select both the Depreciation Expense account and the Accumulated Depreciation account before posting')
+    setError('')
+    const missing = result.categoryBreakdown
+      .filter((c: any) => c.charge !== 0)
+      .filter((c: any) => {
+        const m = mappingFor(c.category)
+        return !m || !m.depreciation_expense_account_id || !m.accumulated_depreciation_account_id
+      })
+
+    if (missing.length > 0) {
+      setError(`No account mapping set up for: ${missing.map((c: any) => c.category).join(', ')}. Set this up in Chart of Accounts, or re-seed from an industry template.`)
       return
     }
-    setError('')
     setShowConfirm(true)
   }
 
@@ -129,30 +135,35 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
     if (entryError) { setError(entryError.message); setSaving(false); setShowConfirm(false); return }
 
-    const { error: linesError } = await supabase.from('journal_lines').insert([
-      {
+    const chargedCategories = result.categoryBreakdown.filter((c: any) => c.charge !== 0)
+    const journalLines: any[] = []
+    let sortOrder = 0
+    for (const c of chargedCategories) {
+      const m = mappingFor(c.category)
+      journalLines.push({
         journal_entry_id: entry.id,
-        account_id: expenseAccountId,
-        debit: result.totalDepreciation,
+        account_id: m.depreciation_expense_account_id,
+        debit: c.charge,
         credit: 0,
-        description: 'Depreciation charge for the period',
-        sort_order: 0,
-      },
-      {
+        description: `${c.category} — depreciation charge for the period`,
+        sort_order: sortOrder++,
+      })
+      journalLines.push({
         journal_entry_id: entry.id,
-        account_id: accumDepAccountId,
+        account_id: m.accumulated_depreciation_account_id,
         debit: 0,
-        credit: result.totalDepreciation,
-        description: 'Depreciation charge for the period',
-        sort_order: 1,
-      },
-    ])
+        credit: c.charge,
+        description: `${c.category} — depreciation charge for the period`,
+        sort_order: sortOrder++,
+      })
+    }
 
+    const { error: linesError } = await supabase.from('journal_lines').insert(journalLines)
     if (linesError) { setError(linesError.message); setSaving(false); setShowConfirm(false); return }
 
     // Update each asset's accumulated depreciation so Net Book Value is correct going forward
     for (const line of result.lines) {
-      const asset = assets.find((a) => a.id === line.assetId)
+      const asset = assets.find((a: any) => a.id === line.assetId)
       await supabase
         .from('fixed_assets')
         .update({ accumulated_depreciation: parseFloat(asset.accumulated_depreciation || 0) + line.charge })
@@ -165,8 +176,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
       period_start: periodStart,
       period_end: periodEnd,
       total_depreciation: result.totalDepreciation,
-      depreciation_expense_account_id: expenseAccountId,
-      accumulated_depreciation_account_id: accumDepAccountId,
+      category_breakdown: result.categoryBreakdown,
       journal_entry_id: entry.id,
       created_by: user!.id,
     })
@@ -177,16 +187,13 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
     fetchAll()
   }
 
-  const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-  const expenseAccounts = allAccounts.filter((a) => ['direct_costs', 'expense', 'overhead'].includes(a.account_type))
-
   if (loading) return <p className="text-sm text-gray-400">Loading...</p>
 
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
         <p className="text-xs text-amber-700">
-          Depreciation is a real accounting entry — posting here creates an actual journal entry and updates each asset's Net Book Value. This is completely separate from Capital Allowances, which only affects the tax computation and never posts to the books.
+          Depreciation is a real accounting entry — posting here creates an actual multi-line journal entry (one Depreciation charge and one Accumulated Depreciation line per category in use) and updates each asset's Net Book Value. Completely separate from Capital Allowances, which only affects the tax computation and never posts to the books.
         </p>
       </div>
 
@@ -215,53 +222,52 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
           {result && (
             <div className="space-y-4 pt-4 border-t border-gray-100">
-              {result.lines.length === 0 ? (
+              {result.categoryBreakdown.length === 0 ? (
                 <p className="text-sm text-gray-400">No depreciable assets found for this period (check assets have a depreciation method and useful life set)</p>
               ) : (
                 <>
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Asset</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Opening NBV</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Charge</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Closing NBV</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.lines.map((l: any) => (
-                          <tr key={l.assetId} className="border-t border-gray-100">
-                            <td className="px-4 py-2 text-brand-dark">{l.description}</td>
-                            <td className="px-4 py-2 text-right text-gray-600">£{l.openingNbv.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-right text-red-600">£{l.charge.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-right text-brand-dark font-medium">£{l.closingNbv.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
                   <div className="bg-brand-light rounded-xl p-4">
                     <p className="text-2xl font-bold text-brand-dark">Total depreciation: £{result.totalDepreciation.toFixed(2)}</p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Depreciation Expense account (Dr)</label>
-                      <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value)} className={inputClass}>
-                        <option value="">Select account</option>
-                        {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Accumulated Depreciation account (Cr)</label>
-                      <select value={accumDepAccountId} onChange={(e) => setAccumDepAccountId(e.target.value)} className={inputClass}>
-                        <option value="">Select account</option>
-                        {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
+                  {result.categoryBreakdown.map((c: any) => {
+                    const m = mappingFor(c.category)
+                    const hasMapping = m && m.depreciation_expense_account_id && m.accumulated_depreciation_account_id
+                    return (
+                      <div key={c.category} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                          <p className="text-sm font-semibold text-brand-dark">{c.category}</p>
+                          {c.charge !== 0 && !hasMapping && (
+                            <span className="text-xs text-red-600">No account mapping set up</span>
+                          )}
+                        </div>
+                        <table className="w-full text-sm">
+                          <tbody>
+                            <tr className="border-t border-gray-100">
+                              <td className="px-4 py-2 text-gray-500" colSpan={2}>Cost</td>
+                            </tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.costBf.toFixed(2)}</td></tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Additions</td><td className="px-4 py-1 text-right text-green-700">£{c.costAdditions.toFixed(2)}</td></tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Disposals</td><td className="px-4 py-1 text-right text-red-600">−£{c.costDisposals.toFixed(2)}</td></tr>
+                            <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.costCf.toFixed(2)}</td></tr>
+
+                            <tr className="border-t border-gray-100">
+                              <td className="px-4 py-2 text-gray-500" colSpan={2}>Depreciation</td>
+                            </tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.accumDepBf.toFixed(2)}</td></tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Charge for period</td><td className="px-4 py-1 text-right text-red-600">£{c.charge.toFixed(2)}</td></tr>
+                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Eliminated on disposal</td><td className="px-4 py-1 text-right text-green-700">−£{c.accumDepDisposals.toFixed(2)}</td></tr>
+                            <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.accumDepCf.toFixed(2)}</td></tr>
+
+                            <tr className="border-t border-gray-100 bg-brand-light/40">
+                              <td className="px-4 py-2 font-semibold text-brand-dark">Net Book Value (period end)</td>
+                              <td className="px-4 py-2 text-right font-semibold text-brand-dark">£{c.nbvCf.toFixed(2)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  })}
 
                   {can.manageEngagements && (
                     <button onClick={handlePostClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
@@ -278,7 +284,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
       <ConfirmModal
         isOpen={showConfirm}
         title="Post this depreciation entry?"
-        message={`£${result?.totalDepreciation.toFixed(2)} will be posted as a real journal entry and each asset's Net Book Value will update. This becomes part of the permanent ledger.`}
+        message={`£${result?.totalDepreciation.toFixed(2)} will be posted as a real multi-line journal entry (one Depreciation charge and one Accumulated Depreciation line per category), and each asset's Net Book Value will update. This becomes part of the permanent ledger.`}
         confirmLabel="Post Depreciation"
         confirming={saving}
         onConfirm={handlePost}
