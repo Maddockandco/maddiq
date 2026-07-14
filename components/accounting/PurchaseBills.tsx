@@ -295,7 +295,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
               <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
@@ -466,7 +466,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                           disabled={postingId === bill.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === bill.id ? 'Finalising...' : 'Finalise'}
+                          {postingId === bill.id ? 'Posting...' : 'Post to ledger'}
                         </button>
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && parseFloat(bill.amount_paid) === 0 && (
