@@ -17,7 +17,6 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
   const [yearEndDate, setYearEndDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [creatingPeriod, setCreatingPeriod] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
   const [error, setError] = useState('')
@@ -35,36 +34,49 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
       supabase.from('clients').select('type, year_end_date').eq('id', clientId).single(),
     ])
-    if (periodsRes.data) setPeriods(periodsRes.data)
-    if (assetsRes.data) setAssets(assetsRes.data)
+    const periodsData = periodsRes.data || []
+    const assetsData = assetsRes.data || []
+    setPeriods(periodsData)
+    setAssets(assetsData)
+    const companyFlag = clientRes.data?.type === 'company'
+    const yearEnd = clientRes.data?.year_end_date || null
     if (clientRes.data) {
-      setIsCompany(clientRes.data.type === 'company')
-      setYearEndDate(clientRes.data.year_end_date)
+      setIsCompany(companyFlag)
+      setYearEndDate(yearEnd)
     }
     setLoading(false)
+
+    autoRunCurrentPeriod(periodsData, assetsData, yearEnd, companyFlag)
   }
 
-  function openNewPeriod() {
-    setError('')
-    const lastFinalized = periods.find((p) => p.status === 'finalized')
-    const earliestAssetDate = assets.length > 0
-      ? assets.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assets[0].date_acquired)
+  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null, companyFlag: boolean) {
+    const lastFinalized = periodsData.find((p) => p.status === 'finalized')
+    const earliestAssetDate = assetsData.length > 0
+      ? assetsData.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assetsData[0].date_acquired)
       : null
 
     const { start, end } = getNextAccountingPeriod({
-      yearEndDate,
+      yearEndDate: yearEnd,
       lastFinalizedPeriodEnd: lastFinalized ? lastFinalized.period_end : null,
       earliestAssetDate,
     })
 
     setPeriodStart(start)
     setPeriodEnd(end)
-    setCreatingPeriod(true)
-    runCalculationFor(start, end)
+    runCalculationFor(start, end, periodsData, assetsData, companyFlag)
   }
 
-  function runCalculationFor(start: string, end: string) {
-    const lastFinalized = periods.find((p) => p.status === 'finalized' && new Date(p.period_end) < new Date(start))
+  function openNewPeriod() {
+    setError('')
+    autoRunCurrentPeriod(periods, assets, yearEndDate, isCompany)
+  }
+
+  function runCalculationFor(start: string, end: string, periodsData?: any[], assetsData?: any[], companyFlag?: boolean) {
+    const periodsSource = periodsData || periods
+    const assetsSource = assetsData || assets
+    const isCompanySource = companyFlag !== undefined ? companyFlag : isCompany
+
+    const lastFinalized = periodsSource.find((p) => p.status === 'finalized' && new Date(p.period_end) < new Date(start))
     const priorBalances = lastFinalized
       ? {
           main_pool_cf: parseFloat(lastFinalized.main_pool_cf),
@@ -75,7 +87,7 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
       : { main_pool_cf: 0, special_rate_pool_cf: 0, car_main_rate_pool_cf: 0, car_special_rate_pool_cf: 0 }
 
     const calc = calculateCapitalAllowances({
-      assets: assets.map((a) => ({
+      assets: assetsSource.map((a) => ({
         id: a.id,
         description: a.description,
         category: a.category,
@@ -89,7 +101,7 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
       priorBalances,
       periodStart: start,
       periodEnd: end,
-      isCompany,
+      isCompany: isCompanySource,
     })
 
     setResult(calc)
@@ -144,7 +156,6 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
     if (insertError) { setError(insertError.message); setSaving(false); setShowConfirm(false); return }
 
     setShowConfirm(false)
-    setCreatingPeriod(false)
     setResult(null)
     setSaving(false)
     fetchAll()
@@ -161,15 +172,15 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
       </div>
 
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Accounting Periods</h3>
-        {can.manageEngagements && !creatingPeriod && (
-          <button onClick={openNewPeriod} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-            + New Period
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Current Period</h3>
+        {can.manageEngagements && (
+          <button onClick={openNewPeriod} className="bg-gray-100 text-brand-dark font-semibold px-4 py-2 rounded-xl text-xs hover:bg-gray-200 transition">
+            Recalculate
           </button>
         )}
       </div>
 
-      {creatingPeriod && (
+      {periodStart && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
@@ -182,10 +193,6 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
               <p className="text-xs text-amber-600 mt-1">No year-end date is set for this client — defaulted to 31 March. Set the client's year-end in their details for accurate periods.</p>
             )}
           </div>
-
-          <button onClick={() => { setCreatingPeriod(false); setResult(null) }} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
-            Cancel
-          </button>
 
           {result && (
             <div className="space-y-4 pt-4 border-t border-gray-100">
@@ -264,13 +271,13 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
         onCancel={() => setShowConfirm(false)}
       />
 
-      {!creatingPeriod && periods.length === 0 && (
+      {periods.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
           <p className="text-sm text-gray-400">No accounting periods calculated yet</p>
         </div>
       )}
 
-      {!creatingPeriod && periods.length > 0 && (
+      {periods.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <table className="w-full">
             <thead>
