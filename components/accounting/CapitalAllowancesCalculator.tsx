@@ -1,62 +1,59 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import ConfirmModal from '@/components/ui/ConfirmModal'
-import { calculateDepreciation } from '@/lib/depreciation'
+import { calculateCapitalAllowances } from '@/lib/capitalAllowances'
 import { getNextAccountingPeriod } from '@/lib/accountingPeriods'
 
-export default function DepreciationCalculator({ clientId }: { clientId: string }) {
+export default function CapitalAllowancesCalculator({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const { can } = useRole()
 
   const [periods, setPeriods] = useState<any[]>([])
   const [assets, setAssets] = useState<any[]>([])
-  const [allAccounts, setAllAccounts] = useState<any[]>([])
+  const [isCompany, setIsCompany] = useState(true)
   const [yearEndDate, setYearEndDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [creatingPeriod, setCreatingPeriod] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
-  const [expenseAccountId, setExpenseAccountId] = useState('')
-  const [accumDepAccountId, setAccumDepAccountId] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+
   const [result, setResult] = useState<any>(null)
 
   useEffect(() => { fetchAll() }, [clientId])
 
   async function fetchAll() {
     setLoading(true)
-    const [periodsRes, assetsRes, accountsRes, clientRes] = await Promise.all([
-      supabase.from('depreciation_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
+    const [periodsRes, assetsRes, clientRes] = await Promise.all([
+      supabase.from('capital_allowances_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
-      supabase.from('clients').select('year_end_date').eq('id', clientId).single(),
+      supabase.from('clients').select('type, year_end_date').eq('id', clientId).single(),
     ])
     if (periodsRes.data) setPeriods(periodsRes.data)
     if (assetsRes.data) setAssets(assetsRes.data)
-    if (accountsRes.data) {
-      const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
-      setAllAccounts(accountsRes.data.filter((a) => !parentIds.has(a.id)))
+    if (clientRes.data) {
+      setIsCompany(clientRes.data.type === 'company')
+      setYearEndDate(clientRes.data.year_end_date)
     }
-    if (clientRes.data) setYearEndDate(clientRes.data.year_end_date)
     setLoading(false)
   }
 
   function openNewPeriod() {
     setError('')
-    const lastPeriod = periods[0]
+    const lastFinalized = periods.find((p) => p.status === 'finalized')
     const earliestAssetDate = assets.length > 0
       ? assets.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assets[0].date_acquired)
       : null
 
     const { start, end } = getNextAccountingPeriod({
       yearEndDate,
-      lastFinalizedPeriodEnd: lastPeriod ? lastPeriod.period_end : null,
+      lastFinalizedPeriodEnd: lastFinalized ? lastFinalized.period_end : null,
       earliestAssetDate,
     })
 
@@ -67,100 +64,84 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
   }
 
   function runCalculationFor(start: string, end: string) {
-    const calc = calculateDepreciation({
+    const lastFinalized = periods.find((p) => p.status === 'finalized' && new Date(p.period_end) < new Date(start))
+    const priorBalances = lastFinalized
+      ? {
+          main_pool_cf: parseFloat(lastFinalized.main_pool_cf),
+          special_rate_pool_cf: parseFloat(lastFinalized.special_rate_pool_cf),
+          car_main_rate_pool_cf: parseFloat(lastFinalized.car_main_rate_pool_cf),
+          car_special_rate_pool_cf: parseFloat(lastFinalized.car_special_rate_pool_cf),
+        }
+      : { main_pool_cf: 0, special_rate_pool_cf: 0, car_main_rate_pool_cf: 0, car_special_rate_pool_cf: 0 }
+
+    const calc = calculateCapitalAllowances({
       assets: assets.map((a) => ({
         id: a.id,
         description: a.description,
-        cost: parseFloat(a.cost),
+        category: a.category,
         date_acquired: a.date_acquired,
+        cost: parseFloat(a.cost),
+        is_new: a.is_new,
+        co2_emissions: a.co2_emissions,
         date_disposed: a.date_disposed,
         disposal_proceeds: a.disposal_proceeds != null ? parseFloat(a.disposal_proceeds) : null,
-        depreciation_method: a.depreciation_method || 'straight_line',
-        useful_life_years: a.useful_life_years != null ? parseFloat(a.useful_life_years) : null,
-        depreciation_rate_percent: a.depreciation_rate_percent != null ? parseFloat(a.depreciation_rate_percent) : null,
-        accumulated_depreciation: parseFloat(a.accumulated_depreciation || 0),
       })),
+      priorBalances,
       periodStart: start,
       periodEnd: end,
+      isCompany,
     })
 
     setResult(calc)
   }
 
-  function handlePostClick() {
-    if (!expenseAccountId || !accumDepAccountId) {
-      setError('Select both the Depreciation Expense account and the Accumulated Depreciation account before posting')
-      return
-    }
-    setError('')
-    setShowConfirm(true)
-  }
-
-  async function handlePost() {
+  async function handleFinalize() {
     setSaving(true)
     setError('')
 
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
 
-    const { data: entry, error: entryError } = await supabase
-      .from('journal_entries')
-      .insert({
-        firm_id: firmUser.firm_id,
-        client_id: clientId,
-        entry_date: periodEnd,
-        reference: 'DEPN',
-        description: `Depreciation for period ${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}`,
-        source: 'depreciation',
-        created_by: firmUser.id,
-      })
-      .select()
-      .single()
-
-    if (entryError) { setError(entryError.message); setSaving(false); setShowConfirm(false); return }
-
-    const { error: linesError } = await supabase.from('journal_lines').insert([
-      {
-        journal_entry_id: entry.id,
-        account_id: expenseAccountId,
-        debit: result.totalDepreciation,
-        credit: 0,
-        description: 'Depreciation charge for the period',
-        sort_order: 0,
-      },
-      {
-        journal_entry_id: entry.id,
-        account_id: accumDepAccountId,
-        debit: 0,
-        credit: result.totalDepreciation,
-        description: 'Depreciation charge for the period',
-        sort_order: 1,
-      },
-    ])
-
-    if (linesError) { setError(linesError.message); setSaving(false); setShowConfirm(false); return }
-
-    // Update each asset's accumulated depreciation so Net Book Value is correct going forward
-    for (const line of result.lines) {
-      const asset = assets.find((a) => a.id === line.assetId)
-      await supabase
-        .from('fixed_assets')
-        .update({ accumulated_depreciation: parseFloat(asset.accumulated_depreciation || 0) + line.charge })
-        .eq('id', line.assetId)
-    }
-
-    await supabase.from('depreciation_periods').insert({
+    const { error: insertError } = await supabase.from('capital_allowances_periods').insert({
       firm_id: firmUser.firm_id,
       client_id: clientId,
       period_start: periodStart,
       period_end: periodEnd,
-      total_depreciation: result.totalDepreciation,
-      depreciation_expense_account_id: expenseAccountId,
-      accumulated_depreciation_account_id: accumDepAccountId,
-      journal_entry_id: entry.id,
+      status: 'finalized',
+      main_pool_bf: result.mainPool.bf,
+      main_pool_additions: result.mainPool.additions,
+      main_pool_disposals: result.mainPool.disposals,
+      main_pool_aia: result.mainPool.aia,
+      main_pool_fya: result.mainPool.fullExpensing + result.mainPool.fya40,
+      main_pool_wda: result.mainPool.wda,
+      main_pool_cf: result.mainPool.cf,
+      special_rate_pool_bf: result.specialRatePool.bf,
+      special_rate_pool_additions: result.specialRatePool.additions,
+      special_rate_pool_disposals: result.specialRatePool.disposals,
+      special_rate_pool_aia: result.specialRatePool.aia + result.specialRatePool.srAllowance,
+      special_rate_pool_wda: result.specialRatePool.wda,
+      special_rate_pool_cf: result.specialRatePool.cf,
+      car_main_rate_pool_bf: result.carMainRatePool.bf,
+      car_main_rate_pool_additions: result.carMainRatePool.additions,
+      car_main_rate_pool_disposals: result.carMainRatePool.disposals,
+      car_main_rate_pool_wda: result.carMainRatePool.wda,
+      car_main_rate_pool_cf: result.carMainRatePool.cf,
+      car_special_rate_pool_bf: result.carSpecialRatePool.bf,
+      car_special_rate_pool_additions: result.carSpecialRatePool.additions,
+      car_special_rate_pool_disposals: result.carSpecialRatePool.disposals,
+      car_special_rate_pool_wda: result.carSpecialRatePool.wda,
+      car_special_rate_pool_cf: result.carSpecialRatePool.cf,
+      car_zero_emission_fya: result.carZeroEmissionFya,
+      sba_claimed: result.sbaClaimed,
+      balancing_charges: result.balancingCharges.reduce((s: number, b: any) => s + b.amount, 0),
+      total_allowances: result.totalAllowances,
+      aia_used: result.aiaUsed,
       created_by: user!.id,
+      finalized_at: new Date().toISOString(),
     })
+
+    if (insertError) { setError(insertError.message); setSaving(false); setShowConfirm(false); return }
 
     setShowConfirm(false)
     setCreatingPeriod(false)
@@ -169,21 +150,18 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
     fetchAll()
   }
 
-  const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-  const expenseAccounts = allAccounts.filter((a) => ['direct_costs', 'expense', 'overhead'].includes(a.account_type))
-
   if (loading) return <p className="text-sm text-gray-400">Loading...</p>
 
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
         <p className="text-xs text-amber-700">
-          Depreciation is a real accounting entry — posting here creates an actual journal entry and updates each asset's Net Book Value. This is completely separate from Capital Allowances, which only affects the tax computation and never posts to the books.
+          This calculator applies current HMRC capital allowance rules based on the Fixed Asset Register. AIA is allocated to the Special Rate Pool first (since it converts lower relief rates into 100%), then to Main Pool assets not eligible for Full Expensing. This is a planning tool — review every figure before it goes on a return, especially AIA allocation across any connected companies, which isn't yet accounted for here.
         </p>
       </div>
 
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Depreciation Periods</h3>
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Accounting Periods</h3>
         {can.manageEngagements && !creatingPeriod && (
           <button onClick={openNewPeriod} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
             + New Period
@@ -211,60 +189,64 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
           {result && (
             <div className="space-y-4 pt-4 border-t border-gray-100">
-              {result.lines.length === 0 ? (
-                <p className="text-sm text-gray-400">No depreciable assets found for this period (check assets have a depreciation method and useful life set)</p>
-              ) : (
-                <>
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Asset</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Opening NBV</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Charge</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Closing NBV</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.lines.map((l: any) => (
-                          <tr key={l.assetId} className="border-t border-gray-100">
-                            <td className="px-4 py-2 text-brand-dark">{l.description}</td>
-                            <td className="px-4 py-2 text-right text-gray-600">£{l.openingNbv.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-right text-red-600">£{l.charge.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-right text-brand-dark font-medium">£{l.closingNbv.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              <div className="bg-brand-light rounded-xl p-4">
+                <p className="text-xs text-gray-500">AIA available this period: £{result.aiaLimit.toLocaleString()} · Used: £{result.aiaUsed.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-brand-dark mt-1">Total allowances: £{result.totalAllowances.toLocaleString()}</p>
+              </div>
 
-                  <div className="bg-brand-light rounded-xl p-4">
-                    <p className="text-2xl font-bold text-brand-dark">Total depreciation: £{result.totalDepreciation.toFixed(2)}</p>
-                  </div>
+              {result.balancingCharges.length > 0 && (
+                <div className="bg-red-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-red-700 mb-1">Balancing charges</p>
+                  {result.balancingCharges.map((b: any, i: number) => (
+                    <p key={i} className="text-xs text-red-600">{b.asset}: £{b.amount.toFixed(2)} — {b.reason}</p>
+                  ))}
+                </div>
+              )}
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Depreciation Expense account (Dr)</label>
-                      <select value={expenseAccountId} onChange={(e) => setExpenseAccountId(e.target.value)} className={inputClass}>
-                        <option value="">Select account</option>
-                        {expenseAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Accumulated Depreciation account (Cr)</label>
-                      <select value={accumDepAccountId} onChange={(e) => setAccumDepAccountId(e.target.value)} className={inputClass}>
-                        <option value="">Select account</option>
-                        {allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
+              {result.fullReliefDisposalWarnings.length > 0 && (
+                <div className="bg-amber-50 rounded-lg p-3 space-y-1">
+                  {result.fullReliefDisposalWarnings.map((w: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-700">{w}</p>
+                  ))}
+                </div>
+              )}
 
-                  {can.manageEngagements && (
-                    <button onClick={handlePostClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-                      Post Depreciation
-                    </button>
-                  )}
-                </>
+              <PoolTable title="Main Pool" data={result.mainPool} extraRows={[
+                { label: 'Full Expensing', value: result.mainPool.fullExpensing },
+                { label: 'AIA', value: result.mainPool.aia },
+                { label: '40% FYA', value: result.mainPool.fya40 },
+                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.mainPool.wda },
+              ]} />
+
+              <PoolTable title="Special Rate Pool" data={result.specialRatePool} extraRows={[
+                { label: 'AIA', value: result.specialRatePool.aia },
+                { label: '50% Special Rate Allowance', value: result.specialRatePool.srAllowance },
+                { label: 'WDA (6%)', value: result.specialRatePool.wda },
+              ]} />
+
+              <PoolTable title="Car — Main Rate Pool" data={result.carMainRatePool} extraRows={[
+                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.carMainRatePool.wda },
+              ]} />
+
+              <PoolTable title="Car — Special Rate Pool" data={result.carSpecialRatePool} extraRows={[
+                { label: 'WDA (6%)', value: result.carSpecialRatePool.wda },
+              ]} />
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400">Zero-emission cars (100% FYA)</p>
+                  <p className="text-sm font-semibold text-brand-dark">£{result.carZeroEmissionFya.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Structures & Buildings ({result.sbaAssetCount} building{result.sbaAssetCount === 1 ? '' : 's'})</p>
+                  <p className="text-sm font-semibold text-brand-dark">£{result.sbaClaimed.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {can.manageEngagements && (
+                <button onClick={() => setShowConfirm(true)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+                  Finalize This Period
+                </button>
               )}
             </div>
           )}
@@ -273,17 +255,18 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
       <ConfirmModal
         isOpen={showConfirm}
-        title="Post this depreciation entry?"
-        message={`£${result?.totalDepreciation.toFixed(2)} will be posted as a real journal entry and each asset's Net Book Value will update. This becomes part of the permanent ledger.`}
-        confirmLabel="Post Depreciation"
+        title="Finalize this accounting period?"
+        message={`Total allowances of £${result?.totalAllowances.toLocaleString()} will be recorded, and the carried-forward pool balances will seed the next period. This can't be edited afterward — you'd need to reverse it.`}
+        confirmLabel="Finalize Period"
         confirming={saving}
-        onConfirm={handlePost}
+        danger
+        onConfirm={handleFinalize}
         onCancel={() => setShowConfirm(false)}
       />
 
       {!creatingPeriod && periods.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-          <p className="text-sm text-gray-400">No depreciation posted yet</p>
+          <p className="text-sm text-gray-400">No accounting periods calculated yet</p>
         </div>
       )}
 
@@ -293,7 +276,8 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
             <thead>
               <tr className="bg-brand-dark">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Period</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total Depreciation</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total Allowances</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -302,13 +286,37 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
                   <td className="px-6 py-3 text-sm text-brand-dark">
                     {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')}
                   </td>
-                  <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(p.total_depreciation).toFixed(2)}</td>
+                  <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(p.total_allowances).toLocaleString()}</td>
+                  <td className="px-6 py-3">
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-green-100 text-green-700 capitalize">{p.status}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+function PoolTable({ title, data, extraRows }: { title: string; data: any; extraRows: { label: string; value: number }[] }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-2">{title}</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <span className="text-gray-500">Brought forward</span><span className="text-right text-brand-dark">£{data.bf.toFixed(2)}</span>
+        <span className="text-gray-500">Additions</span><span className="text-right text-brand-dark">£{data.additions.toFixed(2)}</span>
+        <span className="text-gray-500">Disposals</span><span className="text-right text-brand-dark">−£{data.disposals.toFixed(2)}</span>
+        {extraRows.map((r, i) => (
+          <Fragment key={i}>
+            <span className="text-gray-500">{r.label}</span>
+            <span className="text-right text-brand-dark">£{r.value.toFixed(2)}</span>
+          </Fragment>
+        ))}
+        <span className="text-gray-700 font-semibold pt-1 border-t border-gray-100">Carried forward</span>
+        <span className="text-right text-brand-dark font-semibold pt-1 border-t border-gray-100">£{data.cf.toFixed(2)}</span>
+      </div>
     </div>
   )
 }
