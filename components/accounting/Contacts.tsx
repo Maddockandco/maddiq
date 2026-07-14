@@ -87,7 +87,11 @@ export default function Contacts({ clientId }: { clientId: string }) {
   }
 
   function openNewForm() {
-    setForm(EMPTY_FORM)
+    setForm({
+      ...EMPTY_FORM,
+      is_customer: filter !== 'suppliers',
+      is_supplier: filter === 'suppliers',
+    })
     setEditingId(null)
     setError('')
     setFormOpen(true)
@@ -327,8 +331,28 @@ export default function Contacts({ clientId }: { clientId: string }) {
                 <input type="text" value={form.website} onChange={(e) => updateField('website', e.target.value)} placeholder="acme.com" className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Payment terms (days)</label>
-                <input type="number" value={form.payment_terms_days} onChange={(e) => updateField('payment_terms_days', e.target.value)} className={inputClass} />
+                <label className="block text-xs font-medium text-gray-500 mb-1">Payment terms</label>
+                <select
+                  value={['0', '14', '30', '60', '90'].includes(form.payment_terms_days) ? form.payment_terms_days : 'custom'}
+                  onChange={(e) => updateField('payment_terms_days', e.target.value === 'custom' ? '' : e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="0">Due on Receipt</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                  <option value="60">60 days</option>
+                  <option value="90">90 days</option>
+                  <option value="custom">Custom...</option>
+                </select>
+                {!['0', '14', '30', '60', '90'].includes(form.payment_terms_days) && (
+                  <input
+                    type="number"
+                    value={form.payment_terms_days}
+                    onChange={(e) => updateField('payment_terms_days', e.target.value)}
+                    placeholder="Number of days"
+                    className={`${inputClass} mt-2`}
+                  />
+                )}
               </div>
             </div>
           </div>
