@@ -33,6 +33,46 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   return { headers, rows }
 }
 
+function AccountSearchSelect({ accounts, value, onChange, placeholder }: { accounts: any[]; value: string; onChange: (id: string) => void; placeholder?: string }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const selected = accounts.find((a) => a.id === value)
+  const filtered = accounts
+    .filter((a) => !search || a.name.toLowerCase().includes(search.toLowerCase()) || a.code.includes(search))
+    .slice(0, 30)
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={open ? search : (selected ? `${selected.code} — ${selected.name}` : '')}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true) }}
+        onFocus={() => { setSearch(''); setOpen(true) }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder || 'Search accounts...'}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold bg-white"
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-gray-400 px-3 py-2">No matching accounts</p>
+          ) : filtered.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange(a.id); setSearch(''); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-brand-light transition"
+            >
+              {a.code} — {a.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function parseDate(raw: string, format: 'dmy' | 'ymd' | 'mdy'): string | null {
   const cleaned = raw.trim()
   const parts = cleaned.split(/[\/\-.]/)
@@ -592,6 +632,12 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     const matches = scored
     setTxnMatches((prev) => ({ ...prev, [txn.id]: matches }))
     setTxnMatchesLoaded((prev) => ({ ...prev, [txn.id]: true }))
+
+    // If the best match is a genuine exact-amount match, select it automatically -
+    // it's already the right one, no need to make the user click it first
+    if (matches.length > 0 && matches[0]._scoring?.amountDiff === 0) {
+      setTxnSelectedMatch((prev) => ({ ...prev, [txn.id]: matches[0] }))
+    }
   }
 
   function switchTxnPanel(txn: any, panel: 'match' | 'create' | 'comment') {
@@ -1329,7 +1375,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
             const learnedAccount = learnedRule ? allAccounts.find((a) => a.id === learnedRule.offset_account_id) : null
 
             return (
-              <div key={txn.id} className="grid grid-cols-1 lg:grid-cols-2 gap-0 rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+              <div key={txn.id} className={`grid grid-cols-1 lg:grid-cols-2 gap-0 rounded-2xl overflow-hidden transition ${selected ? 'border-2 border-brand-gold shadow-md' : 'border border-gray-200 shadow-sm'}`}>
                 {/* Left — the actual bank statement line */}
                 <div className={`p-5 bg-white border-b lg:border-b-0 lg:border-r border-gray-100 flex flex-col justify-center transition ${selected ? 'bg-brand-gold/10' : ''}`}>
                   <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Bank statement line</p>
@@ -1429,23 +1475,24 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                           <label className="block text-xs font-medium text-gray-500 mb-1">
                             £{selected._scoring.amountDiff.toFixed(2)} difference — where should this go? (e.g. Bank Charges)
                           </label>
-                          <select
-                            value={txnAddingAccount[txn.id] === 'match_diff' ? '__add_new__' : (txnMatchOffsetAccount[txn.id] || '')}
-                            onChange={(e) => {
+                          <AccountSearchSelect
+                            accounts={postableAccounts()}
+                            value={txnMatchOffsetAccount[txn.id] || ''}
+                            onChange={(id) => {
                               setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
-                              if (e.target.value === '__add_new__') {
-                                setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'match_diff' }))
-                              } else {
-                                setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
-                                setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
-                              }
+                              setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
+                              setTxnMatchOffsetAccount((prev) => ({ ...prev, [txn.id]: id }))
                             }}
-                            className={`${inputClass} w-full bg-white`}
-                          >
-                            <option value="">Select account</option>
-                            <option value="__add_new__">+ Add new account...</option>
-                            {postableAccounts().map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                          </select>
+                          />
+                          {txnAddingAccount[txn.id] !== 'match_diff' && (
+                            <button
+                              type="button"
+                              onClick={() => { setTxnError((prev) => ({ ...prev, [txn.id]: '' })); setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'match_diff' })) }}
+                              className="text-xs text-brand-dark hover:underline mt-1"
+                            >
+                              + Add new account
+                            </button>
+                          )}
 
                           {txnAddingAccount[txn.id] === 'match_diff' && (
                             <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2 mt-2">
@@ -1544,27 +1591,28 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-500 mb-1">Offset account (e.g. Bank Charges, Interest Received)</label>
-                        <select
-                          value={txnAddingAccount[txn.id] === 'create' ? '__add_new__' : (txnOffsetAccount[txn.id] || '')}
-                          onChange={(e) => {
+                        <AccountSearchSelect
+                          accounts={postableAccounts()}
+                          value={txnOffsetAccount[txn.id] || ''}
+                          onChange={(id) => {
                             setTxnError((prev) => ({ ...prev, [txn.id]: '' }))
-                            if (e.target.value === '__add_new__') {
-                              setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'create' }))
-                            } else {
-                              setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
-                              setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: e.target.value }))
-                              const account = allAccounts.find((a) => a.id === e.target.value)
-                              if (account && !(txn.id in txnVatRateId)) {
-                                setTxnVatRateId((prev) => ({ ...prev, [txn.id]: account.default_vat_rate_id || '' }))
-                              }
+                            setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: null }))
+                            setTxnOffsetAccount((prev) => ({ ...prev, [txn.id]: id }))
+                            const account = allAccounts.find((a) => a.id === id)
+                            if (account && !(txn.id in txnVatRateId)) {
+                              setTxnVatRateId((prev) => ({ ...prev, [txn.id]: account.default_vat_rate_id || '' }))
                             }
                           }}
-                          className={`${inputClass} w-full bg-white`}
-                        >
-                          <option value="">Select account</option>
-                          <option value="__add_new__">+ Add new account...</option>
-                          {postableAccounts().map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                        </select>
+                        />
+                        {txnAddingAccount[txn.id] !== 'create' && (
+                          <button
+                            type="button"
+                            onClick={() => { setTxnError((prev) => ({ ...prev, [txn.id]: '' })); setTxnAddingAccount((prev) => ({ ...prev, [txn.id]: 'create' })) }}
+                            className="text-xs text-brand-dark hover:underline mt-1"
+                          >
+                            + Add new account
+                          </button>
+                        )}
                       </div>
 
                       {txnAddingAccount[txn.id] === 'create' && (
