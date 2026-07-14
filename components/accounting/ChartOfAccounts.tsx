@@ -237,6 +237,11 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
 
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
+  const [seededTemplateKey, setSeededTemplateKey] = useState<string | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [missingAccounts, setMissingAccounts] = useState<any[] | null>(null)
+  const [applyingUpdates, setApplyingUpdates] = useState(false)
+  const [updateError, setUpdateError] = useState('')
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -272,6 +277,14 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .eq('client_id', clientId)
       .order('code', { ascending: true })
     if (data) setAccounts(data)
+
+    const { data: clientData } = await supabase
+      .from('clients')
+      .select('chart_of_accounts_template')
+      .eq('id', clientId)
+      .single()
+    if (clientData) setSeededTemplateKey(clientData.chart_of_accounts_template)
+
     setLoading(false)
   }
 
@@ -478,6 +491,129 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setSaving(false)
   }
 
+  async function wireUpAutomation(allCurrentAccounts: any[], codeToId: Record<string, string>, firmId: string) {
+    const categoryMappings = [
+      { category: 'Plant & Machinery', costName: 'Plant & Machinery at Cost', accumDepName: 'Accumulated Depreciation — Plant & Machinery', expenseName: 'Depreciation — Plant & Machinery' },
+      { category: 'Motor Vehicles', costName: 'Motor Vehicles at Cost', accumDepName: 'Accumulated Depreciation — Motor Vehicles', expenseName: 'Depreciation — Motor Vehicles' },
+      { category: 'Land & Buildings', costName: 'Land & Buildings at Cost', accumDepName: 'Accumulated Depreciation — Land & Buildings', expenseName: 'Depreciation — Land & Buildings' },
+      { category: 'Goodwill', costName: 'Goodwill at Cost', accumDepName: 'Accumulated Amortisation — Goodwill', expenseName: 'Amortisation — Goodwill' },
+    ]
+
+    for (const m of categoryMappings) {
+      const costAccount = allCurrentAccounts.find((row: any) => row.name === m.costName)
+      const accumDepAccount = allCurrentAccounts.find((row: any) => row.name === m.accumDepName)
+      const expenseAccount = allCurrentAccounts.find((row: any) => row.name === m.expenseName)
+
+      if (!costAccount && !accumDepAccount && !expenseAccount) continue
+
+      await supabase.from('depreciation_account_mappings').upsert({
+        firm_id: firmId,
+        client_id: clientId,
+        reporting_category: m.category,
+        cost_account_id: costAccount?.id || null,
+        accumulated_depreciation_account_id: accumDepAccount?.id || null,
+        depreciation_expense_account_id: expenseAccount?.id || null,
+      }, { onConflict: 'client_id,reporting_category' })
+    }
+
+    const { data: existingSettings } = await supabase
+      .from('accounting_settings')
+      .select('client_id')
+      .eq('client_id', clientId)
+      .maybeSingle()
+
+    const controlAccountsPayload = {
+      client_id: clientId,
+      firm_id: firmId,
+      debtors_account_id: codeToId['1100'] || null,
+      creditors_account_id: codeToId['2000'] || null,
+      vat_account_id: codeToId['2100'] || null,
+      default_sales_account_id: codeToId['4000'] || null,
+      default_purchase_account_id: codeToId['5000'] || null,
+      default_bank_account_id: codeToId['1000'] || null,
+    }
+
+    if (existingSettings) {
+      await supabase.from('accounting_settings').update(controlAccountsPayload).eq('client_id', clientId)
+    } else {
+      await supabase.from('accounting_settings').insert(controlAccountsPayload)
+    }
+  }
+
+  function checkForTemplateUpdates() {
+    setUpdateError('')
+    if (!seededTemplateKey || !INDUSTRY_TEMPLATES[seededTemplateKey]) {
+      setUpdateError("This client's original industry template isn't on record, so updates can't be checked automatically. Add any new accounts manually with + New Account.")
+      setMissingAccounts(null)
+      return
+    }
+    setCheckingUpdates(true)
+    const template = INDUSTRY_TEMPLATES[seededTemplateKey]
+    const existingCodes = new Set(accounts.map((a) => a.code))
+    const missing = template.accounts.filter((a) => !existingCodes.has(a.code))
+    setMissingAccounts(missing)
+    setCheckingUpdates(false)
+  }
+
+  async function applyTemplateUpdates() {
+    if (!missingAccounts || missingAccounts.length === 0 || !seededTemplateKey) return
+    setApplyingUpdates(true)
+    setUpdateError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase
+      .from('firm_users')
+      .select('firm_id')
+      .eq('user_id', user!.id)
+      .single()
+    if (!firmUser) { setUpdateError('Could not find your firm'); setApplyingUpdates(false); return }
+
+    const rows = missingAccounts.map((a) => ({
+      firm_id: firmUser.firm_id,
+      client_id: clientId,
+      code: a.code,
+      name: a.name,
+      account_type: a.account_type,
+      default_vat_rate_id: a.vatCode ? (vatRates.find((r) => r.code === a.vatCode)?.id || null) : null,
+    }))
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('chart_of_accounts')
+      .insert(rows)
+      .select()
+
+    if (insertError) { setUpdateError(insertError.message); setApplyingUpdates(false); return }
+
+    // Merge existing + newly-inserted accounts so parent references resolve correctly,
+    // whether the parent already existed or is also being added in this same batch
+    const codeToId: Record<string, string> = {}
+    accounts.forEach((row: any) => { codeToId[row.code] = row.id })
+    inserted.forEach((row: any) => { codeToId[row.code] = row.id })
+
+    const parentUpdates = missingAccounts
+      .filter((a) => a.parentCode)
+      .map((a) => ({ id: codeToId[a.code], parent_id: codeToId[a.parentCode!] }))
+      .filter((u) => u.id && u.parent_id)
+
+    for (const update of parentUpdates) {
+      await supabase.from('chart_of_accounts').update({ parent_id: update.parent_id }).eq('id', update.id)
+    }
+
+    await wireUpAutomation([...accounts, ...inserted], codeToId, firmUser.firm_id)
+
+    await logAudit({
+      entityType: 'chart_of_accounts',
+      entityId: clientId,
+      action: 'template_synced',
+      newData: inserted,
+      description: `Synced ${inserted.length} new account${inserted.length === 1 ? '' : 's'} from the "${INDUSTRY_TEMPLATES[seededTemplateKey].label}" template update`,
+    })
+
+    setMissingAccounts(null)
+    setApplyingUpdates(false)
+    fetchAccounts()
+  }
+
   async function handleSeedIndustryTemplate() {
     setSaving(true)
     setError('')
@@ -529,61 +665,10 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     // doesn't exist yet, so this just sets a sensible starting value on the client record.
     await supabase
       .from('clients')
-      .update({ vat_schemes_enabled: template.vatSchemes })
+      .update({ vat_schemes_enabled: template.vatSchemes, chart_of_accounts_template: selectedIndustry })
       .eq('id', clientId)
 
-    // Auto-wire the depreciation account mappings per category, so the Depreciation calculator
-    // and Fixed Asset Note never need manual account selection for a client seeded from a template
-    const categoryMappings = [
-      { category: 'Plant & Machinery', costName: 'Plant & Machinery at Cost', accumDepName: 'Accumulated Depreciation — Plant & Machinery', expenseName: 'Depreciation — Plant & Machinery' },
-      { category: 'Motor Vehicles', costName: 'Motor Vehicles at Cost', accumDepName: 'Accumulated Depreciation — Motor Vehicles', expenseName: 'Depreciation — Motor Vehicles' },
-      { category: 'Land & Buildings', costName: 'Land & Buildings at Cost', accumDepName: 'Accumulated Depreciation — Land & Buildings', expenseName: 'Depreciation — Land & Buildings' },
-      { category: 'Goodwill', costName: 'Goodwill at Cost', accumDepName: 'Accumulated Amortisation — Goodwill', expenseName: 'Amortisation — Goodwill' },
-    ]
-
-    for (const m of categoryMappings) {
-      const costAccount = inserted.find((row: any) => row.name === m.costName)
-      const accumDepAccount = inserted.find((row: any) => row.name === m.accumDepName)
-      const expenseAccount = inserted.find((row: any) => row.name === m.expenseName)
-
-      if (!costAccount && !accumDepAccount && !expenseAccount) continue
-
-      await supabase.from('depreciation_account_mappings').upsert({
-        firm_id: firmUser.firm_id,
-        client_id: clientId,
-        reporting_category: m.category,
-        cost_account_id: costAccount?.id || null,
-        accumulated_depreciation_account_id: accumDepAccount?.id || null,
-        depreciation_expense_account_id: expenseAccount?.id || null,
-      }, { onConflict: 'client_id,reporting_category' })
-    }
-
-    // Auto-wire the six control accounts, using the same codeToId lookup as the parent/child
-    // wiring above — every template uses consistent codes for these, so this removes the
-    // manual "map control accounts in Settings" step entirely. Property has no VAT account
-    // (VAT-exempt lettings), so vat_account_id will correctly stay null for that template.
-    const { data: existingSettings } = await supabase
-      .from('accounting_settings')
-      .select('client_id')
-      .eq('client_id', clientId)
-      .maybeSingle()
-
-    const controlAccountsPayload = {
-      client_id: clientId,
-      firm_id: firmUser.firm_id,
-      debtors_account_id: codeToId['1100'] || null,
-      creditors_account_id: codeToId['2000'] || null,
-      vat_account_id: codeToId['2100'] || null,
-      default_sales_account_id: codeToId['4000'] || null,
-      default_purchase_account_id: codeToId['5000'] || null,
-      default_bank_account_id: codeToId['1000'] || null,
-    }
-
-    if (existingSettings) {
-      await supabase.from('accounting_settings').update(controlAccountsPayload).eq('client_id', clientId)
-    } else {
-      await supabase.from('accounting_settings').insert(controlAccountsPayload)
-    }
+    await wireUpAutomation(inserted, codeToId, firmUser.firm_id)
 
     await logAudit({
       entityType: 'chart_of_accounts',
@@ -674,6 +759,15 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
               Choose Industry Template
             </button>
           )}
+          {accounts.length > 0 && !missingAccounts && (
+            <button
+              onClick={checkForTemplateUpdates}
+              disabled={checkingUpdates}
+              className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition disabled:opacity-50"
+            >
+              {checkingUpdates ? 'Checking...' : 'Check for Template Updates'}
+            </button>
+          )}
           {!formOpen && !showIndustryPicker && (
             <button
               onClick={openNewForm}
@@ -681,6 +775,50 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
             >
               + New Account
             </button>
+          )}
+        </div>
+      )}
+
+      {updateError && (
+        <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{updateError}</div>
+      )}
+
+      {missingAccounts && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          {missingAccounts.length === 0 ? (
+            <>
+              <p className="text-sm text-green-700 font-medium">✓ Up to date — no new accounts available from this template</p>
+              <button onClick={() => setMissingAccounts(null)} className="text-xs text-gray-500 hover:underline">Dismiss</button>
+            </>
+          ) : (
+            <>
+              <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
+                {missingAccounts.length} new account{missingAccounts.length === 1 ? '' : 's'} available
+              </h3>
+              <p className="text-xs text-gray-400">
+                These have been added to the "{INDUSTRY_TEMPLATES[seededTemplateKey!]?.label}" template since this client was set up.
+              </p>
+              <div className="space-y-1">
+                {missingAccounts.map((a) => (
+                  <div key={a.code} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-4 py-2">
+                    <span className="text-brand-dark">{a.code} — {a.name}</span>
+                    <span className="text-xs text-gray-400 capitalize">{a.account_type.replace(/_/g, ' ')}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={applyTemplateUpdates}
+                  disabled={applyingUpdates}
+                  className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+                >
+                  {applyingUpdates ? 'Adding...' : `Add ${missingAccounts.length} Account${missingAccounts.length === 1 ? '' : 's'}`}
+                </button>
+                <button onClick={() => setMissingAccounts(null)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+                  Cancel
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
