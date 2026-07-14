@@ -40,7 +40,7 @@ function today() {
   return new Date().toISOString().split('T')[0]
 }
 
-type AccountLine = { code: string; name: string; amount: number }
+type AccountLine = { code: string; name: string; amount: number; account_type?: string }
 
 export default function Reports({ clientId }: { clientId: string }) {
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
@@ -111,7 +111,7 @@ export default function Reports({ clientId }: { clientId: string }) {
         const { data: invoices } = await supabase.from('sales_invoices').select('id, total').in('id', invoiceIds)
         const { data: invoiceLines } = await supabase
           .from('sales_invoice_lines')
-          .select('invoice_id, income_account_id, line_total, chart_of_accounts(code, name)')
+          .select('invoice_id, income_account_id, line_total, chart_of_accounts(code, name, account_type)')
           .in('invoice_id', invoiceIds)
 
         const invoiceMap = new Map((invoices || []).map((i: any) => [i.id, i]))
@@ -128,7 +128,7 @@ export default function Reports({ clientId }: { clientId: string }) {
             const key = line.income_account_id || 'unmapped'
             const cashAmount = parseFloat(line.line_total) * proportion
             if (!incomeByAccount[key]) {
-              incomeByAccount[key] = { code: acc.code, name: acc.name, amount: 0 }
+              incomeByAccount[key] = { code: acc.code, name: acc.name, amount: 0, account_type: acc.account_type }
             }
             incomeByAccount[key].amount += cashAmount
           }
@@ -151,7 +151,7 @@ export default function Reports({ clientId }: { clientId: string }) {
         const { data: bills } = await supabase.from('purchase_bills').select('id, total').in('id', billIds)
         const { data: billLines } = await supabase
           .from('purchase_bill_lines')
-          .select('bill_id, expense_account_id, line_total, chart_of_accounts(code, name)')
+          .select('bill_id, expense_account_id, line_total, chart_of_accounts(code, name, account_type)')
           .in('bill_id', billIds)
 
         const billMap = new Map((bills || []).map((b: any) => [b.id, b]))
@@ -168,7 +168,7 @@ export default function Reports({ clientId }: { clientId: string }) {
             const key = line.expense_account_id || 'unmapped'
             const cashAmount = parseFloat(line.line_total) * proportion
             if (!expenseByAccount[key]) {
-              expenseByAccount[key] = { code: acc.code, name: acc.name, amount: 0 }
+              expenseByAccount[key] = { code: acc.code, name: acc.name, amount: 0, account_type: acc.account_type }
             }
             expenseByAccount[key].amount += cashAmount
           }
@@ -283,61 +283,73 @@ export default function Reports({ clientId }: { clientId: string }) {
 
   function renderProfitLoss() {
     const income = basis === 'cash'
-      ? cashIncome.map(a => ({ code: a.code, name: a.name, value: a.amount }))
-      : accountBalances('income').map(a => ({ code: a.code, name: a.name, value: a.credit - a.debit }))
+      ? cashIncome.map(a => ({ code: a.code, name: a.name, value: a.amount, account_type: a.account_type }))
+      : accountBalances('income').map(a => ({ code: a.code, name: a.name, value: a.credit - a.debit, account_type: a.account_type }))
     const expenses = basis === 'cash'
-      ? cashExpenses.map(a => ({ code: a.code, name: a.name, value: a.amount }))
-      : accountBalances('expense').map(a => ({ code: a.code, name: a.name, value: a.debit - a.credit }))
-    const incomeTotal = income.reduce((sum, a) => sum + a.value, 0)
-    const expenseTotal = expenses.reduce((sum, a) => sum + a.value, 0)
-    const netProfit = incomeTotal - expenseTotal
+      ? cashExpenses.map(a => ({ code: a.code, name: a.name, value: a.amount, account_type: a.account_type }))
+      : accountBalances('expense').map(a => ({ code: a.code, name: a.name, value: a.debit - a.credit, account_type: a.account_type }))
+
+    const turnover = income.filter((a) => ['sales', 'revenue'].includes(a.account_type || ''))
+    const otherIncome = income.filter((a) => a.account_type === 'other_income')
+    const costOfSales = expenses.filter((a) => a.account_type === 'direct_costs')
+    const operatingExpenses = expenses.filter((a) => ['expense', 'overhead', 'depreciation'].includes(a.account_type || ''))
+
+    const turnoverTotal = turnover.reduce((sum, a) => sum + a.value, 0)
+    const costOfSalesTotal = costOfSales.reduce((sum, a) => sum + a.value, 0)
+    const grossProfit = turnoverTotal - costOfSalesTotal
+    const operatingExpensesTotal = operatingExpenses.reduce((sum, a) => sum + a.value, 0)
+    const operatingProfit = grossProfit - operatingExpensesTotal
+    const otherIncomeTotal = otherIncome.reduce((sum, a) => sum + a.value, 0)
+    const profitBeforeTax = operatingProfit + otherIncomeTotal
+
+    function plSection(title: string, rows: typeof income, total: number, noDataLabel: string) {
+      return (
+        <div>
+          <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">{title}</p>
+          {rows.length === 0 ? (
+            <p className="text-sm text-gray-400">{noDataLabel}</p>
+          ) : (
+            <div className="space-y-1">
+              {rows.map((row) => (
+                <div key={row.code} className="flex justify-between text-sm">
+                  <span className="text-gray-600">{row.code} — {row.name}</span>
+                  <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-between text-sm font-semibold border-t border-gray-100 mt-2 pt-2">
+            <span className="text-brand-dark">Total {title}</span>
+            <span className="text-brand-dark">£{total.toFixed(2)}</span>
+          </div>
+        </div>
+      )
+    }
+
+    function plSubtotal(label: string, value: number) {
+      return (
+        <div className="flex justify-between text-sm font-bold bg-brand-light rounded-lg px-4 py-2">
+          <span className="text-brand-dark">{label}</span>
+          <span className="text-brand-dark">£{value.toFixed(2)}</span>
+        </div>
+      )
+    }
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
-        <div>
-          <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">Income</p>
-          {income.length === 0 ? (
-            <p className="text-sm text-gray-400">No income {basis === 'cash' ? 'received' : 'recorded'} in this period</p>
-          ) : (
-            <div className="space-y-1">
-              {income.map((row) => (
-                <div key={row.code} className="flex justify-between text-sm">
-                  <span className="text-gray-600">{row.code} — {row.name}</span>
-                  <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex justify-between text-sm font-semibold border-t border-gray-100 mt-2 pt-2">
-            <span className="text-brand-dark">Total Income</span>
-            <span className="text-brand-dark">£{incomeTotal.toFixed(2)}</span>
-          </div>
-        </div>
+        {plSection('Turnover', turnover, turnoverTotal, `No turnover ${basis === 'cash' ? 'received' : 'recorded'} in this period`)}
+        {plSection('Cost of Sales', costOfSales, costOfSalesTotal, `No cost of sales ${basis === 'cash' ? 'paid' : 'recorded'} in this period`)}
+        {plSubtotal('Gross Profit', grossProfit)}
 
-        <div>
-          <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">Expenses</p>
-          {expenses.length === 0 ? (
-            <p className="text-sm text-gray-400">No expenses {basis === 'cash' ? 'paid' : 'recorded'} in this period</p>
-          ) : (
-            <div className="space-y-1">
-              {expenses.map((row) => (
-                <div key={row.code} className="flex justify-between text-sm">
-                  <span className="text-gray-600">{row.code} — {row.name}</span>
-                  <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex justify-between text-sm font-semibold border-t border-gray-100 mt-2 pt-2">
-            <span className="text-brand-dark">Total Expenses</span>
-            <span className="text-brand-dark">£{expenseTotal.toFixed(2)}</span>
-          </div>
-        </div>
+        {plSection('Operating Expenses', operatingExpenses, operatingExpensesTotal, `No operating expenses ${basis === 'cash' ? 'paid' : 'recorded'} in this period`)}
+        {plSubtotal('Operating Profit', operatingProfit)}
 
-        <div className={`rounded-xl p-4 flex justify-between items-center ${netProfit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-          <span className="text-sm font-semibold text-brand-dark">{netProfit >= 0 ? 'Net Profit' : 'Net Loss'}</span>
-          <span className={`text-lg font-bold ${netProfit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            £{Math.abs(netProfit).toFixed(2)}
+        {plSection('Other Income', otherIncome, otherIncomeTotal, `No other income ${basis === 'cash' ? 'received' : 'recorded'} in this period`)}
+
+        <div className={`rounded-xl p-4 flex justify-between items-center ${profitBeforeTax >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+          <span className="text-sm font-semibold text-brand-dark">{profitBeforeTax >= 0 ? 'Profit Before Tax' : 'Loss Before Tax'}</span>
+          <span className={`text-lg font-bold ${profitBeforeTax >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            £{Math.abs(profitBeforeTax).toFixed(2)}
           </span>
         </div>
       </div>
