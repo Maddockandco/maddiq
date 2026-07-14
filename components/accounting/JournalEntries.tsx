@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
   account_id: string
@@ -38,6 +39,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedLines, setExpandedLines] = useState<any[]>([])
   const { can } = useRole()
@@ -118,22 +120,18 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     return { totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0 }
   }
 
-  async function handleSave() {
-    setSaving(true)
+  function handleSaveClick() {
     setError('')
-
     const { totalDebit, totalCredit, isBalanced } = calculateBalance()
 
     if (!isBalanced) {
       setError(`Entry does not balance — Debits £${totalDebit.toFixed(2)} vs Credits £${totalCredit.toFixed(2)}`)
-      setSaving(false)
       return
     }
 
     const validLines = lines.filter((l) => l.account_id && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0))
     if (validLines.length < 2) {
       setError('At least two lines with an account and amount are required')
-      setSaving(false)
       return
     }
 
@@ -141,9 +139,18 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     const hasInvalidAccount = validLines.some((l) => !accountIds.has(l.account_id))
     if (hasInvalidAccount) {
       setError('One or more selected accounts are not valid for manual journal entries (bank accounts are not allowed here)')
-      setSaving(false)
       return
     }
+
+    setShowConfirm(true)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setError('')
+
+    const { totalDebit, totalCredit } = calculateBalance()
+    const validLines = lines.filter((l) => l.account_id && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0))
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -151,7 +158,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .select('firm_id, id')
       .eq('user_id', user!.id)
       .single()
-    if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
+    if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
 
     const { data: entry, error: entryError } = await supabase
       .from('journal_entries')
@@ -167,7 +174,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .select()
       .single()
 
-    if (entryError) { setError(entryError.message); setSaving(false); return }
+    if (entryError) { setError(entryError.message); setSaving(false); setShowConfirm(false); return }
 
     const linesToInsert = validLines.map((l, i) => ({
       journal_entry_id: entry.id,
@@ -183,7 +190,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .insert(linesToInsert)
       .select('*, chart_of_accounts(code, name)')
 
-    if (linesError) { setError(linesError.message); setSaving(false); return }
+    if (linesError) { setError(linesError.message); setSaving(false); setShowConfirm(false); return }
 
     await logAudit({
       entityType: 'journal_entry',
@@ -193,6 +200,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       description: `Posted manual journal entry${reference ? ` "${reference}"` : ''} dated ${new Date(entryDate).toLocaleDateString('en-GB')} — ${validLines.length} lines, £${totalDebit.toFixed(2)} total${description ? `: ${description}` : ''}`,
     })
 
+    setShowConfirm(false)
     setCreating(false)
     setEntryDate(new Date().toISOString().split('T')[0])
     setReference('')
@@ -344,7 +352,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving || !isBalanced}
+            <button onClick={handleSaveClick} disabled={saving || !isBalanced}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
               {saving ? 'Posting...' : 'Post journal entry'}
             </button>
@@ -355,6 +363,16 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={showConfirm}
+        title="Post this journal entry?"
+        message={`${new Date(entryDate).toLocaleDateString('en-GB')}${reference ? ` · ${reference}` : ''} — Debits and credits each total £${calculateBalance().totalDebit.toFixed(2)}. Once posted, this becomes part of the permanent ledger.`}
+        confirmLabel="Post entry"
+        confirming={saving}
+        onConfirm={handleSave}
+        onCancel={() => setShowConfirm(false)}
+      />
 
       {entries.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
