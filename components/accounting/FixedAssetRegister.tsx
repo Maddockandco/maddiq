@@ -14,6 +14,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   car_main_rate: 'Car — Main Rate (≤50g/km CO₂)',
   car_special_rate: 'Car — Special Rate (>50g/km CO₂)',
   structures_buildings: 'Structures & Buildings',
+  goodwill: 'Goodwill (no capital allowances — amortised only)',
 }
 
 const CAR_CATEGORIES = ['car_zero_emission', 'car_main_rate', 'car_special_rate']
@@ -174,6 +175,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
     const { gainLoss } = calculateDisposalGainLoss({
       id: disposingAsset.id,
       description: disposingAsset.description,
+      category: disposingAsset.category,
       cost: parseFloat(disposingAsset.cost),
       date_acquired: disposingAsset.date_acquired,
       date_disposed: disposalDate,
@@ -409,6 +411,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
               const { nbv, gainLoss } = calculateDisposalGainLoss({
                 id: disposingAsset.id,
                 description: disposingAsset.description,
+                category: disposingAsset.category,
                 cost: parseFloat(disposingAsset.cost),
                 date_acquired: disposingAsset.date_acquired,
                 date_disposed: disposalDate,
