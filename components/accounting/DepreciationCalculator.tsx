@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
-import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateDepreciation } from '@/lib/depreciation'
+import { getNextAccountingPeriod } from '@/lib/accountingPeriods'
 
 export default function DepreciationCalculator({ clientId }: { clientId: string }) {
   const supabase = createClient()
@@ -14,9 +14,9 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
   const [periods, setPeriods] = useState<any[]>([])
   const [assets, setAssets] = useState<any[]>([])
   const [allAccounts, setAllAccounts] = useState<any[]>([])
+  const [yearEndDate, setYearEndDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [creatingPeriod, setCreatingPeriod] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
   const [expenseAccountId, setExpenseAccountId] = useState('')
@@ -30,51 +30,54 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
   async function fetchAll() {
     setLoading(true)
-    const [periodsRes, assetsRes, accountsRes] = await Promise.all([
+    const [periodsRes, assetsRes, accountsRes, clientRes] = await Promise.all([
       supabase.from('depreciation_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
       supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('clients').select('year_end_date').eq('id', clientId).single(),
     ])
-    if (periodsRes.data) setPeriods(periodsRes.data)
-    if (assetsRes.data) setAssets(assetsRes.data)
+    const periodsData = periodsRes.data || []
+    const assetsData = assetsRes.data || []
+    setPeriods(periodsData)
+    setAssets(assetsData)
     if (accountsRes.data) {
       const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
       setAllAccounts(accountsRes.data.filter((a) => !parentIds.has(a.id)))
     }
+    const yearEnd = clientRes.data?.year_end_date || null
+    setYearEndDate(yearEnd)
     setLoading(false)
+
+    // Automatically show the current period's calculation - no click needed to see it
+    autoRunCurrentPeriod(periodsData, assetsData, yearEnd)
+  }
+
+  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null) {
+    const lastPeriod = periodsData[0]
+    const earliestAssetDate = assetsData.length > 0
+      ? assetsData.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assetsData[0].date_acquired)
+      : null
+
+    const { start, end } = getNextAccountingPeriod({
+      yearEndDate: yearEnd,
+      lastFinalizedPeriodEnd: lastPeriod ? lastPeriod.period_end : null,
+      earliestAssetDate,
+    })
+
+    setPeriodStart(start)
+    setPeriodEnd(end)
+    runCalculationFor(start, end, assetsData)
   }
 
   function openNewPeriod() {
     setError('')
-    setResult(null)
-    const lastPeriod = periods[0]
-    if (lastPeriod) {
-      const nextStart = new Date(lastPeriod.period_end)
-      nextStart.setDate(nextStart.getDate() + 1)
-      const nextEnd = new Date(nextStart)
-      nextEnd.setFullYear(nextEnd.getFullYear() + 1)
-      nextEnd.setDate(nextEnd.getDate() - 1)
-      setPeriodStart(nextStart.toISOString().split('T')[0])
-      setPeriodEnd(nextEnd.toISOString().split('T')[0])
-    } else {
-      setPeriodStart(new Date().toISOString().split('T')[0])
-      const end = new Date()
-      end.setFullYear(end.getFullYear() + 1)
-      end.setDate(end.getDate() - 1)
-      setPeriodEnd(end.toISOString().split('T')[0])
-    }
-    setCreatingPeriod(true)
+    autoRunCurrentPeriod(periods, assets, yearEndDate)
   }
 
-  function runCalculation() {
-    setError('')
-    if (!periodStart || !periodEnd || new Date(periodEnd) <= new Date(periodStart)) {
-      setError('Enter a valid period start and end date')
-      return
-    }
-
+  function runCalculationFor(start: string, end: string, assetsData?: any[]) {
+    const source = assetsData || assets
     const calc = calculateDepreciation({
-      assets: assets.map((a) => ({
+      assets: source.map((a) => ({
         id: a.id,
         description: a.description,
         cost: parseFloat(a.cost),
@@ -86,8 +89,8 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
         depreciation_rate_percent: a.depreciation_rate_percent != null ? parseFloat(a.depreciation_rate_percent) : null,
         accumulated_depreciation: parseFloat(a.accumulated_depreciation || 0),
       })),
-      periodStart,
-      periodEnd,
+      periodStart: start,
+      periodEnd: end,
     })
 
     setResult(calc)
@@ -169,7 +172,6 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
     })
 
     setShowConfirm(false)
-    setCreatingPeriod(false)
     setResult(null)
     setSaving(false)
     fetchAll()
@@ -189,34 +191,26 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
       </div>
 
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Depreciation Periods</h3>
-        {can.manageEngagements && !creatingPeriod && (
-          <button onClick={openNewPeriod} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-            + New Period
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Current Period</h3>
+        {can.manageEngagements && (
+          <button onClick={openNewPeriod} className="bg-gray-100 text-brand-dark font-semibold px-4 py-2 rounded-xl text-xs hover:bg-gray-200 transition">
+            Recalculate
           </button>
         )}
       </div>
 
-      {creatingPeriod && (
+      {periodStart && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Period Start</label>
-              <DatePicker value={periodStart} onChange={setPeriodStart} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Period End</label>
-              <DatePicker value={periodEnd} onChange={setPeriodEnd} />
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={runCalculation} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-              Calculate
-            </button>
-            <button onClick={() => { setCreatingPeriod(false); setResult(null) }} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
-              Cancel
-            </button>
+
+          <div className="bg-brand-light rounded-xl p-4">
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Accounting Period (auto-detected from year-end)</p>
+            <p className="text-base font-semibold text-brand-dark">
+              {new Date(periodStart).toLocaleDateString('en-GB')} – {new Date(periodEnd).toLocaleDateString('en-GB')}
+            </p>
+            {!yearEndDate && (
+              <p className="text-xs text-amber-600 mt-1">No year-end date is set for this client — defaulted to 31 March. Set the client's year-end in their details for accurate periods.</p>
+            )}
           </div>
 
           {result && (
@@ -291,13 +285,13 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
         onCancel={() => setShowConfirm(false)}
       />
 
-      {!creatingPeriod && periods.length === 0 && (
+      {periods.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
           <p className="text-sm text-gray-400">No depreciation posted yet</p>
         </div>
       )}
 
-      {!creatingPeriod && periods.length > 0 && (
+      {periods.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <table className="w-full">
             <thead>
