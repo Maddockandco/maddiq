@@ -270,16 +270,56 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
       />
 
       {disposingAsset && (
-        <ConfirmModal
-          isOpen={!!disposingAsset}
-          title={`Dispose of "${disposingAsset.description}"?`}
-          message="Enter the disposal proceeds — this will be needed later to calculate any balancing charge or allowance."
-          confirmLabel="Record Disposal"
-          confirming={disposing}
-          danger
-          onConfirm={handleDispose}
-          onCancel={() => setDisposingAsset(null)}
-        />
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-brand-dark">Dispose of "{disposingAsset.description}"?</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                This will be needed later to calculate any balancing charge or allowance.
+              </p>
+            </div>
+            {disposalError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">{disposalError}</div>}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Disposal Date</label>
+              <DatePicker value={disposalDate} onChange={setDisposalDate} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Disposal Proceeds (£)</label>
+              <input
+                type="number"
+                value={disposalProceeds}
+                onChange={(e) => setDisposalProceeds(e.target.value)}
+                className={inputClass}
+                placeholder="Enter 0 if scrapped with no value"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reason (optional)</label>
+              <textarea
+                value={disposalReason}
+                onChange={(e) => setDisposalReason(e.target.value)}
+                rows={2}
+                className={inputClass}
+                placeholder="e.g. sold, scrapped, traded in"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDispose}
+                disabled={disposing}
+                className="flex-1 bg-red-600 text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
+              >
+                {disposing ? 'Recording...' : 'Record Disposal'}
+              </button>
+              <button
+                onClick={() => setDisposingAsset(null)}
+                className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {loading ? (
