@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
   account_id: string
@@ -23,6 +24,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
   const { can } = useRole()
   const supabase = createClient()
 
@@ -91,24 +93,30 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
     return { totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0 }
   }
 
-  async function handleSave() {
-    setSaving(true)
+  function handleSaveClick() {
     setError('')
-
     const { totalDebit, totalCredit, isBalanced } = calculateBalance()
 
     if (!isBalanced) {
       setError(`Opening balances do not balance — Debits £${totalDebit.toFixed(2)} vs Credits £${totalCredit.toFixed(2)}. This should match your client's trial balance as at the conversion date exactly.`)
-      setSaving(false)
       return
     }
 
     const validLines = lines.filter((l) => l.account_id && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0))
     if (validLines.length < 1) {
       setError('At least one account with a balance is required')
-      setSaving(false)
       return
     }
+
+    setShowConfirm(true)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setError('')
+
+    const { totalDebit, totalCredit } = calculateBalance()
+    const validLines = lines.filter((l) => l.account_id && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0))
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -116,7 +124,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
       .select('firm_id, id')
       .eq('user_id', user!.id)
       .single()
-    if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
+    if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
 
     const { data: entry, error: entryError } = await supabase
       .from('journal_entries')
@@ -132,7 +140,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
       .select()
       .single()
 
-    if (entryError) { setError(entryError.message); setSaving(false); return }
+    if (entryError) { setError(entryError.message); setSaving(false); setShowConfirm(false); return }
 
     const linesToInsert = validLines.map((l, i) => ({
       journal_entry_id: entry.id,
@@ -148,7 +156,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
       .insert(linesToInsert)
       .select('*, chart_of_accounts(code, name)')
 
-    if (linesError) { setError(linesError.message); setSaving(false); return }
+    if (linesError) { setError(linesError.message); setSaving(false); setShowConfirm(false); return }
 
     await logAudit({
       entityType: 'journal_entry',
@@ -158,6 +166,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
       description: `Recorded opening balances as at ${new Date(conversionDate).toLocaleDateString('en-GB')} — ${validLines.length} accounts, £${totalDebit.toFixed(2)} total`,
     })
 
+    setShowConfirm(false)
     setCreating(false)
     setConversionDate(new Date().toISOString().split('T')[0])
     setLines([
@@ -278,7 +287,7 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
           </div>
 
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving || !isBalanced}
+            <button onClick={handleSaveClick} disabled={saving || !isBalanced}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
               {saving ? 'Saving...' : 'Save opening balances'}
             </button>
@@ -289,6 +298,16 @@ export default function OpeningBalances({ clientId }: { clientId: string }) {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={showConfirm}
+        title="Record these opening balances?"
+        message={`As at ${new Date(conversionDate).toLocaleDateString('en-GB')} — Debits and credits each total £${calculateBalance().totalDebit.toFixed(2)}. This sets the client's starting position and becomes part of the permanent ledger.`}
+        confirmLabel="Record opening balances"
+        confirming={saving}
+        onConfirm={handleSave}
+        onCancel={() => setShowConfirm(false)}
+      />
 
       {existingEntries.length > 0 && !creating && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
