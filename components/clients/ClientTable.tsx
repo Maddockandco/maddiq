@@ -9,6 +9,12 @@ const TYPE_ICONS: Record<string, any> = {
   partnership: Users,
 }
 
+const TYPE_STYLES: Record<string, string> = {
+  company: 'bg-blue-50 text-blue-700',
+  individual: 'bg-purple-50 text-purple-700',
+  partnership: 'bg-amber-50 text-amber-700',
+}
+
 
 export default function ClientTable({ clients }: { clients: any[] }) {
   return (
@@ -36,8 +42,8 @@ export default function ClientTable({ clients }: { clients: any[] }) {
                     </Link>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="inline-flex items-center gap-1.5 text-sm text-gray-600 capitalize">
-                      <TypeIcon size={14} className="text-gray-400" />
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${TYPE_STYLES[client.type] || 'bg-gray-100 text-gray-600'}`}>
+                      <TypeIcon size={13} />
                       {client.type}
                     </span>
                   </td>
