@@ -23,6 +23,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [result, setResult] = useState<any>(null)
+  const [viewingPeriod, setViewingPeriod] = useState<any>(null)
 
   useEffect(() => { fetchAll() }, [clientId])
 
@@ -93,6 +94,55 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
   function mappingFor(category: string) {
     return mappings.find((m) => m.reporting_category === category)
+  }
+
+  function renderBreakdownTable(categoryBreakdown: any[], totalDepreciation: number) {
+    return (
+      <>
+        <div className="bg-brand-light rounded-xl p-4">
+          <p className="text-2xl font-bold text-brand-dark">Total depreciation: £{totalDepreciation.toFixed(2)}</p>
+        </div>
+
+        {categoryBreakdown.map((c: any) => {
+          const m = mappingFor(c.category)
+          const hasMapping = m && m.depreciation_expense_account_id && m.accumulated_depreciation_account_id
+          return (
+            <div key={c.category} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                <p className="text-sm font-semibold text-brand-dark">{c.category}</p>
+                {c.charge !== 0 && !hasMapping && (
+                  <span className="text-xs text-red-600">No account mapping set up</span>
+                )}
+              </div>
+              <table className="w-full text-sm">
+                <tbody>
+                  <tr className="border-t border-gray-100">
+                    <td className="px-4 py-2 text-gray-500" colSpan={2}>Cost</td>
+                  </tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.costBf.toFixed(2)}</td></tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Additions</td><td className="px-4 py-1 text-right text-green-700">£{c.costAdditions.toFixed(2)}</td></tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Disposals</td><td className="px-4 py-1 text-right text-red-600">−£{c.costDisposals.toFixed(2)}</td></tr>
+                  <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.costCf.toFixed(2)}</td></tr>
+
+                  <tr className="border-t border-gray-100">
+                    <td className="px-4 py-2 text-gray-500" colSpan={2}>Depreciation</td>
+                  </tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.accumDepBf.toFixed(2)}</td></tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Charge for period</td><td className="px-4 py-1 text-right text-red-600">£{c.charge.toFixed(2)}</td></tr>
+                  <tr><td className="px-4 py-1 pl-8 text-gray-500">Eliminated on disposal</td><td className="px-4 py-1 text-right text-green-700">−£{c.accumDepDisposals.toFixed(2)}</td></tr>
+                  <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.accumDepCf.toFixed(2)}</td></tr>
+
+                  <tr className="border-t border-gray-100 bg-brand-light/40">
+                    <td className="px-4 py-2 font-semibold text-brand-dark">Net Book Value (period end)</td>
+                    <td className="px-4 py-2 text-right font-semibold text-brand-dark">£{c.nbvCf.toFixed(2)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </>
+    )
   }
 
   function handlePostClick() {
@@ -226,48 +276,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
                 <p className="text-sm text-gray-400">No depreciable assets found for this period (check assets have a depreciation method and useful life set)</p>
               ) : (
                 <>
-                  <div className="bg-brand-light rounded-xl p-4">
-                    <p className="text-2xl font-bold text-brand-dark">Total depreciation: £{result.totalDepreciation.toFixed(2)}</p>
-                  </div>
-
-                  {result.categoryBreakdown.map((c: any) => {
-                    const m = mappingFor(c.category)
-                    const hasMapping = m && m.depreciation_expense_account_id && m.accumulated_depreciation_account_id
-                    return (
-                      <div key={c.category} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
-                          <p className="text-sm font-semibold text-brand-dark">{c.category}</p>
-                          {c.charge !== 0 && !hasMapping && (
-                            <span className="text-xs text-red-600">No account mapping set up</span>
-                          )}
-                        </div>
-                        <table className="w-full text-sm">
-                          <tbody>
-                            <tr className="border-t border-gray-100">
-                              <td className="px-4 py-2 text-gray-500" colSpan={2}>Cost</td>
-                            </tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.costBf.toFixed(2)}</td></tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Additions</td><td className="px-4 py-1 text-right text-green-700">£{c.costAdditions.toFixed(2)}</td></tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Disposals</td><td className="px-4 py-1 text-right text-red-600">−£{c.costDisposals.toFixed(2)}</td></tr>
-                            <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.costCf.toFixed(2)}</td></tr>
-
-                            <tr className="border-t border-gray-100">
-                              <td className="px-4 py-2 text-gray-500" colSpan={2}>Depreciation</td>
-                            </tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Brought forward</td><td className="px-4 py-1 text-right text-brand-dark">£{c.accumDepBf.toFixed(2)}</td></tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Charge for period</td><td className="px-4 py-1 text-right text-red-600">£{c.charge.toFixed(2)}</td></tr>
-                            <tr><td className="px-4 py-1 pl-8 text-gray-500">Eliminated on disposal</td><td className="px-4 py-1 text-right text-green-700">−£{c.accumDepDisposals.toFixed(2)}</td></tr>
-                            <tr className="border-t border-gray-50"><td className="px-4 py-1 pl-8 font-medium text-brand-dark">Carried forward</td><td className="px-4 py-1 text-right font-medium text-brand-dark">£{c.accumDepCf.toFixed(2)}</td></tr>
-
-                            <tr className="border-t border-gray-100 bg-brand-light/40">
-                              <td className="px-4 py-2 font-semibold text-brand-dark">Net Book Value (period end)</td>
-                              <td className="px-4 py-2 text-right font-semibold text-brand-dark">£{c.nbvCf.toFixed(2)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    )
-                  })}
+                  {renderBreakdownTable(result.categoryBreakdown, result.totalDepreciation)}
 
                   {can.manageEngagements && (
                     <button onClick={handlePostClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
@@ -308,7 +317,11 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
             </thead>
             <tbody>
               {periods.map((p, i) => (
-                <tr key={p.id} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                <tr
+                  key={p.id}
+                  onClick={() => setViewingPeriod(viewingPeriod?.id === p.id ? null : p)}
+                  className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light transition ${viewingPeriod?.id === p.id ? 'bg-brand-gold/10' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                >
                   <td className="px-6 py-3 text-sm text-brand-dark">
                     {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')}
                   </td>
@@ -317,6 +330,21 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {viewingPeriod && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
+              {new Date(viewingPeriod.period_start).toLocaleDateString('en-GB')} – {new Date(viewingPeriod.period_end).toLocaleDateString('en-GB')} (posted)
+            </h3>
+            <button onClick={() => setViewingPeriod(null)} className="text-xs text-gray-500 hover:underline">Close</button>
+          </div>
+          {viewingPeriod.category_breakdown && viewingPeriod.category_breakdown.length > 0
+            ? renderBreakdownTable(viewingPeriod.category_breakdown, parseFloat(viewingPeriod.total_depreciation))
+            : <p className="text-sm text-gray-400">No category breakdown was stored for this period (posted before this feature was added).</p>
+          }
         </div>
       )}
     </div>
