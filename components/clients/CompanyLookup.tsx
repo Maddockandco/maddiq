@@ -57,21 +57,25 @@ export default function CompanyLookup({ onFound }: Props) {
     params.set('company_status', 'active')
     if (industryLocation.trim()) params.set('location', industryLocation.trim())
 
-    const response = await fetch(`/api/companies-house/advanced-search?${params.toString()}`)
-    const data = await response.json()
+    try {
+      const response = await fetch(`/api/companies-house/advanced-search?${params.toString()}`)
+      const data = await response.json()
 
-    if (!response.ok) {
-      setError(data.error || 'Search failed')
+      if (!response.ok) {
+        setError(data.error || 'Search failed')
+        return
+      }
+
+      if (!data.companies || data.companies.length === 0) {
+        setError('No active companies found for that industry' + (industryLocation ? ' and location' : ''))
+      } else {
+        setResults(data.companies)
+      }
+    } catch (err: any) {
+      setError('Something went wrong reaching Companies House: ' + err.message)
+    } finally {
       setLoading(false)
-      return
     }
-
-    if (!data.companies || data.companies.length === 0) {
-      setError('No active companies found for that industry' + (industryLocation ? ' and location' : ''))
-    } else {
-      setResults(data.companies)
-    }
-    setLoading(false)
   }
 
   async function handleSelectResult(number: string) {
