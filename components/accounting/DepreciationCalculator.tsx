@@ -15,6 +15,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
   const [assets, setAssets] = useState<any[]>([])
   const [mappings, setMappings] = useState<any[]>([])
   const [yearEndDate, setYearEndDate] = useState<string | null>(null)
+  const [cadence, setCadence] = useState<'annual' | 'monthly'>('annual')
   const [loading, setLoading] = useState(true)
 
   const [periodStart, setPeriodStart] = useState('')
@@ -29,11 +30,12 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
   async function fetchAll() {
     setLoading(true)
-    const [periodsRes, assetsRes, mappingsRes, clientRes] = await Promise.all([
+    const [periodsRes, assetsRes, mappingsRes, clientRes, settingsRes] = await Promise.all([
       supabase.from('depreciation_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
       supabase.from('depreciation_account_mappings').select('*').eq('client_id', clientId),
       supabase.from('clients').select('year_end_date').eq('id', clientId).single(),
+      supabase.from('accounting_settings').select('depreciation_cadence').eq('client_id', clientId).maybeSingle(),
     ])
     const periodsData = periodsRes.data || []
     const assetsData = assetsRes.data || []
@@ -42,12 +44,23 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
     setMappings(mappingsRes.data || [])
     const yearEnd = clientRes.data?.year_end_date || null
     setYearEndDate(yearEnd)
+    const savedCadence = (settingsRes.data?.depreciation_cadence as 'annual' | 'monthly') || 'annual'
+    setCadence(savedCadence)
     setLoading(false)
 
-    autoRunCurrentPeriod(periodsData, assetsData, yearEnd)
+    autoRunCurrentPeriod(periodsData, assetsData, yearEnd, savedCadence)
   }
 
-  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null) {
+  async function handleCadenceChange(newCadence: 'annual' | 'monthly') {
+    setCadence(newCadence)
+    const { data: existing } = await supabase.from('accounting_settings').select('client_id').eq('client_id', clientId).maybeSingle()
+    if (existing) {
+      await supabase.from('accounting_settings').update({ depreciation_cadence: newCadence }).eq('client_id', clientId)
+    }
+    autoRunCurrentPeriod(periods, assets, yearEndDate, newCadence)
+  }
+
+  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null, cadenceOverride?: 'annual' | 'monthly') {
     const lastPeriod = periodsData[0]
     const earliestAssetDate = assetsData.length > 0
       ? assetsData.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assetsData[0].date_acquired)
@@ -57,6 +70,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
       yearEndDate: yearEnd,
       lastFinalizedPeriodEnd: lastPeriod ? lastPeriod.period_end : null,
       earliestAssetDate,
+      cadence: cadenceOverride || cadence,
     })
 
     setPeriodStart(start)
@@ -249,11 +263,26 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Current Period</h3>
-        {can.manageEngagements && (
-          <button onClick={openNewPeriod} className="bg-gray-100 text-brand-dark font-semibold px-4 py-2 rounded-xl text-xs hover:bg-gray-200 transition">
-            Recalculate
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {can.manageEngagements && (
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {(['annual', 'monthly'] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => handleCadenceChange(c)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition capitalize ${cadence === c ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {can.manageEngagements && (
+            <button onClick={openNewPeriod} className="bg-gray-100 text-brand-dark font-semibold px-4 py-2 rounded-xl text-xs hover:bg-gray-200 transition">
+              Recalculate
+            </button>
+          )}
+        </div>
       </div>
 
       {periodStart && (
