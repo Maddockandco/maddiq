@@ -24,6 +24,7 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
   const [showConfirm, setShowConfirm] = useState(false)
 
   const [result, setResult] = useState<any>(null)
+  const [viewingPeriod, setViewingPeriod] = useState<any>(null)
 
   useEffect(() => { fetchAll() }, [clientId])
 
@@ -196,59 +197,7 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
 
           {result && (
             <div className="space-y-4 pt-4 border-t border-gray-100">
-              <div className="bg-brand-light rounded-xl p-4">
-                <p className="text-xs text-gray-500">AIA available this period: £{result.aiaLimit.toLocaleString()} · Used: £{result.aiaUsed.toLocaleString()}</p>
-                <p className="text-2xl font-bold text-brand-dark mt-1">Total allowances: £{result.totalAllowances.toLocaleString()}</p>
-              </div>
-
-              {result.balancingCharges.length > 0 && (
-                <div className="bg-red-50 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-red-700 mb-1">Balancing charges</p>
-                  {result.balancingCharges.map((b: any, i: number) => (
-                    <p key={i} className="text-xs text-red-600">{b.asset}: £{b.amount.toFixed(2)} — {b.reason}</p>
-                  ))}
-                </div>
-              )}
-
-              {result.fullReliefDisposalWarnings.length > 0 && (
-                <div className="bg-amber-50 rounded-lg p-3 space-y-1">
-                  {result.fullReliefDisposalWarnings.map((w: string, i: number) => (
-                    <p key={i} className="text-xs text-amber-700">{w}</p>
-                  ))}
-                </div>
-              )}
-
-              <PoolTable title="Main Pool" data={result.mainPool} extraRows={[
-                { label: 'Full Expensing', value: result.mainPool.fullExpensing },
-                { label: 'AIA', value: result.mainPool.aia },
-                { label: '40% FYA', value: result.mainPool.fya40 },
-                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.mainPool.wda },
-              ]} />
-
-              <PoolTable title="Special Rate Pool" data={result.specialRatePool} extraRows={[
-                { label: 'AIA', value: result.specialRatePool.aia },
-                { label: '50% Special Rate Allowance', value: result.specialRatePool.srAllowance },
-                { label: 'WDA (6%)', value: result.specialRatePool.wda },
-              ]} />
-
-              <PoolTable title="Car — Main Rate Pool" data={result.carMainRatePool} extraRows={[
-                { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.carMainRatePool.wda },
-              ]} />
-
-              <PoolTable title="Car — Special Rate Pool" data={result.carSpecialRatePool} extraRows={[
-                { label: 'WDA (6%)', value: result.carSpecialRatePool.wda },
-              ]} />
-
-              <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-gray-400">Zero-emission cars (100% FYA)</p>
-                  <p className="text-sm font-semibold text-brand-dark">£{result.carZeroEmissionFya.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Structures & Buildings ({result.sbaAssetCount} building{result.sbaAssetCount === 1 ? '' : 's'})</p>
-                  <p className="text-sm font-semibold text-brand-dark">£{result.sbaClaimed.toFixed(2)}</p>
-                </div>
-              </div>
+              {renderAllowancesBreakdown(result)}
 
               {can.manageEngagements && (
                 <button onClick={() => setShowConfirm(true)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
@@ -289,7 +238,11 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
             </thead>
             <tbody>
               {periods.map((p, i) => (
-                <tr key={p.id} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                <tr
+                  key={p.id}
+                  onClick={() => setViewingPeriod(viewingPeriod?.id === p.id ? null : p)}
+                  className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light transition ${viewingPeriod?.id === p.id ? 'bg-brand-gold/10' : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                >
                   <td className="px-6 py-3 text-sm text-brand-dark">
                     {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')}
                   </td>
@@ -303,8 +256,118 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
           </table>
         </div>
       )}
+
+      {viewingPeriod && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
+              {new Date(viewingPeriod.period_start).toLocaleDateString('en-GB')} – {new Date(viewingPeriod.period_end).toLocaleDateString('en-GB')} (finalized)
+            </h3>
+            <button onClick={() => setViewingPeriod(null)} className="text-xs text-gray-500 hover:underline">Close</button>
+          </div>
+          {renderAllowancesBreakdown(historicalResultFrom(viewingPeriod))}
+        </div>
+      )}
     </div>
   )
+}
+
+function renderAllowancesBreakdown(result: any) {
+  return (
+    <>
+      <div className="bg-brand-light rounded-xl p-4">
+        {result.aiaLimit != null && (
+          <p className="text-xs text-gray-500">AIA available this period: £{result.aiaLimit.toLocaleString()} · Used: £{result.aiaUsed.toLocaleString()}</p>
+        )}
+        {result.aiaLimit == null && (
+          <p className="text-xs text-gray-500">AIA used: £{result.aiaUsed.toLocaleString()} (limit not stored for this historical period)</p>
+        )}
+        <p className="text-2xl font-bold text-brand-dark mt-1">Total allowances: £{result.totalAllowances.toLocaleString()}</p>
+      </div>
+
+      {result.balancingCharges && result.balancingCharges.length > 0 && (
+        <div className="bg-red-50 rounded-lg p-3">
+          <p className="text-xs font-semibold text-red-700 mb-1">Balancing charges</p>
+          {result.balancingCharges.map((b: any, i: number) => (
+            <p key={i} className="text-xs text-red-600">{b.asset ? `${b.asset}: ` : ''}£{b.amount.toFixed(2)}{b.reason ? ` — ${b.reason}` : ''}</p>
+          ))}
+        </div>
+      )}
+
+      {result.fullReliefDisposalWarnings && result.fullReliefDisposalWarnings.length > 0 && (
+        <div className="bg-amber-50 rounded-lg p-3 space-y-1">
+          {result.fullReliefDisposalWarnings.map((w: string, i: number) => (
+            <p key={i} className="text-xs text-amber-700">{w}</p>
+          ))}
+        </div>
+      )}
+
+      <PoolTable title="Main Pool" data={result.mainPool} extraRows={[
+        { label: 'Full Expensing', value: result.mainPool.fullExpensing },
+        { label: 'AIA', value: result.mainPool.aia },
+        { label: '40% FYA', value: result.mainPool.fya40 },
+        { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.mainPool.wda },
+      ]} />
+
+      <PoolTable title="Special Rate Pool" data={result.specialRatePool} extraRows={[
+        { label: 'AIA', value: result.specialRatePool.aia },
+        { label: '50% Special Rate Allowance', value: result.specialRatePool.srAllowance },
+        { label: 'WDA (6%)', value: result.specialRatePool.wda },
+      ]} />
+
+      <PoolTable title="Car — Main Rate Pool" data={result.carMainRatePool} extraRows={[
+        { label: `WDA (${result.mainPool.wdaRatePercent}%)`, value: result.carMainRatePool.wda },
+      ]} />
+
+      <PoolTable title="Car — Special Rate Pool" data={result.carSpecialRatePool} extraRows={[
+        { label: 'WDA (6%)', value: result.carSpecialRatePool.wda },
+      ]} />
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-gray-400">Zero-emission cars (100% FYA)</p>
+          <p className="text-sm font-semibold text-brand-dark">£{result.carZeroEmissionFya.toFixed(2)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Structures & Buildings{result.sbaAssetCount != null ? ` (${result.sbaAssetCount} building${result.sbaAssetCount === 1 ? '' : 's'})` : ''}</p>
+          <p className="text-sm font-semibold text-brand-dark">£{result.sbaClaimed.toFixed(2)}</p>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Reconstructs a result-shaped object from a stored (finalized) period row, so the same
+// breakdown view works for historical periods. Some detail genuinely isn't stored (e.g. the
+// AIA/Full-Expensing split within a pool was combined at save time) - flagged where relevant.
+function historicalResultFrom(p: any) {
+  return {
+    aiaLimit: null,
+    aiaUsed: parseFloat(p.aia_used || 0),
+    totalAllowances: parseFloat(p.total_allowances || 0),
+    balancingCharges: parseFloat(p.balancing_charges || 0) > 0 ? [{ amount: parseFloat(p.balancing_charges), reason: 'See journal entries for this period for detail' }] : [],
+    fullReliefDisposalWarnings: [],
+    mainPool: {
+      bf: parseFloat(p.main_pool_bf), additions: parseFloat(p.main_pool_additions), disposals: parseFloat(p.main_pool_disposals),
+      fullExpensing: parseFloat(p.main_pool_fya), aia: parseFloat(p.main_pool_aia), fya40: 0,
+      wda: parseFloat(p.main_pool_wda), wdaRatePercent: '—', cf: parseFloat(p.main_pool_cf),
+    },
+    specialRatePool: {
+      bf: parseFloat(p.special_rate_pool_bf), additions: parseFloat(p.special_rate_pool_additions), disposals: parseFloat(p.special_rate_pool_disposals),
+      aia: parseFloat(p.special_rate_pool_aia), srAllowance: 0, wda: parseFloat(p.special_rate_pool_wda), cf: parseFloat(p.special_rate_pool_cf),
+    },
+    carMainRatePool: {
+      bf: parseFloat(p.car_main_rate_pool_bf), additions: parseFloat(p.car_main_rate_pool_additions), disposals: parseFloat(p.car_main_rate_pool_disposals),
+      wda: parseFloat(p.car_main_rate_pool_wda), cf: parseFloat(p.car_main_rate_pool_cf),
+    },
+    carSpecialRatePool: {
+      bf: parseFloat(p.car_special_rate_pool_bf), additions: parseFloat(p.car_special_rate_pool_additions), disposals: parseFloat(p.car_special_rate_pool_disposals),
+      wda: parseFloat(p.car_special_rate_pool_wda), cf: parseFloat(p.car_special_rate_pool_cf),
+    },
+    carZeroEmissionFya: parseFloat(p.car_zero_emission_fya || 0),
+    sbaClaimed: parseFloat(p.sba_claimed || 0),
+    sbaAssetCount: null,
+  }
 }
 
 function PoolTable({ title, data, extraRows }: { title: string; data: any; extraRows: { label: string; value: number }[] }) {
