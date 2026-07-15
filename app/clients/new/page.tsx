@@ -177,7 +177,7 @@ export default function NewClientPage() {
 
     const { data: firmUser } = await supabase
       .from('firm_users')
-      .select('firm_id, id')
+      .select('firm_id, id, role')
       .eq('user_id', user.id)
       .single()
 
@@ -217,6 +217,26 @@ export default function NewClientPage() {
       .single()
 
     if (insertError) { setError(insertError.message); setLoading(false); return }
+
+    // Default team assignment: the creator, plus any practice owners/managers in the firm -
+    // otherwise a brand new client would have nobody assigned and (once access gating is in
+    // place) nobody could actually open it.
+    const { data: defaultAssignees } = await supabase
+      .from('firm_users')
+      .select('id, role')
+      .eq('firm_id', firmUser.firm_id)
+      .eq('is_active', true)
+      .in('role', ['practice_owner', 'practice_manager'])
+
+    const assigneeIds = new Set([firmUser.id, ...(defaultAssignees || []).map((a) => a.id)])
+    const assignmentRows = Array.from(assigneeIds).map((firmUserId) => {
+      if (firmUserId === firmUser.id) return { client_id: client.id, firm_user_id: firmUserId, role: firmUser.role || 'practice_owner' }
+      const assignee = defaultAssignees?.find((a) => a.id === firmUserId)
+      return { client_id: client.id, firm_user_id: firmUserId, role: assignee?.role || 'practice_owner' }
+    })
+    if (assignmentRows.length > 0) {
+      await supabase.from('client_assignments').insert(assignmentRows)
+    }
 
     // Director's Loan Account / Director's Current Account use a reserved code
     // block (2200-2299) so they never collide with the industry template ranges.
