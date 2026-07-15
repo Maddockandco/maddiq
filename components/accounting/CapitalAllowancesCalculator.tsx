@@ -18,6 +18,9 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
   const [loading, setLoading] = useState(true)
 
   const [periodStart, setPeriodStart] = useState('')
+  const [openingBalances, setOpeningBalances] = useState({ main_pool: '0', special_rate_pool: '0', car_main_rate_pool: '0', car_special_rate_pool: '0' })
+  const [openingBalancesSaved, setOpeningBalancesSaved] = useState(false)
+  const [savingOpeningBalances, setSavingOpeningBalances] = useState(false)
   const [periodEnd, setPeriodEnd] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -30,10 +33,11 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
 
   async function fetchAll() {
     setLoading(true)
-    const [periodsRes, assetsRes, clientRes] = await Promise.all([
+    const [periodsRes, assetsRes, clientRes, openingRes] = await Promise.all([
       supabase.from('capital_allowances_periods').select('*').eq('client_id', clientId).order('period_start', { ascending: false }),
       supabase.from('fixed_assets').select('*').eq('client_id', clientId),
       supabase.from('clients').select('type, year_end_date').eq('id', clientId).single(),
+      supabase.from('capital_allowances_opening_balances').select('*').eq('client_id', clientId).maybeSingle(),
     ])
     const periodsData = periodsRes.data || []
     const assetsData = assetsRes.data || []
@@ -45,12 +49,43 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
       setIsCompany(companyFlag)
       setYearEndDate(yearEnd)
     }
+    let openingBals = { main_pool: '0', special_rate_pool: '0', car_main_rate_pool: '0', car_special_rate_pool: '0' }
+    if (openingRes.data) {
+      openingBals = {
+        main_pool: String(openingRes.data.main_pool),
+        special_rate_pool: String(openingRes.data.special_rate_pool),
+        car_main_rate_pool: String(openingRes.data.car_main_rate_pool),
+        car_special_rate_pool: String(openingRes.data.car_special_rate_pool),
+      }
+      setOpeningBalancesSaved(true)
+    }
+    setOpeningBalances(openingBals)
     setLoading(false)
 
-    autoRunCurrentPeriod(periodsData, assetsData, yearEnd, companyFlag)
+    autoRunCurrentPeriod(periodsData, assetsData, yearEnd, companyFlag, openingBals)
   }
 
-  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null, companyFlag: boolean) {
+  async function saveOpeningBalances() {
+    setSavingOpeningBalances(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
+    if (!firmUser) { setSavingOpeningBalances(false); return }
+
+    const payload = {
+      client_id: clientId,
+      firm_id: firmUser.firm_id,
+      main_pool: parseFloat(openingBalances.main_pool) || 0,
+      special_rate_pool: parseFloat(openingBalances.special_rate_pool) || 0,
+      car_main_rate_pool: parseFloat(openingBalances.car_main_rate_pool) || 0,
+      car_special_rate_pool: parseFloat(openingBalances.car_special_rate_pool) || 0,
+    }
+    await supabase.from('capital_allowances_opening_balances').upsert(payload, { onConflict: 'client_id' })
+    setOpeningBalancesSaved(true)
+    setSavingOpeningBalances(false)
+    autoRunCurrentPeriod(periods, assets, yearEndDate, isCompany, openingBalances)
+  }
+
+  function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null, companyFlag: boolean, openingBals?: typeof openingBalances) {
     const lastFinalized = periodsData.find((p) => p.status === 'finalized')
     const earliestAssetDate = assetsData.length > 0
       ? assetsData.reduce((earliest, a) => (a.date_acquired < earliest ? a.date_acquired : earliest), assetsData[0].date_acquired)
@@ -64,18 +99,19 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
 
     setPeriodStart(start)
     setPeriodEnd(end)
-    runCalculationFor(start, end, periodsData, assetsData, companyFlag)
+    runCalculationFor(start, end, periodsData, assetsData, companyFlag, openingBals)
   }
 
   function openNewPeriod() {
     setError('')
-    autoRunCurrentPeriod(periods, assets, yearEndDate, isCompany)
+    autoRunCurrentPeriod(periods, assets, yearEndDate, isCompany, openingBalances)
   }
 
-  function runCalculationFor(start: string, end: string, periodsData?: any[], assetsData?: any[], companyFlag?: boolean) {
+  function runCalculationFor(start: string, end: string, periodsData?: any[], assetsData?: any[], companyFlag?: boolean, openingBals?: typeof openingBalances) {
     const periodsSource = periodsData || periods
     const assetsSource = assetsData || assets
     const isCompanySource = companyFlag !== undefined ? companyFlag : isCompany
+    const openingSource = openingBals || openingBalances
 
     const lastFinalized = periodsSource.find((p) => p.status === 'finalized' && new Date(p.period_end) < new Date(start))
     const priorBalances = lastFinalized
@@ -85,7 +121,15 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
           car_main_rate_pool_cf: parseFloat(lastFinalized.car_main_rate_pool_cf),
           car_special_rate_pool_cf: parseFloat(lastFinalized.car_special_rate_pool_cf),
         }
-      : { main_pool_cf: 0, special_rate_pool_cf: 0, car_main_rate_pool_cf: 0, car_special_rate_pool_cf: 0 }
+      : {
+          // No prior finalized period - use the client's opening balances (from onboarding
+          // with pre-existing assets) instead of silently assuming an empty pool, which would
+          // otherwise falsely trigger balancing charges on disposal of assets acquired before Maddiq
+          main_pool_cf: parseFloat(openingSource.main_pool) || 0,
+          special_rate_pool_cf: parseFloat(openingSource.special_rate_pool) || 0,
+          car_main_rate_pool_cf: parseFloat(openingSource.car_main_rate_pool) || 0,
+          car_special_rate_pool_cf: parseFloat(openingSource.car_special_rate_pool) || 0,
+        }
 
     const calc = calculateCapitalAllowances({
       assets: assetsSource.map((a) => ({
@@ -171,6 +215,42 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
           This calculator applies current HMRC capital allowance rules based on the Fixed Asset Register. AIA is allocated to the Special Rate Pool first (since it converts lower relief rates into 100%), then to Main Pool assets not eligible for Full Expensing. This is a planning tool — review every figure before it goes on a return, especially AIA allocation across any connected companies, which isn't yet accounted for here.
         </p>
       </div>
+
+      {periods.length === 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-3">
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Opening Pool Balances</h3>
+          <p className="text-xs text-gray-500">
+            If this client had capital assets before joining Maddiq, enter their written-down pool balances brought forward from their previous accountant/software here — otherwise the first period will incorrectly assume the pools started at £0, which can wrongly trigger balancing charges when those older assets are later disposed of.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {([
+              { key: 'main_pool', label: 'Main Pool' },
+              { key: 'special_rate_pool', label: 'Special Rate Pool' },
+              { key: 'car_main_rate_pool', label: 'Car — Main Rate Pool' },
+              { key: 'car_special_rate_pool', label: 'Car — Special Rate Pool' },
+            ] as const).map((f) => (
+              <div key={f.key}>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{f.label} (£)</label>
+                <input
+                  type="number"
+                  value={openingBalances[f.key]}
+                  onChange={(e) => { setOpeningBalances((prev) => ({ ...prev, [f.key]: e.target.value })); setOpeningBalancesSaved(false) }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                />
+              </div>
+            ))}
+          </div>
+          {can.manageEngagements && (
+            <button
+              onClick={saveOpeningBalances}
+              disabled={savingOpeningBalances}
+              className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+            >
+              {savingOpeningBalances ? 'Saving...' : openingBalancesSaved ? 'Saved ✓' : 'Save Opening Balances'}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Current Period</h3>
