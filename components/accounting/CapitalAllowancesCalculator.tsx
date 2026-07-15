@@ -21,6 +21,8 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
   const [openingBalances, setOpeningBalances] = useState({ main_pool: '0', special_rate_pool: '0', car_main_rate_pool: '0', car_special_rate_pool: '0' })
   const [openingBalancesSaved, setOpeningBalancesSaved] = useState(false)
   const [savingOpeningBalances, setSavingOpeningBalances] = useState(false)
+  const [showReverseConfirm, setShowReverseConfirm] = useState(false)
+  const [reversing, setReversing] = useState(false)
   const [periodEnd, setPeriodEnd] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -83,6 +85,24 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
     setOpeningBalancesSaved(true)
     setSavingOpeningBalances(false)
     autoRunCurrentPeriod(periods, assets, yearEndDate, isCompany, openingBalances)
+  }
+
+  function isMostRecentFinalized(period: any) {
+    const finalized = periods.filter((p) => p.status === 'finalized')
+    if (finalized.length === 0) return false
+    const mostRecent = finalized.reduce((latest, p) => (new Date(p.period_end) > new Date(latest.period_end) ? p : latest), finalized[0])
+    return mostRecent.id === period.id
+  }
+
+  async function handleReversePeriod() {
+    setReversing(true)
+    // Capital Allowances never posts to the ledger - it's a tax-only calculation - so reversing
+    // is genuinely just removing the stored figures, no journal entries to unwind
+    await supabase.from('capital_allowances_periods').delete().eq('id', viewingPeriod.id)
+    setShowReverseConfirm(false)
+    setViewingPeriod(null)
+    setReversing(false)
+    fetchAll()
   }
 
   function autoRunCurrentPeriod(periodsData: any[], assetsData: any[], yearEnd: string | null, companyFlag: boolean, openingBals?: typeof openingBalances) {
@@ -216,12 +236,17 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
         </p>
       </div>
 
-      {periods.length === 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-3">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Opening Pool Balances</h3>
-          <p className="text-xs text-gray-500">
-            If this client had capital assets before joining Maddiq, enter their written-down pool balances brought forward from their previous accountant/software here — otherwise the first period will incorrectly assume the pools started at £0, which can wrongly trigger balancing charges when those older assets are later disposed of.
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-3">
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Opening Pool Balances</h3>
+        <p className="text-xs text-gray-500">
+          If this client had capital assets before joining Maddiq, enter their written-down pool balances brought forward from their previous accountant/software here — otherwise the first period will incorrectly assume the pools started at £0, which can wrongly trigger balancing charges when those older assets are later disposed of.
+        </p>
+        {periods.some((p) => p.status === 'finalized') && (
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            This client already has a finalized period. Changing these figures won't retroactively fix it — reverse the incorrect period below first, then correct the opening balances, then recalculate.
           </p>
+        )}
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {([
               { key: 'main_pool', label: 'Main Pool' },
@@ -250,7 +275,6 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
             </button>
           )}
         </div>
-      )}
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Current Period</h3>
@@ -346,8 +370,27 @@ export default function CapitalAllowancesCalculator({ clientId }: { clientId: st
             <button onClick={() => setViewingPeriod(null)} className="text-xs text-gray-500 hover:underline">Close</button>
           </div>
           {renderAllowancesBreakdown(historicalResultFrom(viewingPeriod))}
+          {can.manageEngagements && isMostRecentFinalized(viewingPeriod) && (
+            <button onClick={() => setShowReverseConfirm(true)} className="text-xs text-red-600 hover:underline">
+              Reverse This Period
+            </button>
+          )}
+          {can.manageEngagements && !isMostRecentFinalized(viewingPeriod) && (
+            <p className="text-xs text-gray-400">Only the most recent finalized period can be reversed, to keep brought-forward balances consistent.</p>
+          )}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={showReverseConfirm}
+        title="Reverse this period?"
+        message="This removes the stored calculation for this period entirely. Since Capital Allowances never posts to the ledger, there's nothing else to unwind - but you'll need to recalculate and re-finalize afterward."
+        confirmLabel="Reverse Period"
+        confirming={reversing}
+        danger
+        onConfirm={handleReversePeriod}
+        onCancel={() => setShowReverseConfirm(false)}
+      />
     </div>
   )
 }
