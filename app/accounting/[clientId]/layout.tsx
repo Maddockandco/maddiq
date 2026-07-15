@@ -18,6 +18,8 @@ export default function AccountingLayout({
   const supabase = createClient()
 
   const [clientName, setClientName] = useState('')
+  const [accessChecked, setAccessChecked] = useState(false)
+  const [hasAccess, setHasAccess] = useState(true)
   const [salesDropdownOpen, setSalesDropdownOpen] = useState(false)
   const [purchasesDropdownOpen, setPurchasesDropdownOpen] = useState(false)
   const [accountingDropdownOpen, setAccountingDropdownOpen] = useState(false)
@@ -35,6 +37,36 @@ export default function AccountingLayout({
       if (data) setClientName(data.name)
     }
     fetchClient()
+  }, [clientId])
+
+  useEffect(() => {
+    async function checkAccess() {
+      setAccessChecked(false)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setHasAccess(false); setAccessChecked(true); return }
+
+      const { data: firmUser } = await supabase
+        .from('firm_users')
+        .select('id, role')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!firmUser) { setHasAccess(false); setAccessChecked(true); return }
+
+      // Practice owners see every client by default - everyone else needs an explicit assignment
+      if (firmUser.role === 'practice_owner') { setHasAccess(true); setAccessChecked(true); return }
+
+      const { data: assignment } = await supabase
+        .from('client_assignments')
+        .select('id')
+        .eq('client_id', clientId)
+        .eq('firm_user_id', firmUser.id)
+        .maybeSingle()
+
+      setHasAccess(!!assignment)
+      setAccessChecked(true)
+    }
+    checkAccess()
   }, [clientId])
 
   useEffect(() => {
@@ -119,6 +151,19 @@ export default function AccountingLayout({
             ))}
           </div>
         )}
+      </div>
+    )
+  }
+
+  if (accessChecked && !hasAccess) {
+    return (
+      <div className="min-h-screen bg-brand-light flex items-center justify-center p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-md text-center space-y-3">
+          <h1 className="text-lg font-semibold text-brand-dark">You don't have access to this client</h1>
+          <p className="text-sm text-gray-500">
+            Ask your practice owner to assign you to "{clientName || 'this client'}" from its Team tab before you can view its accounting.
+          </p>
+        </div>
       </div>
     )
   }
