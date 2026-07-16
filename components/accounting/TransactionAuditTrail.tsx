@@ -1,4 +1,4 @@
-TransactionA'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -107,4 +107,4 @@ export default function TransactionAuditTrail({ entityType, entityId }: { entity
       )}
     </div>
   )
-}uditTrail.tsx
+}
