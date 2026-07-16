@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import AddContactModal from '@/components/accounting/AddContactModal'
+import AddAccountModal from '@/components/accounting/AddAccountModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
@@ -36,6 +37,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [invoices, setInvoices] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const [showAddAccountForLine, setShowAddAccountForLine] = useState<number | null>(null)
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -474,12 +476,27 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                     />
                     <select
                       value={line.income_account_id}
-                      onChange={(e) => updateLine(index, 'income_account_id', e.target.value)}
+                      onChange={(e) => {
+                        if (e.target.value === '__add_new__') { setShowAddAccountForLine(index); return }
+                        updateLine(index, 'income_account_id', e.target.value)
+                      }}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">Account</option>
+                      <option value="__add_new__">+ Add new account...</option>
                       {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                     </select>
+                    <AddAccountModal
+                      isOpen={showAddAccountForLine === index}
+                      clientId={clientId}
+                      context="sales"
+                      onCancel={() => setShowAddAccountForLine(null)}
+                      onCreated={(account) => {
+                        setAccounts((prev) => [...prev, account])
+                        updateLine(index, 'income_account_id', account.id)
+                        setShowAddAccountForLine(null)
+                      }}
+                    />
                     <select
                       value={line.vat_rate_id}
                       onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
