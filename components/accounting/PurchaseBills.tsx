@@ -96,7 +96,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     if (contactsRes.data) setContacts(contactsRes.data)
     if (accountsRes.data) {
       const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
-      setAccounts(accountsRes.data.filter((a) => ['direct_costs', 'expense', 'overhead'].includes(a.account_type) && !parentIds.has(a.id)))
+      setAccounts(accountsRes.data.filter((a) => ['direct_costs', 'expense', 'overhead', 'fixed_asset'].includes(a.account_type) && !parentIds.has(a.id)))
     }
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
