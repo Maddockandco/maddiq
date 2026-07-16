@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import AddContactModal from '@/components/accounting/AddContactModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
@@ -34,6 +35,7 @@ function addDays(dateStr: string, days: number) {
 export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [invoices, setInvoices] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -401,11 +403,27 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
               <input type="text" value={invoiceNumberInput} onChange={(e) => setInvoiceNumberInput(e.target.value)} className={inputClass} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-gray-500">Customer</label>
+                <button type="button" onClick={() => setShowAddCustomer(true)} className="text-xs text-brand-dark font-medium hover:underline">
+                  + New
+                </button>
+              </div>
               <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
                 <option value="">Select customer</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              <AddContactModal
+                isOpen={showAddCustomer}
+                clientId={clientId}
+                type="customer"
+                onCancel={() => setShowAddCustomer(false)}
+                onCreated={(contact) => {
+                  setContacts((prev) => [...prev, contact])
+                  handleContactChange(contact.id)
+                  setShowAddCustomer(false)
+                }}
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
