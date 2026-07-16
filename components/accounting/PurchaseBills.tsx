@@ -448,14 +448,17 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-gray-500">Supplier</label>
-                <button type="button" onClick={() => setShowAddSupplier(true)} className="text-xs text-brand-dark font-medium hover:underline">
-                  + New
-                </button>
-              </div>
-              <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
+              <select
+                value={contactId}
+                onChange={(e) => {
+                  if (e.target.value === '__add_new__') { setShowAddSupplier(true); return }
+                  handleContactChange(e.target.value)
+                }}
+                className={inputClass}
+              >
                 <option value="">Select supplier</option>
+                <option value="__add_new__">+ Add new supplier...</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <AddContactModal
@@ -524,7 +527,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">Account</option>
-                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      <optgroup label="Assets">
+                        {accounts.filter((a) => a.account_type === 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Expenses">
+                        {accounts.filter((a) => a.account_type !== 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      </optgroup>
                     </select>
                     <select
                       value={line.vat_rate_id}
