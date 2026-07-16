@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -21,6 +22,7 @@ const CAR_CATEGORIES = ['car_zero_emission', 'car_main_rate', 'car_special_rate'
 
 export default function FixedAssetRegister({ clientId }: { clientId: string }) {
   const supabase = createClient()
+  const router = useRouter()
   const { can } = useRole()
 
   const [assets, setAssets] = useState<any[]>([])
@@ -483,6 +485,14 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
                   <td className="px-6 py-3 text-sm font-medium text-brand-dark">
                     {a.description}
                     {a.notes && <p className="text-xs text-gray-400">{a.notes}</p>}
+                    {a.source_bill_id && (
+                      <button
+                        onClick={() => router.push(`/accounting/${clientId}/purchase-bills/${a.source_bill_id}`)}
+                        className="text-xs text-brand-dark hover:underline block mt-0.5"
+                      >
+                        📎 Created from bill
+                      </button>
+                    )}
                   </td>
                   <td className="px-6 py-3 text-xs text-gray-500">
                     {CATEGORY_LABELS[a.category]}
