@@ -6,22 +6,30 @@ import { createClient } from '@/lib/supabase/client'
 type Props = {
   isOpen: boolean
   clientId: string
+  context?: 'purchase' | 'sales'
   onCreated: (account: any) => void
   onCancel: () => void
 }
 
-const TYPE_OPTIONS = [
+const PURCHASE_TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
   { value: 'overhead', label: 'Overhead' },
   { value: 'direct_costs', label: 'Direct Costs (Cost of Sales)' },
   { value: 'fixed_asset', label: 'Fixed Asset (at Cost)' },
 ]
 
-export default function AddAccountModal({ isOpen, clientId, onCreated, onCancel }: Props) {
+const SALES_TYPE_OPTIONS = [
+  { value: 'sales', label: 'Sales' },
+  { value: 'revenue', label: 'Revenue' },
+  { value: 'other_income', label: 'Other Income' },
+]
+
+export default function AddAccountModal({ isOpen, clientId, context = 'purchase', onCreated, onCancel }: Props) {
   const supabase = createClient()
+  const typeOptions = context === 'sales' ? SALES_TYPE_OPTIONS : PURCHASE_TYPE_OPTIONS
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
-  const [accountType, setAccountType] = useState('expense')
+  const [accountType, setAccountType] = useState(typeOptions[0].value)
   const [vatRateId, setVatRateId] = useState('')
   const [vatRates, setVatRates] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
@@ -29,24 +37,29 @@ export default function AddAccountModal({ isOpen, clientId, onCreated, onCancel 
 
   useEffect(() => {
     if (isOpen) {
+      setAccountType(typeOptions[0].value)
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
         if (data) setVatRates(data)
       })
     }
-  }, [isOpen])
+  }, [isOpen, context])
 
   if (!isOpen) return null
 
   function reset() {
     setCode('')
     setName('')
-    setAccountType('expense')
+    setAccountType(typeOptions[0].value)
     setVatRateId('')
     setError('')
   }
 
   function relevantVatRates() {
     const universal = ['no_vat']
+    if (context === 'sales') {
+      const incomeOnly = ['zero_ec_goods_income', 'zero_ec_services_income', 'oss_digital_services', 'toms_margin', 'flat_rate']
+      return vatRates.filter((r) => r.code.endsWith('_income') || universal.includes(r.code) || incomeOnly.includes(r.code))
+    }
     const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
     return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
   }
@@ -61,8 +74,15 @@ export default function AddAccountModal({ isOpen, clientId, onCreated, onCancel 
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
 
-    const { data: existing } = await supabase.from('chart_of_accounts').select('id').eq('client_id', clientId).eq('code', code.trim()).maybeSingle()
-    if (existing) { setError(`Account code ${code.trim()} already exists`); setSaving(false); return }
+    const { data: existingRows, error: checkError } = await supabase
+      .from('chart_of_accounts')
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('code', code.trim())
+      .limit(1)
+
+    if (checkError) { setError(`Could not check for duplicate codes: ${checkError.message}`); setSaving(false); return }
+    if (existingRows && existingRows.length > 0) { setError(`Account code ${code.trim()} already exists`); setSaving(false); return }
 
     const { data: account, error: insertError } = await supabase
       .from('chart_of_accounts')
@@ -102,13 +122,19 @@ export default function AddAccountModal({ isOpen, clientId, onCreated, onCancel 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
             <select value={accountType} onChange={(e) => setAccountType(e.target.value)} className={inputClass}>
-              {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="e.g. Small Tools & Equipment" />
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={inputClass}
+            placeholder={context === 'sales' ? 'e.g. Consulting Income' : 'e.g. Small Tools & Equipment'}
+          />
         </div>
         {accountType !== 'fixed_asset' && (
           <div>
