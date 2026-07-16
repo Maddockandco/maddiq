@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   try {
     const searchRes = await fetch(
-      `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(query.trim())}&items_per_page=10`,
+      `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(query.trim())}&items_per_page=50`,
       {
         headers: {
           'Authorization': `Basic ${credentials}`,
