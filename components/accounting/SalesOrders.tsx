@@ -255,14 +255,17 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-gray-500">Customer</label>
-                <button type="button" onClick={() => setShowAddCustomer(true)} className="text-xs text-brand-dark font-medium hover:underline">
-                  + New
-                </button>
-              </div>
-              <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputClass}>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
+              <select
+                value={contactId}
+                onChange={(e) => {
+                  if (e.target.value === '__add_new__') { setShowAddCustomer(true); return }
+                  setContactId(e.target.value)
+                }}
+                className={inputClass}
+              >
                 <option value="">Select customer</option>
+                <option value="__add_new__">+ Add new customer...</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <AddContactModal
