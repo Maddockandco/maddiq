@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import AddContactModal from '@/components/accounting/AddContactModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 
 type LineDraft = {
@@ -57,6 +58,7 @@ function addDays(dateStr: string, days: number) {
 export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [bills, setBills] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
+  const [showAddSupplier, setShowAddSupplier] = useState(false)
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -446,11 +448,27 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-gray-500">Supplier</label>
+                <button type="button" onClick={() => setShowAddSupplier(true)} className="text-xs text-brand-dark font-medium hover:underline">
+                  + New
+                </button>
+              </div>
               <select value={contactId} onChange={(e) => handleContactChange(e.target.value)} className={inputClass}>
                 <option value="">Select supplier</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              <AddContactModal
+                isOpen={showAddSupplier}
+                clientId={clientId}
+                type="supplier"
+                onCancel={() => setShowAddSupplier(false)}
+                onCreated={(contact) => {
+                  setContacts((prev) => [...prev, contact])
+                  handleContactChange(contact.id)
+                  setShowAddSupplier(false)
+                }}
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Supplier's bill/invoice number</label>
