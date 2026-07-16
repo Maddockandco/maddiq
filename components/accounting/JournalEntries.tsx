@@ -404,9 +404,10 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
               </button>
               {expandedId === entry.id && (
                 <div className="border-t border-gray-100 p-4 bg-gray-50">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-gray-400 uppercase tracking-wider">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 uppercase tracking-wider">
                         <th className="text-left pb-2">Account</th>
                         <th className="text-left pb-2">Description</th>
                         <th className="text-right pb-2">Debit</th>
@@ -426,6 +427,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </div>
