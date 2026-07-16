@@ -128,7 +128,8 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
                   <span className="text-xs text-red-600">No account mapping set up</span>
                 )}
               </div>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                 <tbody>
                   <tr className="border-t border-gray-100">
                     <td className="px-4 py-2 text-gray-500" colSpan={2}>Cost</td>
@@ -152,6 +153,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           )
         })}
@@ -337,7 +339,8 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
 
       {periods.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+            <table className="w-full">
             <thead>
               <tr className="bg-brand-dark">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Period</th>
@@ -359,6 +362,7 @@ export default function DepreciationCalculator({ clientId }: { clientId: string 
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
