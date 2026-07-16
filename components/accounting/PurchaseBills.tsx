@@ -13,9 +13,31 @@ type LineDraft = {
   unit_price: string
   expense_account_id: string
   vat_rate_id: string
+  addToAssetRegister?: boolean
+  faCategory?: string
+  faCo2?: string
+  faIsNew?: boolean
+  faDepreciationMethod?: string
+  faUsefulLifeYears?: string
+  faDepreciationRatePercent?: string
 }
 
-const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '' }
+const EMPTY_LINE: LineDraft = {
+  description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '',
+  addToAssetRegister: false, faCategory: 'main_pool', faCo2: '', faIsNew: true,
+  faDepreciationMethod: 'straight_line', faUsefulLifeYears: '5', faDepreciationRatePercent: '20',
+}
+
+const FA_CATEGORY_LABELS: Record<string, string> = {
+  main_pool: 'Main Pool (general plant & machinery)',
+  special_rate_pool: 'Special Rate Pool (integral features, long-life assets)',
+  car_zero_emission: 'Car — Zero Emission (0g/km CO₂)',
+  car_main_rate: 'Car — Main Rate (≤50g/km CO₂)',
+  car_special_rate: 'Car — Special Rate (>50g/km CO₂)',
+  structures_buildings: 'Structures & Buildings',
+  goodwill: 'Goodwill',
+}
+const FA_CAR_CATEGORIES = ['car_zero_emission', 'car_main_rate', 'car_special_rate']
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -84,7 +106,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setLines([...lines, { ...EMPTY_LINE }])
   }
 
-  function updateLine(index: number, field: keyof LineDraft, value: string) {
+  function updateLine(index: number, field: keyof LineDraft, value: any) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
@@ -218,6 +240,29 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       }
     })
 
+    async function createFlaggedFixedAssets(billId: string) {
+      const supplierName = contacts.find((c) => c.id === contactId)?.name || null
+      for (const l of validLines) {
+        if (!l.addToAssetRegister) continue
+        const { net } = lineAmounts(l)
+        await supabase.from('fixed_assets').insert({
+          firm_id: firmUser!.firm_id,
+          client_id: clientId,
+          description: l.description,
+          category: l.faCategory || 'main_pool',
+          date_acquired: billDate,
+          cost: net,
+          is_new: l.faIsNew !== false,
+          co2_emissions: FA_CAR_CATEGORIES.includes(l.faCategory || '') ? (l.faCo2 ? parseInt(l.faCo2) : (l.faCategory === 'car_zero_emission' ? 0 : null)) : null,
+          supplier_name: supplierName,
+          depreciation_method: l.faDepreciationMethod || 'straight_line',
+          useful_life_years: l.faDepreciationMethod === 'straight_line' ? (parseFloat(l.faUsefulLifeYears || '5') || 5) : null,
+          depreciation_rate_percent: l.faDepreciationMethod === 'reducing_balance' ? (parseFloat(l.faDepreciationRatePercent || '20') || 20) : null,
+          source_bill_id: billId,
+        })
+      }
+    }
+
     if (editingBillId) {
       const { data: before } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
 
@@ -281,6 +326,8 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
     const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(bill.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
+
+    await createFlaggedFixedAssets(bill.id)
 
     await logAudit({
       entityId: bill.id,
@@ -467,6 +514,75 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">
                       Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
                     </p>
+                  )}
+                  {accounts.find((a) => a.id === line.expense_account_id)?.account_type === 'fixed_asset' && (
+                    <div className="ml-1 mt-2 bg-brand-gold/10 border border-brand-gold/30 rounded-lg p-3 space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!line.addToAssetRegister}
+                          onChange={(e) => updateLine(index, 'addToAssetRegister', e.target.checked)}
+                          className="w-4 h-4 accent-brand-dark"
+                        />
+                        <span className="text-xs font-medium text-brand-dark">This looks like a capital purchase — add to the Fixed Asset Register</span>
+                      </label>
+                      {line.addToAssetRegister && (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <select
+                            value={line.faCategory}
+                            onChange={(e) => updateLine(index, 'faCategory', e.target.value)}
+                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            {Object.entries(FA_CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                          </select>
+                          <select
+                            value={line.faDepreciationMethod}
+                            onChange={(e) => updateLine(index, 'faDepreciationMethod', e.target.value)}
+                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            <option value="straight_line">Straight Line</option>
+                            <option value="reducing_balance">Reducing Balance</option>
+                            <option value="none">None (not depreciated)</option>
+                          </select>
+                          {FA_CAR_CATEGORIES.includes(line.faCategory || '') && line.faCategory !== 'car_zero_emission' && (
+                            <input
+                              type="number"
+                              value={line.faCo2}
+                              onChange={(e) => updateLine(index, 'faCo2', e.target.value)}
+                              placeholder="CO₂ emissions (g/km)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          {line.faDepreciationMethod === 'straight_line' && (
+                            <input
+                              type="number"
+                              value={line.faUsefulLifeYears}
+                              onChange={(e) => updateLine(index, 'faUsefulLifeYears', e.target.value)}
+                              placeholder="Useful life (years)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          {line.faDepreciationMethod === 'reducing_balance' && (
+                            <input
+                              type="number"
+                              value={line.faDepreciationRatePercent}
+                              onChange={(e) => updateLine(index, 'faDepreciationRatePercent', e.target.value)}
+                              placeholder="Depreciation rate (%)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          <label className="flex items-center gap-2 cursor-pointer col-span-2">
+                            <input
+                              type="checkbox"
+                              checked={!!line.faIsNew}
+                              onChange={(e) => updateLine(index, 'faIsNew', e.target.checked)}
+                              className="w-4 h-4 accent-brand-dark"
+                            />
+                            <span className="text-xs text-brand-dark">Brand new (not second-hand) — affects Full Expensing eligibility</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )
