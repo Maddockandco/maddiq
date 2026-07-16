@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
+import TransactionAuditTrail from '@/components/accounting/TransactionAuditTrail'
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -411,6 +412,10 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
             ))}
           </div>
         )}
+
+        <div className="mt-6">
+          <TransactionAuditTrail entityType="sales_invoice" entityId={invoiceId} />
+        </div>
       </div>
     </div>
   )
