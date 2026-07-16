@@ -235,7 +235,8 @@ export default function Reports({ clientId }: { clientId: string }) {
 
     return (
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+            <table className="w-full">
           <thead>
             <tr className="bg-brand-dark">
               <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Code</th>
@@ -272,6 +273,7 @@ export default function Reports({ clientId }: { clientId: string }) {
             </tr>
           </tfoot>
         </table>
+          </div>
         {Math.abs(totalDebit - totalCredit) > 0.01 && (
           <div className="bg-red-50 text-red-600 text-sm px-6 py-3">
             ⚠ Trial balance does not balance — this indicates a data issue and should be investigated.
