@@ -13,7 +13,8 @@ type LineDraft = {
   unit_price: string
   expense_account_id: string
   vat_rate_id: string
-  addToAssetRegister?: boolean
+  faTreatment?: 'capitalise' | 'writeoff'
+  faWriteoffAccountId?: string
   faCategory?: string
   faCo2?: string
   faIsNew?: boolean
@@ -24,7 +25,7 @@ type LineDraft = {
 
 const EMPTY_LINE: LineDraft = {
   description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '',
-  addToAssetRegister: false, faCategory: 'main_pool', faCo2: '', faIsNew: true,
+  faTreatment: undefined, faWriteoffAccountId: '', faCategory: 'main_pool', faCo2: '', faIsNew: true,
   faDepreciationMethod: 'straight_line', faUsefulLifeYears: '5', faDepreciationRatePercent: '20',
 }
 
@@ -221,6 +222,11 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     if (!dueDate) { setError('Due date is required'); setSaving(false); return }
     const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
     if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
+    if (validLines.some((l) => l.faTreatment === 'writeoff' && !l.faWriteoffAccountId)) {
+      setError('Select an expense account for any line set to "Write off in full"')
+      setSaving(false)
+      return
+    }
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -234,12 +240,13 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
     const linesPayload = (billId: string) => validLines.map((l, i) => {
       const { net, vatAmount } = lineAmounts(l)
+      const isWriteoff = l.faTreatment === 'writeoff' && l.faWriteoffAccountId
       return {
         bill_id: billId,
         description: l.description,
         quantity: parseFloat(l.quantity) || 1,
         unit_price: parseFloat(l.unit_price) || 0,
-        expense_account_id: l.expense_account_id || null,
+        expense_account_id: (isWriteoff ? l.faWriteoffAccountId : l.expense_account_id) || null,
         vat_rate_id: l.vat_rate_id || null,
         vat_amount: vatAmount,
         line_total: net,
@@ -250,7 +257,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     async function createFlaggedFixedAssets(billId: string) {
       const supplierName = contacts.find((c) => c.id === contactId)?.name || null
       for (const l of validLines) {
-        if (!l.addToAssetRegister) continue
+        if (l.faTreatment !== 'capitalise') continue
         const { net } = lineAmounts(l)
         await supabase.from('fixed_assets').insert({
           firm_id: firmUser!.firm_id,
@@ -524,16 +531,39 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                   )}
                   {accounts.find((a) => a.id === line.expense_account_id)?.account_type === 'fixed_asset' && (
                     <div className="ml-1 mt-2 bg-brand-gold/10 border border-brand-gold/30 rounded-lg p-3 space-y-2">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!line.addToAssetRegister}
-                          onChange={(e) => updateLine(index, 'addToAssetRegister', e.target.checked)}
-                          className="w-4 h-4 accent-brand-dark"
-                        />
-                        <span className="text-xs font-medium text-brand-dark">This looks like a capital purchase — add to the Fixed Asset Register</span>
-                      </label>
-                      {line.addToAssetRegister && (
+                      <p className="text-xs font-medium text-brand-dark">This looks like a capital purchase — how should it be treated?</p>
+                      <div className="flex gap-1 bg-white rounded-lg p-1 w-fit border border-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => updateLine(index, 'faTreatment', 'capitalise')}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${line.faTreatment === 'capitalise' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}
+                        >
+                          Capitalise (add to Fixed Asset Register)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateLine(index, 'faTreatment', 'writeoff')}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${line.faTreatment === 'writeoff' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}
+                        >
+                          Write off in full as an expense
+                        </button>
+                      </div>
+
+                      {line.faTreatment === 'writeoff' && (
+                        <div className="pt-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Expense account (e.g. Small Tools & Equipment, for items below your capitalisation threshold)</label>
+                          <select
+                            value={line.faWriteoffAccountId}
+                            onChange={(e) => updateLine(index, 'faWriteoffAccountId', e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            <option value="">Select account</option>
+                            {accounts.filter((a) => a.account_type !== 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      {line.faTreatment === 'capitalise' && (
                         <div className="grid grid-cols-2 gap-2 pt-1">
                           <select
                             value={line.faCategory}
