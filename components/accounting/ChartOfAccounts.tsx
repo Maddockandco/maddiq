@@ -114,6 +114,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6501', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
       { code: '6502', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6503', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
+      { code: '6504', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
   hospitality: {
@@ -157,6 +158,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6401', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
       { code: '6402', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6403', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
+      { code: '6404', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
   construction: {
@@ -197,6 +199,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6301', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
       { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
+      { code: '6304', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
   property: {
@@ -231,6 +234,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6301', name: 'Depreciation — Motor Vehicles', account_type: 'depreciation' },
       { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
+      { code: '6304', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
     ],
   },
 }
