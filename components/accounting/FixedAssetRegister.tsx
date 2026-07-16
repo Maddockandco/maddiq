@@ -467,7 +467,8 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+            <table className="w-full">
             <thead>
               <tr className="bg-brand-dark">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Description</th>
@@ -522,6 +523,7 @@ export default function FixedAssetRegister({ clientId }: { clientId: string }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
