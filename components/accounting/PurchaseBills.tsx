@@ -46,6 +46,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [voidError, setVoidError] = useState('')
 
   const [creating, setCreating] = useState(false)
+  const [editingBillId, setEditingBillId] = useState<string | null>(null)
   const [replacesBillId, setReplacesBillId] = useState<string | null>(null)
   const [contactId, setContactId] = useState('')
   const [billNumber, setBillNumber] = useState('')
@@ -122,6 +123,47 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setLines([{ ...EMPTY_LINE }])
     setError('')
     setReplacesBillId(null)
+    setEditingBillId(null)
+  }
+
+  async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
+    const { error: logError } = await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'purchase_bill',
+      p_entity_id: params.entityId,
+      p_action: params.action,
+      p_old_data: params.oldData ?? null,
+      p_new_data: params.newData ?? null,
+      p_description: params.description,
+    })
+    if (logError) console.error('Audit log failed:', logError.message)
+  }
+
+  async function openEditForm(bill: any) {
+    setError('')
+    const { data: existingLines } = await supabase
+      .from('purchase_bill_lines')
+      .select('*')
+      .eq('bill_id', bill.id)
+      .order('sort_order')
+
+    setEditingBillId(bill.id)
+    setReplacesBillId(null)
+    setContactId(bill.contact_id)
+    setBillNumber(bill.bill_number || '')
+    setBillDate(bill.bill_date)
+    setDueDate(bill.due_date)
+    setNotes(bill.notes || '')
+    setLines(
+      (existingLines && existingLines.length > 0 ? existingLines : [{}]).map((l: any) => ({
+        description: l.description || '',
+        quantity: String(l.quantity || 1),
+        unit_price: String(l.unit_price || ''),
+        expense_account_id: l.expense_account_id || '',
+        vat_rate_id: l.vat_rate_id || '',
+      }))
+    )
+    setCreating(true)
   }
 
   function handleContactChange(id: string) {
@@ -161,6 +203,60 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
     const { subtotal, vatTotal, total } = calculateTotals()
 
+    const linesPayload = (billId: string) => validLines.map((l, i) => {
+      const { net, vatAmount } = lineAmounts(l)
+      return {
+        bill_id: billId,
+        description: l.description,
+        quantity: parseFloat(l.quantity) || 1,
+        unit_price: parseFloat(l.unit_price) || 0,
+        expense_account_id: l.expense_account_id || null,
+        vat_rate_id: l.vat_rate_id || null,
+        vat_amount: vatAmount,
+        line_total: net,
+        sort_order: i,
+      }
+    })
+
+    if (editingBillId) {
+      const { data: before } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
+
+      const { error: updateError } = await supabase
+        .from('purchase_bills')
+        .update({
+          contact_id: contactId,
+          bill_number: billNumber || null,
+          bill_date: billDate,
+          due_date: dueDate,
+          subtotal,
+          vat_total: vatTotal,
+          total,
+          notes: notes || null,
+        })
+        .eq('id', editingBillId)
+
+      if (updateError) { setError(updateError.message); setSaving(false); return }
+
+      await supabase.from('purchase_bill_lines').delete().eq('bill_id', editingBillId)
+      const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(editingBillId))
+      if (linesError) { setError(linesError.message); setSaving(false); return }
+
+      const { data: after } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
+      await logAudit({
+        entityId: editingBillId,
+        action: 'updated',
+        oldData: before,
+        newData: after,
+        description: `Edited draft bill "${billNumber || editingBillId}" — now £${total.toFixed(2)} total`,
+      })
+
+      setCreating(false)
+      resetForm()
+      fetchData()
+      setSaving(false)
+      return
+    }
+
     const { data: bill, error: billError } = await supabase
       .from('purchase_bills')
       .insert({
@@ -183,23 +279,15 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
 
     if (billError) { setError(billError.message); setSaving(false); return }
 
-    const linesToInsert = validLines.map((l, i) => {
-      const { net, vatAmount } = lineAmounts(l)
-      return {
-        bill_id: bill.id,
-        description: l.description,
-        quantity: parseFloat(l.quantity) || 1,
-        unit_price: parseFloat(l.unit_price) || 0,
-        expense_account_id: l.expense_account_id || null,
-        vat_rate_id: l.vat_rate_id || null,
-        vat_amount: vatAmount,
-        line_total: net,
-        sort_order: i,
-      }
-    })
-
-    const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesToInsert)
+    const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(bill.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
+
+    await logAudit({
+      entityId: bill.id,
+      action: 'created',
+      newData: bill,
+      description: `Created draft bill "${billNumber || bill.id}" for £${total.toFixed(2)}`,
+    })
 
     setCreating(false)
     resetForm()
@@ -286,7 +374,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
-            {replacesBillId ? 'Corrected Bill' : 'New Purchase Bill'}
+            {editingBillId ? 'Edit Draft Bill' : replacesBillId ? 'Corrected Bill' : 'New Purchase Bill'}
           </h3>
           <p className="text-xs text-gray-400 -mt-2">
             {replacesBillId
@@ -403,7 +491,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           <div className="flex gap-3">
             <button onClick={handleCreate} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save as draft'}
+              {saving ? 'Saving...' : editingBillId ? 'Save Changes' : 'Save as draft'}
             </button>
             <button onClick={() => { setCreating(false); resetForm() }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
@@ -460,6 +548,14 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       )}
                     </td>
                     <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
+                      {can.manageEngagements && bill.status === 'draft' && (
+                        <button
+                          onClick={() => openEditForm(bill)}
+                          className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"
+                        >
+                          Edit
+                        </button>
+                      )}
                       {can.manageEngagements && bill.status === 'draft' && (
                         <button
                           onClick={() => handlePost(bill.id)}
