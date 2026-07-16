@@ -39,7 +39,9 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
   const [checkingCode, setCheckingCode] = useState(false)
   const [checkingName, setCheckingName] = useState(false)
 
-  const [allAccountNames, setAllAccountNames] = useState<{ code: string; name: string }[]>([])
+  const [allAccounts, setAllAccounts] = useState<{ id: string; code: string; name: string; parent_id: string | null }[]>([])
+  const [parentId, setParentId] = useState('')
+  const [isIntendedGroup, setIsIntendedGroup] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -47,8 +49,8 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
         if (data) setVatRates(data)
       })
-      supabase.from('chart_of_accounts').select('code, name').eq('client_id', clientId).then(({ data }) => {
-        if (data) setAllAccountNames(data)
+      supabase.from('chart_of_accounts').select('id, code, name, parent_id').eq('client_id', clientId).then(({ data }) => {
+        if (data) setAllAccounts(data)
       })
     }
   }, [isOpen, context])
@@ -78,7 +80,7 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
     setCheckingName(true)
     const timeout = setTimeout(() => {
       const typed = name.trim().toLowerCase()
-      const match = allAccountNames.find((a) => {
+      const match = allAccounts.find((a) => {
         const existing = a.name.toLowerCase()
         return existing.includes(typed) || typed.includes(existing)
       })
@@ -90,7 +92,7 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
       setCheckingName(false)
     }, 300)
     return () => clearTimeout(timeout)
-  }, [name, allAccountNames])
+  }, [name, allAccounts])
 
   if (!isOpen) return null
 
@@ -102,6 +104,8 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
     setError('')
     setCodeError('')
     setNameWarning('')
+    setParentId('')
+    setIsIntendedGroup(false)
   }
 
   function relevantVatRates() {
@@ -116,7 +120,7 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
 
   async function handleSave() {
     if (!code.trim() || !name.trim()) { setError('Code and name are required'); return }
-    if (accountType !== 'fixed_asset' && !vatRateId) { setError('Select a VAT rate'); return }
+    if (accountType !== 'fixed_asset' && !isIntendedGroup && !vatRateId) { setError('Select a VAT rate'); return }
     if (codeError) { setError(codeError); return }
     setSaving(true)
     setError('')
@@ -143,7 +147,8 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
         code: code.trim(),
         name: name.trim(),
         account_type: accountType,
-        default_vat_rate_id: accountType !== 'fixed_asset' ? (vatRateId || null) : null,
+        parent_id: parentId || null,
+        default_vat_rate_id: (accountType !== 'fixed_asset' && !isIntendedGroup) ? (vatRateId || null) : null,
         is_active: true,
       })
       .select()
@@ -197,7 +202,33 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
           {checkingName && <p className="text-xs text-gray-400 mt-1">Checking...</p>}
           {!checkingName && nameWarning && <p className="text-xs text-amber-600 mt-1">{nameWarning}</p>}
         </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Parent account (optional)</label>
+          <select value={parentId} onChange={(e) => setParentId(e.target.value)} className={inputClass}>
+            <option value="">None — this is a top-level account</option>
+            {allAccounts.filter((a) => !a.parent_id).map((a) => (
+              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">e.g. set parent to "Motor Expenses" to create a sub-account like "Fuel" or "Insurance"</p>
+        </div>
+
         {accountType !== 'fixed_asset' && (
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isIntendedGroup}
+              onChange={(e) => { setIsIntendedGroup(e.target.checked); if (e.target.checked) setVatRateId('') }}
+              className="w-4 h-4 accent-brand-dark"
+            />
+            <span className="text-sm text-brand-dark">
+              This will be a group/heading account — I'll add sub-accounts under it and never post to it directly
+            </span>
+          </label>
+        )}
+
+        {accountType !== 'fixed_asset' && !isIntendedGroup && (
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">VAT rate</label>
             <select value={vatRateId} onChange={(e) => setVatRateId(e.target.value)} className={inputClass}>
@@ -205,6 +236,11 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
               {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
+        )}
+        {accountType !== 'fixed_asset' && isIntendedGroup && (
+          <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-3">
+            No VAT rate needed — this account exists purely as a heading. Add sub-accounts underneath it (each with their own VAT rate) once it's created.
+          </p>
         )}
 
         <div className="flex gap-3">
