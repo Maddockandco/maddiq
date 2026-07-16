@@ -1191,9 +1191,10 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
               <div>
                 <p className="text-xs font-medium text-gray-500 mb-2">Preview (first 5 rows)</p>
                 <div className="bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-gray-400 uppercase tracking-wider">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 uppercase tracking-wider">
                         <th className="text-left px-3 py-2">Date</th>
                         <th className="text-left px-3 py-2">Description</th>
                         <th className="text-right px-3 py-2">Amount</th>
@@ -1211,6 +1212,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-400 mt-2">
                   {preview.filter((r) => r.valid).length} of {preview.length} rows will be imported
