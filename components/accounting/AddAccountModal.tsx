@@ -39,11 +39,16 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
   const [checkingCode, setCheckingCode] = useState(false)
   const [checkingName, setCheckingName] = useState(false)
 
+  const [allAccountNames, setAllAccountNames] = useState<{ code: string; name: string }[]>([])
+
   useEffect(() => {
     if (isOpen) {
       setAccountType(typeOptions[0].value)
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order').then(({ data }) => {
         if (data) setVatRates(data)
+      })
+      supabase.from('chart_of_accounts').select('code, name').eq('client_id', clientId).then(({ data }) => {
+        if (data) setAllAccountNames(data)
       })
     }
   }, [isOpen, context])
@@ -71,22 +76,21 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
   useEffect(() => {
     if (!name.trim() || name.trim().length < 3) { setNameWarning(''); return }
     setCheckingName(true)
-    const timeout = setTimeout(async () => {
-      const { data, error: checkErr } = await supabase
-        .from('chart_of_accounts')
-        .select('code, name')
-        .eq('client_id', clientId)
-        .ilike('name', name.trim())
-        .limit(1)
-      if (!checkErr && data && data.length > 0) {
-        setNameWarning(`An account named "${data[0].name}" (${data[0].code}) already exists — you can still create this one if you genuinely need a separate account.`)
+    const timeout = setTimeout(() => {
+      const typed = name.trim().toLowerCase()
+      const match = allAccountNames.find((a) => {
+        const existing = a.name.toLowerCase()
+        return existing.includes(typed) || typed.includes(existing)
+      })
+      if (match) {
+        setNameWarning(`A possibly similar account "${match.name}" (${match.code}) already exists — you can still create this one if you genuinely need a separate account.`)
       } else {
         setNameWarning('')
       }
       setCheckingName(false)
-    }, 400)
+    }, 300)
     return () => clearTimeout(timeout)
-  }, [name, clientId])
+  }, [name, allAccountNames])
 
   if (!isOpen) return null
 
