@@ -34,6 +34,10 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
   const [vatRates, setVatRates] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [codeError, setCodeError] = useState('')
+  const [nameWarning, setNameWarning] = useState('')
+  const [checkingCode, setCheckingCode] = useState(false)
+  const [checkingName, setCheckingName] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -44,6 +48,46 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
     }
   }, [isOpen, context])
 
+  useEffect(() => {
+    if (!code.trim()) { setCodeError(''); return }
+    setCheckingCode(true)
+    const timeout = setTimeout(async () => {
+      const { data, error: checkErr } = await supabase
+        .from('chart_of_accounts')
+        .select('id')
+        .eq('client_id', clientId)
+        .eq('code', code.trim())
+        .limit(1)
+      if (!checkErr && data && data.length > 0) {
+        setCodeError(`Account code ${code.trim()} already exists`)
+      } else {
+        setCodeError('')
+      }
+      setCheckingCode(false)
+    }, 400)
+    return () => clearTimeout(timeout)
+  }, [code, clientId])
+
+  useEffect(() => {
+    if (!name.trim() || name.trim().length < 3) { setNameWarning(''); return }
+    setCheckingName(true)
+    const timeout = setTimeout(async () => {
+      const { data, error: checkErr } = await supabase
+        .from('chart_of_accounts')
+        .select('code, name')
+        .eq('client_id', clientId)
+        .ilike('name', name.trim())
+        .limit(1)
+      if (!checkErr && data && data.length > 0) {
+        setNameWarning(`An account named "${data[0].name}" (${data[0].code}) already exists — you can still create this one if you genuinely need a separate account.`)
+      } else {
+        setNameWarning('')
+      }
+      setCheckingName(false)
+    }, 400)
+    return () => clearTimeout(timeout)
+  }, [name, clientId])
+
   if (!isOpen) return null
 
   function reset() {
@@ -52,6 +96,8 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
     setAccountType(typeOptions[0].value)
     setVatRateId('')
     setError('')
+    setCodeError('')
+    setNameWarning('')
   }
 
   function relevantVatRates() {
@@ -67,6 +113,7 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
   async function handleSave() {
     if (!code.trim() || !name.trim()) { setError('Code and name are required'); return }
     if (accountType !== 'fixed_asset' && !vatRateId) { setError('Select a VAT rate'); return }
+    if (codeError) { setError(codeError); return }
     setSaving(true)
     setError('')
 
@@ -117,7 +164,15 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Code</label>
-            <input type="text" value={code} onChange={(e) => setCode(e.target.value)} className={inputClass} autoFocus />
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className={`${inputClass} ${codeError ? 'border-red-400' : ''}`}
+              autoFocus
+            />
+            {checkingCode && <p className="text-xs text-gray-400 mt-1">Checking...</p>}
+            {!checkingCode && codeError && <p className="text-xs text-red-600 mt-1">{codeError}</p>}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
@@ -132,9 +187,11 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className={inputClass}
+            className={`${inputClass} ${nameWarning ? 'border-amber-400' : ''}`}
             placeholder={context === 'sales' ? 'e.g. Consulting Income' : 'e.g. Small Tools & Equipment'}
           />
+          {checkingName && <p className="text-xs text-gray-400 mt-1">Checking...</p>}
+          {!checkingName && nameWarning && <p className="text-xs text-amber-600 mt-1">{nameWarning}</p>}
         </div>
         {accountType !== 'fixed_asset' && (
           <div>
@@ -149,7 +206,7 @@ export default function AddAccountModal({ isOpen, clientId, context = 'purchase'
         <div className="flex gap-3">
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || checkingCode}
             className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
           >
             {saving ? 'Creating...' : 'Create Account'}
