@@ -97,13 +97,16 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
       .update({ status: 'cancelled', cancellation_reason: cancelReason || null, cancellation_journal_entry_id: reversalEntry.id })
       .eq('id', dividendId)
 
-    await supabase.rpc('log_accounting_audit', {
+    const { error: auditError1 } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
       p_entity_id: dividendId,
       p_action: 'cancelled',
+      p_old_data: { status: 'declared' },
+      p_new_data: { status: 'cancelled', reason: cancelReason || null },
       p_description: `Cancelled dividend of £${parseFloat(dividend.total_amount).toFixed(2)}${cancelReason ? ` — ${cancelReason}` : ''}`,
     })
+    if (auditError1) console.error('Audit log failed:', auditError1.message)
 
     setShowCancel(false)
     setCancelling(false)
@@ -158,13 +161,16 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
 
     await supabase.from('dividends').update({ status: 'paid', payment_date: paymentDate, payment_journal_entry_id: entry.id }).eq('id', dividendId)
 
-    await supabase.rpc('log_accounting_audit', {
+    const { error: auditError2 } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
       p_entity_id: dividendId,
       p_action: 'paid',
+      p_old_data: { status: 'declared' },
+      p_new_data: { status: 'paid', payment_date: paymentDate },
       p_description: `Marked dividend as paid — £${parseFloat(dividend.total_amount).toFixed(2)}`,
     })
+    if (auditError2) console.error('Audit log failed:', auditError2.message)
 
     setShowMarkPaid(false)
     setMarking(false)
