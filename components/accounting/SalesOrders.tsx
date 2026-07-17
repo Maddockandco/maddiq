@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -32,6 +33,7 @@ function addDays(dateStr: string, days: number) {
 }
 
 export default function SalesOrders({ clientId }: { clientId: string }) {
+  const router = useRouter()
   const [orders, setOrders] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [showAddCustomer, setShowAddCustomer] = useState(false)
@@ -117,6 +119,19 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     setError('')
   }
 
+  async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
+    const { error: logError } = await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'sales_order',
+      p_entity_id: params.entityId,
+      p_action: params.action,
+      p_old_data: params.oldData ?? null,
+      p_new_data: params.newData ?? null,
+      p_description: params.description,
+    })
+    if (logError) console.error('Audit log failed:', logError.message)
+  }
+
   async function handleSave() {
     setSaving(true)
     setError('')
@@ -180,6 +195,13 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     const { error: linesError } = await supabase.from('sales_order_lines').insert(linesToInsert)
     if (linesError) { setError(linesError.message); setSaving(false); return }
 
+    await logAudit({
+      entityId: order.id,
+      action: 'created',
+      newData: order,
+      description: `Created sales order "${orderNumber}" for £${total.toFixed(2)}`,
+    })
+
     setCreating(false)
     resetForm()
     fetchData()
@@ -187,8 +209,16 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   }
 
   async function handleStatusChange(orderId: string, newStatus: string) {
+    const order = orders.find((o) => o.id === orderId)
     await supabase.from('sales_orders').update({ status: newStatus }).eq('id', orderId)
     setOrders(orders.map((o) => o.id === orderId ? { ...o, status: newStatus } : o))
+    await logAudit({
+      entityId: orderId,
+      action: 'updated',
+      oldData: { status: order?.status },
+      newData: { status: newStatus },
+      description: `Changed status of "${order?.order_number}" from ${order?.status} to ${newStatus}`,
+    })
   }
 
   function openConvert(order: any) {
@@ -204,6 +234,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     setConverting(true)
     setConvertError('')
 
+    const order = orders.find((o) => o.id === orderId)
     const { error: convertErr } = await supabase.rpc('convert_sales_order_to_invoice', {
       p_order_id: orderId,
       p_invoice_date: invoiceDate,
@@ -215,6 +246,12 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
       setConverting(false)
       return
     }
+
+    await logAudit({
+      entityId: orderId,
+      action: 'converted_to_invoice',
+      description: `Converted "${order?.order_number}" to a sales invoice`,
+    })
 
     setConvertingOrderId(null)
     setConverting(false)
@@ -425,7 +462,11 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
               {orders.map((o) => (
                 <>
                   <tr key={o.id} className="border-b border-gray-100">
-                    <td className="px-6 py-3 text-sm font-mono text-gray-600">{o.order_number}</td>
+                    <td className="px-6 py-3 text-sm">
+                      <button onClick={() => router.push(`/accounting/${clientId}/sales-orders/${o.id}`)} className="font-mono text-brand-dark font-medium hover:underline">
+                        {o.order_number}
+                      </button>
+                    </td>
                     <td className="px-6 py-3 text-sm font-medium text-brand-dark">{o.contacts?.name}</td>
                     <td className="px-6 py-3 text-sm text-gray-500">{new Date(o.order_date).toLocaleDateString('en-GB')}</td>
                     <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(o.total).toFixed(2)}</td>
