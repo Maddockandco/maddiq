@@ -20,6 +20,10 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
   const [viewingVoucherId, setViewingVoucherId] = useState<string | null>(null)
 
   const [showMarkPaid, setShowMarkPaid] = useState(false)
+  const [showCancel, setShowCancel] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState('')
   const [paymentDate, setPaymentDate] = useState('')
   const [bankAccountId, setBankAccountId] = useState('')
   const [accounts, setAccounts] = useState<any[]>([])
@@ -41,6 +45,69 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
     setClientName(clientRes.data?.name || '')
     setAccounts(accRes.data || [])
     setLoading(false)
+  }
+
+  function openCancel() {
+    setCancelReason('')
+    setCancelError('')
+    setShowCancel(true)
+  }
+
+  async function handleCancel() {
+    setCancelling(true)
+    setCancelError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+    if (!firmUser) { setCancelError('Could not find your firm'); setCancelling(false); return }
+
+    const { data: originalLines } = await supabase
+      .from('journal_lines')
+      .select('account_id, debit, credit')
+      .eq('journal_entry_id', dividend.declaration_journal_entry_id)
+
+    const { data: reversalEntry, error: reversalError } = await supabase
+      .from('journal_entries')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        entry_date: new Date().toISOString().split('T')[0],
+        reference: 'DIVIDEND-REVERSAL',
+        description: `Reversal — dividend cancelled: ${cancelReason || 'no reason given'}`,
+        source: 'dividend',
+        created_by: firmUser.id,
+      })
+      .select()
+      .single()
+
+    if (reversalError) { setCancelError(reversalError.message); setCancelling(false); return }
+
+    const reversalLines = (originalLines || []).map((l: any, i: number) => ({
+      journal_entry_id: reversalEntry.id,
+      account_id: l.account_id,
+      debit: parseFloat(l.credit) || 0,
+      credit: parseFloat(l.debit) || 0,
+      description: 'Dividend cancelled',
+      sort_order: i,
+    }))
+    await supabase.from('journal_lines').insert(reversalLines)
+
+    await supabase
+      .from('dividends')
+      .update({ status: 'cancelled', cancellation_reason: cancelReason || null, cancellation_journal_entry_id: reversalEntry.id })
+      .eq('id', dividendId)
+
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'dividend',
+      p_entity_id: dividendId,
+      p_action: 'cancelled',
+      p_description: `Cancelled dividend of £${parseFloat(dividend.total_amount).toFixed(2)}${cancelReason ? ` — ${cancelReason}` : ''}`,
+    })
+
+    setShowCancel(false)
+    setCancelling(false)
+    fetchData()
   }
 
   function openMarkPaid() {
@@ -134,7 +201,7 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
             <p className="text-xs text-gray-400 uppercase tracking-wider">Dividend Declared</p>
             <h1 className="text-2xl font-bold text-brand-dark">{new Date(dividend.declaration_date).toLocaleDateString('en-GB')}</h1>
           </div>
-          <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+          <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : dividend.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
             {dividend.status}
           </span>
         </div>
@@ -194,11 +261,42 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
           </div>
         )}
 
-        {can.manageEngagements && dividend.status === 'declared' && !showMarkPaid && (
-          <div className="pt-4 border-t border-gray-100">
+        {dividend.status === 'cancelled' && (
+          <div className="mb-4 bg-red-50 rounded-lg p-3">
+            <p className="text-xs text-red-700 font-medium uppercase tracking-wider mb-1">Cancelled</p>
+            <p className="text-sm text-red-600">{dividend.cancellation_reason || 'No reason given'}</p>
+          </div>
+        )}
+
+        {can.manageEngagements && dividend.status === 'declared' && !showMarkPaid && !showCancel && (
+          <div className="pt-4 border-t border-gray-100 flex gap-3">
             <button onClick={openMarkPaid} className="bg-brand-gold text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
               Mark as Paid
             </button>
+            <button onClick={() => router.push(`/accounting/${clientId}/dividends?edit=${dividendId}`)} className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+              Edit
+            </button>
+            <button onClick={openCancel} className="bg-red-50 text-red-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-red-100 transition">
+              Cancel Dividend
+            </button>
+          </div>
+        )}
+
+        {showCancel && (
+          <div className="pt-4 border-t border-gray-100 space-y-3">
+            {cancelError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{cancelError}</div>}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reason (optional, but recommended for the board record)</label>
+              <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} className={inputClass} placeholder="e.g. Board decided to defer distribution" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleCancel} disabled={cancelling} className="bg-red-600 text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50">
+                {cancelling ? 'Cancelling...' : 'Confirm Cancellation'}
+              </button>
+              <button onClick={() => setShowCancel(false)} className="bg-gray-100 text-gray-600 font-semibold px-4 py-2 rounded-lg text-sm hover:bg-gray-200 transition">
+                Keep Dividend
+              </button>
+            </div>
           </div>
         )}
 
