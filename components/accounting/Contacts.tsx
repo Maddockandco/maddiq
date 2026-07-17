@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import CompanyLookup from '@/components/clients/CompanyLookup'
@@ -46,6 +47,8 @@ const EMPTY_FORM = {
 }
 
 export default function Contacts({ clientId }: { clientId: string }) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [contacts, setContacts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
@@ -69,6 +72,12 @@ export default function Contacts({ clientId }: { clientId: string }) {
       .order('name', { ascending: true })
     if (data) setContacts(data)
     setLoading(false)
+
+    const editContactId = searchParams.get('edit')
+    if (editContactId && data) {
+      const toEdit = data.find((c) => c.id === editContactId)
+      if (toEdit) openEditForm(toEdit)
+    }
   }
 
   function updateField(key: keyof typeof EMPTY_FORM, value: string | boolean) {
@@ -140,6 +149,19 @@ export default function Contacts({ clientId }: { clientId: string }) {
     }
   }
 
+  async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
+    const { error: logError } = await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'contact',
+      p_entity_id: params.entityId,
+      p_action: params.action,
+      p_old_data: params.oldData ?? null,
+      p_new_data: params.newData ?? null,
+      p_description: params.description,
+    })
+    if (logError) console.error('Audit log failed:', logError.message)
+  }
+
   async function handleSave() {
     setShowConfirm(false)
     setSaving(true)
@@ -205,16 +227,36 @@ export default function Contacts({ clientId }: { clientId: string }) {
     }
 
     let saveError
+    let savedContactId = editingId
     if (editingId) {
-      const { error: updateError } = await supabase.from('contacts').update(payload).eq('id', editingId)
+      const { data: before } = await supabase.from('contacts').select('*').eq('id', editingId).single()
+      const { data: after, error: updateError } = await supabase.from('contacts').update(payload).eq('id', editingId).select().single()
       saveError = updateError
+      if (!updateError) {
+        await logAudit({
+          entityId: editingId,
+          action: 'updated',
+          oldData: before,
+          newData: after,
+          description: `Edited contact "${payload.name}"`,
+        })
+      }
     } else {
-      const { error: insertError } = await supabase.from('contacts').insert({
+      const { data: inserted, error: insertError } = await supabase.from('contacts').insert({
         ...payload,
         firm_id: firmUser.firm_id,
         client_id: clientId,
-      })
+      }).select().single()
       saveError = insertError
+      if (!insertError && inserted) {
+        savedContactId = inserted.id
+        await logAudit({
+          entityId: inserted.id,
+          action: 'created',
+          newData: inserted,
+          description: `Created contact "${payload.name}"`,
+        })
+      }
     }
 
     if (saveError) {
@@ -468,7 +510,11 @@ export default function Contacts({ clientId }: { clientId: string }) {
             <tbody>
               {filtered.map((c) => (
                 <tr key={c.id} className={`border-b border-gray-100 ${!c.is_active ? 'opacity-50' : ''}`}>
-                  <td className="px-6 py-3 text-sm font-semibold text-brand-dark">{c.name}</td>
+                  <td className="px-6 py-3 text-sm">
+                    <button onClick={() => router.push(`/accounting/${clientId}/contacts/${c.id}`)} className="font-semibold text-brand-dark hover:underline">
+                      {c.name}
+                    </button>
+                  </td>
                   <td className="px-6 py-3 text-sm text-gray-500 font-mono">{c.company_number || '—'}</td>
                   <td className="px-6 py-3 text-sm text-gray-500">{c.email || '—'}</td>
                   <td className="px-6 py-3 text-sm text-gray-500">
