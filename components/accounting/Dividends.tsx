@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import { getUkTaxYear } from '@/lib/ukTaxYear'
 
 export default function Dividends({ clientId }: { clientId: string }) {
   const supabase = createClient()
@@ -19,9 +20,13 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
   const [declaring, setDeclaring] = useState(false)
   const [declarationDate, setDeclarationDate] = useState(new Date().toISOString().split('T')[0])
+  const [declarationType, setDeclarationType] = useState<'board_minutes' | 'written_resolution'>('board_minutes')
+  const [distributionMode, setDistributionMode] = useState<'proportional' | 'per_class' | 'custom'>('proportional')
   const [inputMode, setInputMode] = useState<'total' | 'per_share'>('total')
   const [totalAmount, setTotalAmount] = useState('')
   const [perShareAmount, setPerShareAmount] = useState('')
+  const [classRates, setClassRates] = useState<Record<string, string>>({})
+  const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({})
   const [dividendsPaidAccountId, setDividendsPaidAccountId] = useState('')
   const [dividendsPayableAccountId, setDividendsPayableAccountId] = useState('')
   const [notes, setNotes] = useState('')
@@ -52,38 +57,58 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
   const totalShares = shareholders.reduce((sum, s) => sum + s.shares_held, 0)
 
+  const shareClasses = Array.from(new Set(shareholders.map((s) => s.share_class)))
+
   function openDeclareForm() {
     setDeclarationDate(new Date().toISOString().split('T')[0])
+    setDeclarationType('board_minutes')
+    setDistributionMode('proportional')
     setInputMode('total')
     setTotalAmount('')
     setPerShareAmount('')
+    setClassRates({})
+    setCustomAmounts({})
     setNotes('')
     setError('')
     setDeclaring(true)
   }
 
   function computedPerShare() {
-    if (totalShares === 0) return 0
+    if (distributionMode !== 'proportional' || totalShares === 0) return 0
     if (inputMode === 'total') return (parseFloat(totalAmount) || 0) / totalShares
     return parseFloat(perShareAmount) || 0
   }
 
-  function computedTotal() {
-    if (inputMode === 'per_share') return (parseFloat(perShareAmount) || 0) * totalShares
-    return parseFloat(totalAmount) || 0
-  }
-
   function previewAllocations() {
-    const perShare = computedPerShare()
+    if (distributionMode === 'proportional') {
+      const perShare = computedPerShare()
+      return shareholders.map((s) => ({
+        shareholder: s,
+        amount: Math.round(s.shares_held * perShare * 100) / 100,
+      }))
+    }
+    if (distributionMode === 'per_class') {
+      return shareholders.map((s) => {
+        const rate = parseFloat(classRates[s.share_class] || '0') || 0
+        return { shareholder: s, amount: Math.round(s.shares_held * rate * 100) / 100 }
+      })
+    }
+    // custom - fully manual, disconnected from shareholding, for alphabet-share flexibility
     return shareholders.map((s) => ({
       shareholder: s,
-      amount: Math.round(s.shares_held * perShare * 100) / 100,
+      amount: Math.round((parseFloat(customAmounts[s.id] || '0') || 0) * 100) / 100,
     }))
+  }
+
+  function computedTotal() {
+    if (distributionMode === 'proportional' && inputMode === 'per_share') return (parseFloat(perShareAmount) || 0) * totalShares
+    if (distributionMode === 'proportional') return parseFloat(totalAmount) || 0
+    return previewAllocations().reduce((sum, a) => sum + a.amount, 0)
   }
 
   function handleDeclareClick() {
     if (shareholders.length === 0) { setError('Add at least one active shareholder first'); return }
-    if (computedTotal() <= 0) { setError('Enter a total amount or per-share rate greater than zero'); return }
+    if (computedTotal() <= 0) { setError('Enter amounts that total more than zero'); return }
     if (!dividendsPaidAccountId || !dividendsPayableAccountId) { setError('Select both posting accounts'); return }
     setShowConfirm(true)
   }
@@ -98,6 +123,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
     const total = computedTotal()
     const perShare = computedPerShare()
+    const modeLabel = distributionMode === 'proportional' ? `£${perShare.toFixed(4)} per share` : distributionMode === 'per_class' ? 'per-class rates' : 'custom per-shareholder amounts'
 
     const { data: entry, error: entryError } = await supabase
       .from('journal_entries')
@@ -106,7 +132,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
         client_id: clientId,
         entry_date: declarationDate,
         reference: 'DIVIDEND',
-        description: `Dividend declared — £${total.toFixed(2)} (£${perShare.toFixed(4)} per share)`,
+        description: `Dividend declared — £${total.toFixed(2)} (${modeLabel})`,
         source: 'dividend',
         created_by: firmUser.id,
       })
@@ -132,6 +158,10 @@ export default function Dividends({ clientId }: { clientId: string }) {
         notes: notes || null,
         declaration_journal_entry_id: entry.id,
         created_by: user!.id,
+        distribution_mode: distributionMode,
+        declaration_type: declarationType,
+        tax_year: getUkTaxYear(declarationDate),
+        class_rates: distributionMode === 'per_class' ? classRates : null,
       })
       .select()
       .single()
@@ -188,6 +218,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Declaration Date</label>
               <DatePicker value={declarationDate} onChange={setDeclarationDate} />
+              <p className="text-xs text-gray-400 mt-1">Tax year: {getUkTaxYear(declarationDate)}</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Total Active Shares</label>
@@ -195,24 +226,95 @@ export default function Dividends({ clientId }: { clientId: string }) {
             </div>
           </div>
 
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-            <button onClick={() => setInputMode('total')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${inputMode === 'total' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
-              Enter total amount
-            </button>
-            <button onClick={() => setInputMode('per_share')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${inputMode === 'per_share' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
-              Enter per-share rate
-            </button>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">Declared by</label>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              <button onClick={() => setDeclarationType('board_minutes')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${declarationType === 'board_minutes' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                Board Minutes (Interim)
+              </button>
+              <button onClick={() => setDeclarationType('written_resolution')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${declarationType === 'written_resolution' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                Written Resolution (Final)
+              </button>
+            </div>
           </div>
 
-          {inputMode === 'total' ? (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Total Dividend Amount (£)</label>
-              <input type="number" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} className={inputClass} />
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">Distribution</label>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              <button onClick={() => setDistributionMode('proportional')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${distributionMode === 'proportional' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                Proportional
+              </button>
+              <button onClick={() => setDistributionMode('per_class')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${distributionMode === 'per_class' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                Per Share Class
+              </button>
+              <button onClick={() => setDistributionMode('custom')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${distributionMode === 'custom' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                Custom Amounts
+              </button>
             </div>
-          ) : (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Per-Share Amount (£)</label>
-              <input type="number" step="0.0001" value={perShareAmount} onChange={(e) => setPerShareAmount(e.target.value)} className={inputClass} />
+            {distributionMode !== 'proportional' && (
+              <p className="text-xs text-gray-400 mt-1">For alphabet/non-pro-rata shares — amounts don't have to match shareholding percentage</p>
+            )}
+          </div>
+
+          {distributionMode === 'proportional' && (
+            <>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                <button onClick={() => setInputMode('total')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${inputMode === 'total' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                  Enter total amount
+                </button>
+                <button onClick={() => setInputMode('per_share')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${inputMode === 'per_share' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                  Enter per-share rate
+                </button>
+              </div>
+
+              {inputMode === 'total' ? (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Total Dividend Amount (£)</label>
+                  <input type="number" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} className={inputClass} />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Per-Share Amount (£)</label>
+                  <input type="number" step="0.0001" value={perShareAmount} onChange={(e) => setPerShareAmount(e.target.value)} className={inputClass} />
+                </div>
+              )}
+            </>
+          )}
+
+          {distributionMode === 'per_class' && (
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-gray-500">Rate per share, by class (£)</label>
+              <div className="grid grid-cols-2 gap-3">
+                {shareClasses.map((cls) => (
+                  <div key={cls}>
+                    <label className="block text-xs text-gray-400 mb-1">{cls}</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={classRates[cls] || ''}
+                      onChange={(e) => setClassRates((prev) => ({ ...prev, [cls]: e.target.value }))}
+                      className={inputClass}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {distributionMode === 'custom' && (
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-gray-500">Amount per shareholder (£)</label>
+              {shareholders.map((s) => (
+                <div key={s.id} className="grid grid-cols-2 gap-3 items-center">
+                  <p className="text-sm text-brand-dark">{s.name} <span className="text-xs text-gray-400">({s.share_class})</span></p>
+                  <input
+                    type="number"
+                    value={customAmounts[s.id] || ''}
+                    onChange={(e) => setCustomAmounts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+              ))}
             </div>
           )}
 
@@ -302,6 +404,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
               <thead>
                 <tr className="bg-brand-dark">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Declaration Date</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Tax Year</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Per Share</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
@@ -315,6 +418,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
                     className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light transition ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
                   >
                     <td className="px-6 py-3 text-sm text-brand-dark">{new Date(d.declaration_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{d.tax_year || getUkTaxYear(d.declaration_date)}</td>
                     <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(d.total_amount).toFixed(2)}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">£{parseFloat(d.per_share_amount).toFixed(4)}</td>
                     <td className="px-6 py-3">
