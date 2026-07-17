@@ -42,6 +42,7 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null)
 
   const [contactId, setContactId] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0])
@@ -124,6 +125,32 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
+    setEditingOrderId(null)
+  }
+
+  async function openEditForm(order: any) {
+    setError('')
+    const { data: existingLines } = await supabase
+      .from('purchase_order_lines')
+      .select('*')
+      .eq('order_id', order.id)
+      .order('sort_order')
+
+    setEditingOrderId(order.id)
+    setContactId(order.contact_id)
+    setOrderDate(order.order_date)
+    setExpectedDate(order.expected_date || '')
+    setNotes(order.notes || '')
+    setLines(
+      (existingLines && existingLines.length > 0 ? existingLines : [{}]).map((l: any) => ({
+        description: l.description || '',
+        quantity: String(l.quantity || 1),
+        unit_price: String(l.unit_price || ''),
+        expense_account_id: l.expense_account_id || '',
+        vat_rate_id: l.vat_rate_id || '',
+      }))
+    )
+    setCreating(true)
   }
 
   async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
@@ -157,6 +184,59 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
 
     const { subtotal, vatTotal, total } = calculateTotals()
 
+    const linesPayload = (orderId: string) => validLines.map((l, i) => {
+      const { net, vatAmount } = lineAmounts(l)
+      return {
+        order_id: orderId,
+        description: l.description,
+        quantity: parseFloat(l.quantity) || 1,
+        unit_price: parseFloat(l.unit_price) || 0,
+        expense_account_id: l.expense_account_id || null,
+        vat_rate_id: l.vat_rate_id || null,
+        vat_amount: vatAmount,
+        line_total: net,
+        sort_order: i,
+      }
+    })
+
+    if (editingOrderId) {
+      const { data: before } = await supabase.from('purchase_orders').select('*, purchase_order_lines(*)').eq('id', editingOrderId).single()
+
+      const { error: updateError } = await supabase
+        .from('purchase_orders')
+        .update({
+          contact_id: contactId,
+          order_date: orderDate,
+          expected_date: expectedDate || null,
+          subtotal,
+          vat_total: vatTotal,
+          total,
+          notes: notes || null,
+        })
+        .eq('id', editingOrderId)
+
+      if (updateError) { setError(updateError.message); setSaving(false); return }
+
+      await supabase.from('purchase_order_lines').delete().eq('order_id', editingOrderId)
+      const { error: linesError } = await supabase.from('purchase_order_lines').insert(linesPayload(editingOrderId))
+      if (linesError) { setError(linesError.message); setSaving(false); return }
+
+      const { data: after } = await supabase.from('purchase_orders').select('*, purchase_order_lines(*)').eq('id', editingOrderId).single()
+      await logAudit({
+        entityId: editingOrderId,
+        action: 'updated',
+        oldData: before,
+        newData: after,
+        description: `Edited draft purchase order "${before?.order_number}" — now £${total.toFixed(2)} total`,
+      })
+
+      setCreating(false)
+      resetForm()
+      fetchData()
+      setSaving(false)
+      return
+    }
+
     const { count } = await supabase
       .from('purchase_orders')
       .select('id', { count: 'exact', head: true })
@@ -184,22 +264,7 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
 
     if (orderError) { setError(orderError.message); setSaving(false); return }
 
-    const linesToInsert = validLines.map((l, i) => {
-      const { net, vatAmount } = lineAmounts(l)
-      return {
-        order_id: order.id,
-        description: l.description,
-        quantity: parseFloat(l.quantity) || 1,
-        unit_price: parseFloat(l.unit_price) || 0,
-        expense_account_id: l.expense_account_id || null,
-        vat_rate_id: l.vat_rate_id || null,
-        vat_amount: vatAmount,
-        line_total: net,
-        sort_order: i,
-      }
-    })
-
-    const { error: linesError } = await supabase.from('purchase_order_lines').insert(linesToInsert)
+    const { error: linesError } = await supabase.from('purchase_order_lines').insert(linesPayload(order.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
 
     await logAudit({
@@ -298,7 +363,7 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
 
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">New Purchase Order</h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">{editingOrderId ? 'Edit Draft Purchase Order' : 'New Purchase Order'}</h3>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -443,7 +508,7 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save as draft'}
+              {saving ? 'Saving...' : editingOrderId ? 'Save Changes' : 'Save as draft'}
             </button>
             <button onClick={() => { setCreating(false); resetForm() }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
@@ -501,7 +566,15 @@ export default function PurchaseOrders({ clientId }: { clientId: string }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
+                      {can.manageEngagements && o.status === 'draft' && (
+                        <button
+                          onClick={() => openEditForm(o)}
+                          className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"
+                        >
+                          Edit
+                        </button>
+                      )}
                       {can.manageEngagements && o.status === 'accepted' && (
                         <button
                           onClick={() => openConvert(o)}
