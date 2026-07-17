@@ -30,6 +30,59 @@ function actionLabel(action: string) {
   return action.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
+const IGNORED_FIELDS = new Set(['id', 'firm_id', 'client_id', 'created_at', 'created_by', 'updated_at'])
+
+function humanizeLabel(key: string) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function formatValue(v: any) {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  if (typeof v === 'number') return v.toLocaleString()
+  return String(v)
+}
+
+function renderChanges(oldData: any, newData: any) {
+  if (oldData && newData) {
+    const allKeys = new Set([...Object.keys(oldData), ...Object.keys(newData)])
+    const changes: { key: string; oldVal: any; newVal: any }[] = []
+    for (const key of allKeys) {
+      if (IGNORED_FIELDS.has(key)) continue
+      const oldVal = oldData[key]
+      const newVal = newData[key]
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) changes.push({ key, oldVal, newVal })
+    }
+    if (changes.length === 0) return <p className="text-xs text-gray-400">No visible field changes</p>
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5">
+        {changes.map((c) => (
+          <div key={c.key} className="text-xs">
+            <span className="text-gray-500">{humanizeLabel(c.key)}: </span>
+            <span className="text-red-500 line-through">{formatValue(c.oldVal)}</span>
+            <span className="text-gray-400"> → </span>
+            <span className="text-green-600 font-medium">{formatValue(c.newVal)}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const data = newData || oldData
+  const entries = Object.entries(data || {}).filter(([k, v]) => !IGNORED_FIELDS.has(k) && v !== null && v !== '')
+  if (entries.length === 0) return null
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5">
+      {entries.map(([k, v]) => (
+        <div key={k} className="text-xs">
+          <span className="text-gray-500">{humanizeLabel(k)}: </span>
+          <span className="text-brand-dark">{formatValue(v)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function AuditTrail({ clientId }: { clientId: string }) {
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -129,23 +182,8 @@ export default function AuditTrail({ clientId }: { clientId: string }) {
                 <span className="text-xs text-gray-400 flex-shrink-0">{expandedId === log.id ? '▲' : '▼'}</span>
               </button>
               {expandedId === log.id && (log.old_data || log.new_data) && (
-                <div className="border-t border-gray-100 p-4 bg-gray-50 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {log.old_data && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Before</p>
-                      <pre className="text-xs text-gray-600 bg-white rounded-lg p-3 overflow-x-auto border border-gray-200">
-                        {JSON.stringify(log.old_data, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {log.new_data && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">After</p>
-                      <pre className="text-xs text-gray-600 bg-white rounded-lg p-3 overflow-x-auto border border-gray-200">
-                        {JSON.stringify(log.new_data, null, 2)}
-                      </pre>
-                    </div>
-                  )}
+                <div className="border-t border-gray-100 p-4 bg-gray-50">
+                  {renderChanges(log.old_data, log.new_data)}
                 </div>
               )}
             </div>
