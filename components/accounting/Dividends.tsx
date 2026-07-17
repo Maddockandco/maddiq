@@ -158,13 +158,16 @@ export default function Dividends({ clientId }: { clientId: string }) {
       .update({ status: 'cancelled', cancellation_reason: cancelReason || null, cancellation_journal_entry_id: reversalId })
       .eq('id', cancellingDividend.id)
 
-    await supabase.rpc('log_accounting_audit', {
+    const { error: auditError1 } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
       p_entity_id: cancellingDividend.id,
       p_action: 'cancelled',
+      p_old_data: { status: 'declared' },
+      p_new_data: { status: 'cancelled', reason: cancelReason || null },
       p_description: `Cancelled dividend of £${parseFloat(cancellingDividend.total_amount).toFixed(2)}${cancelReason ? ` — ${cancelReason}` : ''}`,
     })
+    if (auditError1) console.error('Audit log failed:', auditError1.message)
 
     setCancellingDividend(null)
     setCancelling(false)
@@ -301,7 +304,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
       }))
       await supabase.from('dividend_allocations').insert(newAllocations)
 
-      await supabase.rpc('log_accounting_audit', {
+      const { error: auditError3 } = await supabase.rpc('log_accounting_audit', {
         p_client_id: clientId,
         p_entity_type: 'dividend',
         p_entity_id: editingDividendId,
@@ -310,6 +313,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
         p_new_data: after,
         p_description: `Edited dividend — now £${total.toFixed(2)} (original entry reversed, new entry posted)`,
       })
+      if (auditError3) console.error('Audit log failed:', auditError3.message)
 
       setShowConfirm(false)
       setDeclaring(false)
@@ -372,14 +376,16 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
     await supabase.from('dividend_allocations').insert(allocations)
 
-    await supabase.rpc('log_accounting_audit', {
+    const { error: auditError2 } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
       p_entity_id: dividend.id,
       p_action: 'declared',
+      p_old_data: null,
       p_new_data: dividend,
       p_description: `Declared dividend of £${total.toFixed(2)} across ${shareholders.length} shareholder(s)`,
     })
+    if (auditError2) console.error('Audit log failed:', auditError2.message)
 
     setShowConfirm(false)
     setDeclaring(false)
