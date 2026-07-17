@@ -67,7 +67,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     const [ordersRes, contactsRes, accountsRes, vatRes] = await Promise.all([
       supabase.from('sales_orders').select('*, contacts(name, payment_terms_days)').eq('client_id', clientId).order('order_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('chart_of_accounts').select('id, code, name, account_type, default_vat_rate_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('type', 'sales').order('rate', { ascending: true }),
     ])
     if (ordersRes.data) setOrders(ordersRes.data)
@@ -85,6 +85,12 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
+  }
+
+  function relevantVatRates() {
+    const universal = ['no_vat']
+    const incomeOnly = ['zero_ec_goods_income', 'zero_ec_services_income', 'oss_digital_services', 'toms_margin', 'flat_rate']
+    return vatRates.filter((r) => r.code.endsWith('_income') || universal.includes(r.code) || incomeOnly.includes(r.code))
   }
 
   function removeLine(index: number) {
@@ -433,6 +439,10 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                       onChange={(e) => {
                         if (e.target.value === '__add_new__') { setShowAddAccountForLine(index); return }
                         updateLine(index, 'income_account_id', e.target.value)
+                        const account = accounts.find((a) => a.id === e.target.value)
+                        if (account && !line.vat_rate_id) {
+                          updateLine(index, 'vat_rate_id', account.default_vat_rate_id || '')
+                        }
                       }}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
@@ -457,7 +467,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">No VAT</option>
-                      {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                      {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button
                       onClick={() => removeLine(index)}
