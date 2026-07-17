@@ -33,7 +33,7 @@ function formatValue(v: any) {
 
 function renderChanges(oldData: any, newData: any) {
   if (oldData && newData) {
-    const allKeys = new Set([...Object.keys(oldData), ...Object.keys(newData)])
+    const allKeys = Array.from(new Set([...Object.keys(oldData), ...Object.keys(newData)]))
     const changes: { key: string; oldVal: any; newVal: any }[] = []
     for (const key of allKeys) {
       if (IGNORED_FIELDS.has(key)) continue
