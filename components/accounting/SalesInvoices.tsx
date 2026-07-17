@@ -13,11 +13,34 @@ type LineDraft = {
   description: string
   quantity: string
   unit_price: string
-  income_account_id: string
+  expense_account_id: string
   vat_rate_id: string
+  faTreatment?: 'capitalise' | 'writeoff'
+  faWriteoffAccountId?: string
+  faCategory?: string
+  faCo2?: string
+  faIsNew?: boolean
+  faDepreciationMethod?: string
+  faUsefulLifeYears?: string
+  faDepreciationRatePercent?: string
 }
 
-const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '' }
+const EMPTY_LINE: LineDraft = {
+  description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '',
+  faTreatment: undefined, faWriteoffAccountId: '', faCategory: 'main_pool', faCo2: '', faIsNew: true,
+  faDepreciationMethod: 'straight_line', faUsefulLifeYears: '5', faDepreciationRatePercent: '20',
+}
+
+const FA_CATEGORY_LABELS: Record<string, string> = {
+  main_pool: 'Main Pool (general plant & machinery)',
+  special_rate_pool: 'Special Rate Pool (integral features, long-life assets)',
+  car_zero_emission: 'Car — Zero Emission (0g/km CO₂)',
+  car_main_rate: 'Car — Main Rate (≤50g/km CO₂)',
+  car_special_rate: 'Car — Special Rate (>50g/km CO₂)',
+  structures_buildings: 'Structures & Buildings',
+  goodwill: 'Goodwill',
+}
+const FA_CAR_CATEGORIES = ['car_zero_emission', 'car_main_rate', 'car_special_rate']
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -33,10 +56,10 @@ function addDays(dateStr: string, days: number) {
   return d.toISOString().split('T')[0]
 }
 
-export default function SalesInvoices({ clientId }: { clientId: string }) {
-  const [invoices, setInvoices] = useState<any[]>([])
+export default function PurchaseBills({ clientId }: { clientId: string }) {
+  const [bills, setBills] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
-  const [showAddCustomer, setShowAddCustomer] = useState(false)
+  const [showAddSupplier, setShowAddSupplier] = useState(false)
   const [showAddAccountForLine, setShowAddAccountForLine] = useState<number | null>(null)
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
@@ -50,12 +73,12 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [voidError, setVoidError] = useState('')
 
   const [creating, setCreating] = useState(false)
-  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
-  const [replacesInvoiceId, setReplacesInvoiceId] = useState<string | null>(null)
+  const [editingBillId, setEditingBillId] = useState<string | null>(null)
+  const [replacesBillId, setReplacesBillId] = useState<string | null>(null)
   const [contactId, setContactId] = useState('')
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
+  const [billNumber, setBillNumber] = useState('')
+  const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
-  const [invoiceNumberInput, setInvoiceNumberInput] = useState('')
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
@@ -68,17 +91,24 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   useEffect(() => { fetchData() }, [clientId])
 
   async function fetchData() {
-    const [invoicesRes, contactsRes, accountsRes, vatRes] = await Promise.all([
-      supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
-      supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
+    const [billsRes, contactsRes, accountsRes, vatRes] = await Promise.all([
+      supabase.from('purchase_bills').select('*, contacts(name)').eq('client_id', clientId).order('bill_date', { ascending: false }),
+      supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_supplier', true).eq('is_active', true).order('name'),
+      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id, default_vat_rate_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
     ])
-    if (invoicesRes.data) setInvoices(invoicesRes.data)
+    if (billsRes.data) setBills(billsRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
     if (accountsRes.data) {
       const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
-      setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type) && !parentIds.has(a.id)))
+      setAccounts(accountsRes.data.filter((a) => {
+        if (parentIds.has(a.id)) return false
+        if (['direct_costs', 'expense', 'overhead'].includes(a.account_type)) return true
+        // Fixed asset additions (at Cost) are fine here, but never the accumulated
+        // depreciation/amortisation side - that's only ever touched by the Depreciation calculator
+        if (a.account_type === 'fixed_asset' && !a.name.startsWith('Accumulated')) return true
+        return false
+      }))
     }
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
@@ -88,10 +118,16 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setLines([...lines, { ...EMPTY_LINE }])
   }
 
-  function updateLine(index: number, field: keyof LineDraft, value: string) {
+  function updateLine(index: number, field: keyof LineDraft, value: any) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
+  }
+
+  function relevantVatRates() {
+    const universal = ['no_vat']
+    const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
+    return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
   }
 
   function removeLine(index: number) {
@@ -120,21 +156,20 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
   function resetForm() {
     setContactId('')
-    setInvoiceDate(new Date().toISOString().split('T')[0])
+    setBillNumber('')
+    setBillDate(new Date().toISOString().split('T')[0])
     setDueDate('')
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
-    setReplacesInvoiceId(null)
-    setEditingInvoiceId(null)
-    setInvoiceNumberInput('')
-    suggestNextInvoiceNumber()
+    setReplacesBillId(null)
+    setEditingBillId(null)
   }
 
   async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
     const { error: logError } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
-      p_entity_type: 'sales_invoice',
+      p_entity_type: 'purchase_bill',
       p_entity_id: params.entityId,
       p_action: params.action,
       p_old_data: params.oldData ?? null,
@@ -144,56 +179,48 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     if (logError) console.error('Audit log failed:', logError.message)
   }
 
-  async function openEditForm(invoice: any) {
+  async function openEditForm(bill: any) {
     setError('')
     const { data: existingLines } = await supabase
-      .from('sales_invoice_lines')
+      .from('purchase_bill_lines')
       .select('*')
-      .eq('invoice_id', invoice.id)
+      .eq('bill_id', bill.id)
       .order('sort_order')
 
-    setEditingInvoiceId(invoice.id)
-    setReplacesInvoiceId(null)
-    setContactId(invoice.contact_id)
-    setInvoiceDate(invoice.invoice_date)
-    setDueDate(invoice.due_date)
-    setInvoiceNumberInput(invoice.invoice_number)
-    setNotes(invoice.notes || '')
+    setEditingBillId(bill.id)
+    setReplacesBillId(null)
+    setContactId(bill.contact_id)
+    setBillNumber(bill.bill_number || '')
+    setBillDate(bill.bill_date)
+    setDueDate(bill.due_date)
+    setNotes(bill.notes || '')
     setLines(
       (existingLines && existingLines.length > 0 ? existingLines : [{}]).map((l: any) => ({
         description: l.description || '',
         quantity: String(l.quantity || 1),
         unit_price: String(l.unit_price || ''),
-        income_account_id: l.income_account_id || '',
+        expense_account_id: l.expense_account_id || '',
         vat_rate_id: l.vat_rate_id || '',
       }))
     )
     setCreating(true)
   }
 
-  async function suggestNextInvoiceNumber() {
-    const { count } = await supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .eq('client_id', clientId)
-    setInvoiceNumberInput(`INV-${String((count || 0) + 1).padStart(4, '0')}`)
-  }
-
   function handleContactChange(id: string) {
     setContactId(id)
     const contact = contacts.find((c) => c.id === id)
     const terms = contact?.payment_terms_days ?? 30
-    setDueDate(addDays(invoiceDate, terms))
+    setDueDate(addDays(billDate, terms))
   }
 
-  function openCorrectedInvoice(voidedInvoice: any) {
+  function openCorrectedBill(voidedBill: any) {
     resetForm()
-    setContactId(voidedInvoice.contact_id)
-    const terms = contacts.find((c) => c.id === voidedInvoice.contact_id)?.payment_terms_days ?? 30
+    setContactId(voidedBill.contact_id)
+    const terms = contacts.find((c) => c.id === voidedBill.contact_id)?.payment_terms_days ?? 30
     const todayStr = new Date().toISOString().split('T')[0]
-    setInvoiceDate(todayStr)
+    setBillDate(todayStr)
     setDueDate(addDays(todayStr, terms))
-    setReplacesInvoiceId(voidedInvoice.id)
+    setReplacesBillId(voidedBill.id)
     setCreating(true)
   }
 
@@ -201,10 +228,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
 
-    if (!contactId) { setError('Select a customer'); setSaving(false); return }
+    if (!contactId) { setError('Select a supplier'); setSaving(false); return }
     if (!dueDate) { setError('Due date is required'); setSaving(false); return }
     const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
     if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
+    if (validLines.some((l) => l.faTreatment === 'writeoff' && !l.faWriteoffAccountId)) {
+      setError('Select an expense account for any line set to "Write off in full"')
+      setSaving(false)
+      return
+    }
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -216,17 +248,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
     const { subtotal, vatTotal, total } = calculateTotals()
 
-    const invoiceNumber = invoiceNumberInput.trim()
-    if (!invoiceNumber) { setError('Invoice number is required'); setSaving(false); return }
-
-    const linesPayload = (invoiceId: string) => validLines.map((l, i) => {
+    const linesPayload = (billId: string) => validLines.map((l, i) => {
       const { net, vatAmount } = lineAmounts(l)
+      const isWriteoff = l.faTreatment === 'writeoff' && l.faWriteoffAccountId
       return {
-        invoice_id: invoiceId,
+        bill_id: billId,
         description: l.description,
         quantity: parseFloat(l.quantity) || 1,
         unit_price: parseFloat(l.unit_price) || 0,
-        income_account_id: l.income_account_id || null,
+        expense_account_id: (isWriteoff ? l.faWriteoffAccountId : l.expense_account_id) || null,
         vat_rate_id: l.vat_rate_id || null,
         vat_amount: vatAmount,
         line_total: net,
@@ -234,36 +264,59 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       }
     })
 
-    if (editingInvoiceId) {
-      const { data: before } = await supabase.from('sales_invoices').select('*, sales_invoice_lines(*)').eq('id', editingInvoiceId).single()
+    async function createFlaggedFixedAssets(billId: string) {
+      const supplierName = contacts.find((c) => c.id === contactId)?.name || null
+      for (const l of validLines) {
+        if (l.faTreatment !== 'capitalise') continue
+        const { net } = lineAmounts(l)
+        await supabase.from('fixed_assets').insert({
+          firm_id: firmUser!.firm_id,
+          client_id: clientId,
+          description: l.description,
+          category: l.faCategory || 'main_pool',
+          date_acquired: billDate,
+          cost: net,
+          is_new: l.faIsNew !== false,
+          co2_emissions: FA_CAR_CATEGORIES.includes(l.faCategory || '') ? (l.faCo2 ? parseInt(l.faCo2) : (l.faCategory === 'car_zero_emission' ? 0 : null)) : null,
+          supplier_name: supplierName,
+          depreciation_method: l.faDepreciationMethod || 'straight_line',
+          useful_life_years: l.faDepreciationMethod === 'straight_line' ? (parseFloat(l.faUsefulLifeYears || '5') || 5) : null,
+          depreciation_rate_percent: l.faDepreciationMethod === 'reducing_balance' ? (parseFloat(l.faDepreciationRatePercent || '20') || 20) : null,
+          source_bill_id: billId,
+        })
+      }
+    }
+
+    if (editingBillId) {
+      const { data: before } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
 
       const { error: updateError } = await supabase
-        .from('sales_invoices')
+        .from('purchase_bills')
         .update({
           contact_id: contactId,
-          invoice_number: invoiceNumber,
-          invoice_date: invoiceDate,
+          bill_number: billNumber || null,
+          bill_date: billDate,
           due_date: dueDate,
           subtotal,
           vat_total: vatTotal,
           total,
           notes: notes || null,
         })
-        .eq('id', editingInvoiceId)
+        .eq('id', editingBillId)
 
       if (updateError) { setError(updateError.message); setSaving(false); return }
 
-      await supabase.from('sales_invoice_lines').delete().eq('invoice_id', editingInvoiceId)
-      const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesPayload(editingInvoiceId))
+      await supabase.from('purchase_bill_lines').delete().eq('bill_id', editingBillId)
+      const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(editingBillId))
       if (linesError) { setError(linesError.message); setSaving(false); return }
 
-      const { data: after } = await supabase.from('sales_invoices').select('*, sales_invoice_lines(*)').eq('id', editingInvoiceId).single()
+      const { data: after } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
       await logAudit({
-        entityId: editingInvoiceId,
+        entityId: editingBillId,
         action: 'updated',
         oldData: before,
         newData: after,
-        description: `Edited draft invoice "${invoiceNumber}" — now £${total.toFixed(2)} total`,
+        description: `Edited draft bill "${billNumber || editingBillId}" — now £${total.toFixed(2)} total`,
       })
 
       setCreating(false)
@@ -273,14 +326,14 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       return
     }
 
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('sales_invoices')
+    const { data: bill, error: billError } = await supabase
+      .from('purchase_bills')
       .insert({
         firm_id: firmUser.firm_id,
         client_id: clientId,
         contact_id: contactId,
-        invoice_number: invoiceNumber,
-        invoice_date: invoiceDate,
+        bill_number: billNumber || null,
+        bill_date: billDate,
         due_date: dueDate,
         status: 'draft',
         subtotal,
@@ -288,21 +341,23 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         total,
         notes: notes || null,
         created_by: user!.id,
-        replaces_invoice_id: replacesInvoiceId,
+        replaces_bill_id: replacesBillId,
       })
       .select()
       .single()
 
-    if (invoiceError) { setError(invoiceError.message); setSaving(false); return }
+    if (billError) { setError(billError.message); setSaving(false); return }
 
-    const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesPayload(invoice.id))
+    const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(bill.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
 
+    await createFlaggedFixedAssets(bill.id)
+
     await logAudit({
-      entityId: invoice.id,
+      entityId: bill.id,
       action: 'created',
-      newData: invoice,
-      description: `Created draft invoice "${invoiceNumber}" for £${total.toFixed(2)}`,
+      newData: bill,
+      description: `Created draft bill "${billNumber || bill.id}" for £${total.toFixed(2)}`,
     })
 
     setCreating(false)
@@ -311,14 +366,14 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setSaving(false)
   }
 
-  async function handlePost(invoiceId: string) {
-    setPostingId(invoiceId)
-    setPostError((prev) => ({ ...prev, [invoiceId]: '' }))
+  async function handlePost(billId: string) {
+    setPostingId(billId)
+    setPostError((prev) => ({ ...prev, [billId]: '' }))
 
-    const { error: postErr } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
+    const { error: postErr } = await supabase.rpc('post_purchase_bill', { p_bill_id: billId })
 
     if (postErr) {
-      setPostError((prev) => ({ ...prev, [invoiceId]: postErr.message }))
+      setPostError((prev) => ({ ...prev, [billId]: postErr.message }))
       setPostingId(null)
       return
     }
@@ -327,10 +382,10 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     fetchData()
   }
 
-  function openVoid(invoiceId: string) {
+  function openVoid(billId: string) {
     setVoidReason('')
     setVoidError('')
-    setVoidingId(invoiceId)
+    setVoidingId(billId)
   }
 
   async function handleVoid() {
@@ -342,8 +397,8 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setVoiding(true)
     setVoidError('')
 
-    const { error: voidErr } = await supabase.rpc('void_sales_invoice', {
-      p_invoice_id: voidingId,
+    const { error: voidErr } = await supabase.rpc('void_purchase_bill', {
+      p_bill_id: voidingId,
       p_reason: voidReason.trim(),
     })
 
@@ -363,14 +418,14 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
-      <p className="text-gray-500 text-sm">Loading sales invoices...</p>
+      <p className="text-gray-500 text-sm">Loading purchase bills...</p>
     </div>
   )
 
   if (contacts.length === 0 && !creating) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-      <p className="text-gray-500 text-sm mb-2">No customers available</p>
-      <p className="text-gray-400 text-xs">Add a customer in Contacts first before creating invoices</p>
+      <p className="text-gray-500 text-sm mb-2">No suppliers available</p>
+      <p className="text-gray-400 text-xs">Add a supplier in Contacts first before creating bills</p>
     </div>
   )
 
@@ -382,7 +437,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
             onClick={() => { resetForm(); setCreating(true) }}
             className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
           >
-            + New Invoice
+            + New Bill
           </button>
         </div>
       )}
@@ -390,49 +445,49 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
-            {editingInvoiceId ? 'Edit Draft Invoice' : replacesInvoiceId ? 'Corrected Invoice' : 'New Sales Invoice'}
+            {editingBillId ? 'Edit Draft Bill' : replacesBillId ? 'Corrected Bill' : 'New Purchase Bill'}
           </h3>
           <p className="text-xs text-gray-400 -mt-2">
-            {replacesInvoiceId
-              ? 'This will be linked as a correction to the voided invoice'
-              : "Creating directly — this won't be linked to a Sales Order"}
+            {replacesBillId
+              ? 'This will be linked as a correction to the voided bill'
+              : "Creating directly — this won't be linked to a Purchase Order"}
           </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Invoice number</label>
-              <input type="text" value={invoiceNumberInput} onChange={(e) => setInvoiceNumberInput(e.target.value)} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
               <select
                 value={contactId}
                 onChange={(e) => {
-                  if (e.target.value === '__add_new__') { setShowAddCustomer(true); return }
+                  if (e.target.value === '__add_new__') { setShowAddSupplier(true); return }
                   handleContactChange(e.target.value)
                 }}
                 className={inputClass}
               >
-                <option value="">Select customer</option>
-                <option value="__add_new__">+ Add new customer...</option>
+                <option value="">Select supplier</option>
+                <option value="__add_new__">+ Add new supplier...</option>
                 {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <AddContactModal
-                isOpen={showAddCustomer}
+                isOpen={showAddSupplier}
                 clientId={clientId}
-                type="customer"
-                onCancel={() => setShowAddCustomer(false)}
+                type="supplier"
+                onCancel={() => setShowAddSupplier(false)}
                 onCreated={(contact) => {
                   setContacts((prev) => [...prev, contact])
                   handleContactChange(contact.id)
-                  setShowAddCustomer(false)
+                  setShowAddSupplier(false)
                 }}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Invoice date</label>
-              <DatePicker value={invoiceDate} onChange={setInvoiceDate} className="w-full" />
+              <label className="block text-xs font-medium text-gray-500 mb-1">Supplier's bill/invoice number</label>
+              <input type="text" value={billNumber} onChange={(e) => setBillNumber(e.target.value)} placeholder="Their reference" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Bill date</label>
+              <DatePicker value={billDate} onChange={setBillDate} className="w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Due date</label>
@@ -445,7 +500,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
               <div className="col-span-4">Description</div>
               <div className="col-span-1">Qty</div>
               <div className="col-span-2">Unit price (£)</div>
-              <div className="col-span-2">Income account</div>
+              <div className="col-span-2">Expense account</div>
               <div className="col-span-2">VAT rate</div>
               <div className="col-span-1"></div>
             </div>
@@ -475,25 +530,33 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     />
                     <select
-                      value={line.income_account_id}
+                      value={line.expense_account_id}
                       onChange={(e) => {
                         if (e.target.value === '__add_new__') { setShowAddAccountForLine(index); return }
-                        updateLine(index, 'income_account_id', e.target.value)
+                        updateLine(index, 'expense_account_id', e.target.value)
+                        const account = accounts.find((a) => a.id === e.target.value)
+                        if (account && !line.vat_rate_id) {
+                          updateLine(index, 'vat_rate_id', account.default_vat_rate_id || '')
+                        }
                       }}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">Account</option>
                       <option value="__add_new__">+ Add new account...</option>
-                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      <optgroup label="Assets">
+                        {accounts.filter((a) => a.account_type === 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Expenses">
+                        {accounts.filter((a) => a.account_type !== 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                      </optgroup>
                     </select>
                     <AddAccountModal
                       isOpen={showAddAccountForLine === index}
                       clientId={clientId}
-                      context="sales"
                       onCancel={() => setShowAddAccountForLine(null)}
                       onCreated={(account) => {
                         setAccounts((prev) => [...prev, account])
-                        updateLine(index, 'income_account_id', account.id)
+                        updateLine(index, 'expense_account_id', account.id)
                         setShowAddAccountForLine(null)
                       }}
                     />
@@ -503,7 +566,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">No VAT</option>
-                      {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                      {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button
                       onClick={() => removeLine(index)}
@@ -517,6 +580,98 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">
                       Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
                     </p>
+                  )}
+                  {accounts.find((a) => a.id === line.expense_account_id)?.account_type === 'fixed_asset' && (
+                    <div className="ml-1 mt-2 bg-brand-gold/10 border border-brand-gold/30 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-medium text-brand-dark">This looks like a capital purchase — how should it be treated?</p>
+                      <div className="flex gap-1 bg-white rounded-lg p-1 w-fit border border-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => updateLine(index, 'faTreatment', 'capitalise')}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${line.faTreatment === 'capitalise' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}
+                        >
+                          Capitalise (add to Fixed Asset Register)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateLine(index, 'faTreatment', 'writeoff')}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${line.faTreatment === 'writeoff' ? 'bg-brand-dark text-white' : 'text-gray-500'}`}
+                        >
+                          Write off in full as an expense
+                        </button>
+                      </div>
+
+                      {line.faTreatment === 'writeoff' && (
+                        <div className="pt-1">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Expense account (e.g. Small Tools & Equipment, for items below your capitalisation threshold)</label>
+                          <select
+                            value={line.faWriteoffAccountId}
+                            onChange={(e) => updateLine(index, 'faWriteoffAccountId', e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            <option value="">Select account</option>
+                            {accounts.filter((a) => a.account_type !== 'fixed_asset').map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      {line.faTreatment === 'capitalise' && (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <select
+                            value={line.faCategory}
+                            onChange={(e) => updateLine(index, 'faCategory', e.target.value)}
+                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            {Object.entries(FA_CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                          </select>
+                          <select
+                            value={line.faDepreciationMethod}
+                            onChange={(e) => updateLine(index, 'faDepreciationMethod', e.target.value)}
+                            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                          >
+                            <option value="straight_line">Straight Line</option>
+                            <option value="reducing_balance">Reducing Balance</option>
+                            <option value="none">None (not depreciated)</option>
+                          </select>
+                          {FA_CAR_CATEGORIES.includes(line.faCategory || '') && line.faCategory !== 'car_zero_emission' && (
+                            <input
+                              type="number"
+                              value={line.faCo2}
+                              onChange={(e) => updateLine(index, 'faCo2', e.target.value)}
+                              placeholder="CO₂ emissions (g/km)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          {line.faDepreciationMethod === 'straight_line' && (
+                            <input
+                              type="number"
+                              value={line.faUsefulLifeYears}
+                              onChange={(e) => updateLine(index, 'faUsefulLifeYears', e.target.value)}
+                              placeholder="Useful life (years)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          {line.faDepreciationMethod === 'reducing_balance' && (
+                            <input
+                              type="number"
+                              value={line.faDepreciationRatePercent}
+                              onChange={(e) => updateLine(index, 'faDepreciationRatePercent', e.target.value)}
+                              placeholder="Depreciation rate (%)"
+                              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white"
+                            />
+                          )}
+                          <label className="flex items-center gap-2 cursor-pointer col-span-2">
+                            <input
+                              type="checkbox"
+                              checked={!!line.faIsNew}
+                              onChange={(e) => updateLine(index, 'faIsNew', e.target.checked)}
+                              className="w-4 h-4 accent-brand-dark"
+                            />
+                            <span className="text-xs text-brand-dark">Brand new (not second-hand) — affects Full Expensing eligibility</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )
@@ -541,7 +696,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
           <div className="flex gap-3">
             <button onClick={handleCreate} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : editingInvoiceId ? 'Save Changes' : 'Save as draft'}
+              {saving ? 'Saving...' : editingBillId ? 'Save Changes' : 'Save as draft'}
             </button>
             <button onClick={() => { setCreating(false); resetForm() }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
@@ -551,10 +706,10 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {invoices.length === 0 && !creating ? (
+      {bills.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm mb-2">No invoices yet</p>
-          <p className="text-gray-400 text-xs">Create one directly, or convert an accepted Sales Order</p>
+          <p className="text-gray-500 text-sm mb-2">No bills yet</p>
+          <p className="text-gray-400 text-xs">Create one directly, or convert an accepted Purchase Order</p>
         </div>
       ) : !creating && (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200">
@@ -562,9 +717,9 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
             <table className="w-full">
             <thead>
               <tr className="bg-brand-dark">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Invoice #</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Customer</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Invoice date</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Bill #</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Supplier</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Bill date</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Due date</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Paid</th>
@@ -573,77 +728,77 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
+              {bills.map((bill) => (
                 <>
-                  <tr key={inv.id} className="border-b border-gray-100">
+                  <tr key={bill.id} className="border-b border-gray-100">
                     <td className="px-6 py-3 text-sm font-mono text-gray-600">
                       <button
-                        onClick={() => router.push(`/accounting/${clientId}/sales-invoices/${inv.id}`)}
+                        onClick={() => router.push(`/accounting/${clientId}/purchase-bills/${bill.id}`)}
                         className="text-brand-dark hover:underline font-semibold"
                       >
-                        {inv.invoice_number}
+                        {bill.bill_number || 'View bill'}
                       </button>
-                      {inv.replaces_invoice_id && <span className="block text-xs text-gray-400">corrects a voided invoice</span>}
+                      {bill.replaces_bill_id && <span className="block text-xs text-gray-400">corrects a voided bill</span>}
                     </td>
-                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{inv.contacts?.name}</td>
-                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.invoice_date).toLocaleDateString('en-GB')}</td>
-                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(inv.due_date).toLocaleDateString('en-GB')}</td>
-                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(inv.total).toFixed(2)}</td>
-                    <td className="px-6 py-3 text-sm text-right text-gray-500">£{parseFloat(inv.amount_paid).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm font-medium text-brand-dark">{bill.contacts?.name}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(bill.bill_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{new Date(bill.due_date).toLocaleDateString('en-GB')}</td>
+                    <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(bill.total).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-right text-gray-500">£{parseFloat(bill.amount_paid).toFixed(2)}</td>
                     <td className="px-6 py-3">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[inv.status]}`}>
-                        {inv.status.replace(/_/g, ' ')}
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[bill.status]}`}>
+                        {bill.status.replace(/_/g, ' ')}
                       </span>
-                      {inv.status === 'void' && inv.voided_reason && (
-                        <span className="block text-xs text-gray-400 mt-0.5">{inv.voided_reason}</span>
+                      {bill.status === 'void' && bill.voided_reason && (
+                        <span className="block text-xs text-gray-400 mt-0.5">{bill.voided_reason}</span>
                       )}
                     </td>
                     <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
-                      {can.manageEngagements && inv.status === 'draft' && (
+                      {can.manageEngagements && bill.status === 'draft' && (
                         <button
-                          onClick={() => openEditForm(inv)}
+                          onClick={() => openEditForm(bill)}
                           className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition"
                         >
                           Edit
                         </button>
                       )}
-                      {can.manageEngagements && inv.status === 'draft' && (
+                      {can.manageEngagements && bill.status === 'draft' && (
                         <button
-                          onClick={() => handlePost(inv.id)}
-                          disabled={postingId === inv.id}
+                          onClick={() => handlePost(bill.id)}
+                          disabled={postingId === bill.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === inv.id ? 'Finalising...' : 'Finalise'}
+                          {postingId === bill.id ? 'Finalising...' : 'Finalise'}
                         </button>
                       )}
-                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
+                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && parseFloat(bill.amount_paid) === 0 && (
                         <button
-                          onClick={() => openVoid(inv.id)}
+                          onClick={() => openVoid(bill.id)}
                           className="text-xs bg-red-50 text-red-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100 transition"
                         >
                           Void
                         </button>
                       )}
-                      {can.manageEngagements && inv.status === 'void' && (
+                      {can.manageEngagements && bill.status === 'void' && (
                         <button
-                          onClick={() => openCorrectedInvoice(inv)}
+                          onClick={() => openCorrectedBill(bill)}
                           className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition"
                         >
-                          Create corrected invoice
+                          Create corrected bill
                         </button>
                       )}
-                      {inv.journal_entry_id && !['draft', 'void'].includes(inv.status) && (
+                      {bill.journal_entry_id && !['draft', 'void'].includes(bill.status) && (
                         <span className="text-xs text-gray-400">Posted ✓</span>
                       )}
                     </td>
                   </tr>
-                  {postError[inv.id] && (
+                  {postError[bill.id] && (
                     <tr>
                       <td colSpan={8} className="px-6 py-3 bg-red-50">
-                        <p className="text-red-600 text-xs">{postError[inv.id]}</p>
-                        {postError[inv.id].includes('Control accounts') && (
+                        <p className="text-red-600 text-xs">{postError[bill.id]}</p>
+                        {postError[bill.id].includes('Control accounts') && (
                           <p className="text-red-500 text-xs mt-1">
-                            Go to the Accounting → Settings tab and map all six control accounts before posting invoices.
+                            Go to the Accounting → Settings tab and map all six control accounts before posting bills.
                           </p>
                         )}
                       </td>
@@ -659,9 +814,9 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
 
       <ConfirmModal
         isOpen={!!voidingId}
-        title="Void this invoice?"
-        message="This creates a reversing journal entry. The invoice record stays visible with its void reason, and can be corrected by creating a replacement."
-        confirmLabel="Void invoice"
+        title="Void this bill?"
+        message="This creates a reversing journal entry. The bill record stays visible with its void reason, and can be corrected by creating a replacement."
+        confirmLabel="Void bill"
         cancelLabel="Cancel"
         confirming={voiding}
         danger
@@ -669,7 +824,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         inputLabel="Reason for voiding"
         inputValue={voidReason}
         onInputChange={setVoidReason}
-        inputPlaceholder="e.g. Incorrect amount, wrong customer"
+        inputPlaceholder="e.g. Incorrect amount, wrong supplier"
         inputError={voidError}
         onConfirm={handleVoid}
         onCancel={() => setVoidingId(null)}
