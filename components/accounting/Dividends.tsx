@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -11,6 +11,7 @@ import { getUkTaxYear } from '@/lib/ukTaxYear'
 export default function Dividends({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { can } = useRole()
 
   const [dividends, setDividends] = useState<any[]>([])
@@ -33,6 +34,11 @@ export default function Dividends({ clientId }: { clientId: string }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [editingDividendId, setEditingDividendId] = useState<string | null>(null)
+  const [cancellingDividend, setCancellingDividend] = useState<any>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState('')
 
   useEffect(() => { fetchAll() }, [clientId])
 
@@ -53,6 +59,116 @@ export default function Dividends({ clientId }: { clientId: string }) {
       if (payableDefault) setDividendsPayableAccountId(payableDefault.id)
     }
     setLoading(false)
+
+    const editDividendId = searchParams.get('edit')
+    if (editDividendId && divRes.data) {
+      const toEdit = divRes.data.find((d) => d.id === editDividendId)
+      if (toEdit && toEdit.status === 'declared') openEditForm(toEdit)
+    }
+  }
+
+  // Posts a mirrored reversing entry for a given journal entry - swaps every line's
+  // debit/credit, so the ledger keeps a clean trail rather than mutating history
+  async function reverseJournalEntry(originalEntryId: string, description: string, firmId: string, firmUserId: string) {
+    const { data: originalLines } = await supabase.from('journal_lines').select('account_id, debit, credit').eq('journal_entry_id', originalEntryId)
+
+    const { data: reversalEntry, error: reversalError } = await supabase
+      .from('journal_entries')
+      .insert({
+        firm_id: firmId,
+        client_id: clientId,
+        entry_date: new Date().toISOString().split('T')[0],
+        reference: 'DIVIDEND-REVERSAL',
+        description,
+        source: 'dividend',
+        created_by: firmUserId,
+      })
+      .select()
+      .single()
+
+    if (reversalError || !reversalEntry) return null
+
+    const reversalLines = (originalLines || []).map((l: any, i: number) => ({
+      journal_entry_id: reversalEntry.id,
+      account_id: l.account_id,
+      debit: parseFloat(l.credit) || 0,
+      credit: parseFloat(l.debit) || 0,
+      description,
+      sort_order: i,
+    }))
+    await supabase.from('journal_lines').insert(reversalLines)
+
+    return reversalEntry.id
+  }
+
+  async function openEditForm(dividend: any) {
+    setError('')
+    const { data: existingAllocations } = await supabase
+      .from('dividend_allocations')
+      .select('*, shareholders(id, name, share_class, shares_held)')
+      .eq('dividend_id', dividend.id)
+
+    setEditingDividendId(dividend.id)
+    setDeclarationDate(dividend.declaration_date)
+    setDeclarationType(dividend.declaration_type || 'board_minutes')
+    setDistributionMode(dividend.distribution_mode || 'proportional')
+    setNotes(dividend.notes || '')
+    setDividendsPaidAccountId('')
+    setDividendsPayableAccountId('')
+
+    if (dividend.distribution_mode === 'per_class' && dividend.class_rates) {
+      setClassRates(dividend.class_rates)
+    } else if (dividend.distribution_mode === 'custom') {
+      const amounts: Record<string, string> = {}
+      for (const a of existingAllocations || []) {
+        if (a.shareholder_id) amounts[a.shareholder_id] = String(a.amount)
+      }
+      setCustomAmounts(amounts)
+    } else {
+      setInputMode('total')
+      setTotalAmount(String(dividend.total_amount))
+    }
+
+    setDeclaring(true)
+  }
+
+  function openCancelForm(dividend: any) {
+    setCancelReason('')
+    setCancelError('')
+    setCancellingDividend(dividend)
+  }
+
+  async function handleCancel() {
+    setCancelling(true)
+    setCancelError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+    if (!firmUser) { setCancelError('Could not find your firm'); setCancelling(false); return }
+
+    const reversalId = await reverseJournalEntry(
+      cancellingDividend.declaration_journal_entry_id,
+      `Reversal — dividend cancelled: ${cancelReason || 'no reason given'}`,
+      firmUser.firm_id,
+      firmUser.id
+    )
+
+    await supabase
+      .from('dividends')
+      .update({ status: 'cancelled', cancellation_reason: cancelReason || null, cancellation_journal_entry_id: reversalId })
+      .eq('id', cancellingDividend.id)
+
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'dividend',
+      p_entity_id: cancellingDividend.id,
+      p_action: 'cancelled',
+      p_description: `Cancelled dividend of £${parseFloat(cancellingDividend.total_amount).toFixed(2)}${cancelReason ? ` — ${cancelReason}` : ''}`,
+    })
+
+    setCancellingDividend(null)
+    setCancelling(false)
+    fetchAll()
   }
 
   const totalShares = shareholders.reduce((sum, s) => sum + s.shares_held, 0)
@@ -60,6 +176,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
   const shareClasses = Array.from(new Set(shareholders.map((s) => s.share_class)))
 
   function openDeclareForm() {
+    setEditingDividendId(null)
     setDeclarationDate(new Date().toISOString().split('T')[0])
     setDeclarationType('board_minutes')
     setDistributionMode('proportional')
@@ -124,6 +241,82 @@ export default function Dividends({ clientId }: { clientId: string }) {
     const total = computedTotal()
     const perShare = computedPerShare()
     const modeLabel = distributionMode === 'proportional' ? `£${perShare.toFixed(4)} per share` : distributionMode === 'per_class' ? 'per-class rates' : 'custom per-shareholder amounts'
+
+    if (editingDividendId) {
+      const { data: before } = await supabase.from('dividends').select('*').eq('id', editingDividendId).single()
+
+      await reverseJournalEntry(
+        before.declaration_journal_entry_id,
+        `Reversal — dividend edited (superseded by new figures)`,
+        firmUser.firm_id,
+        firmUser.id
+      )
+
+      const { data: newEntry, error: newEntryError } = await supabase
+        .from('journal_entries')
+        .insert({
+          firm_id: firmUser.firm_id,
+          client_id: clientId,
+          entry_date: declarationDate,
+          reference: 'DIVIDEND',
+          description: `Dividend declared (edited) — £${total.toFixed(2)} (${modeLabel})`,
+          source: 'dividend',
+          created_by: firmUser.id,
+        })
+        .select()
+        .single()
+
+      if (newEntryError) { setError(newEntryError.message); setSaving(false); setShowConfirm(false); return }
+
+      await supabase.from('journal_lines').insert([
+        { journal_entry_id: newEntry.id, account_id: dividendsPaidAccountId, debit: total, credit: 0, description: 'Dividend declared (edited)', sort_order: 0 },
+        { journal_entry_id: newEntry.id, account_id: dividendsPayableAccountId, debit: 0, credit: total, description: 'Dividend declared (edited)', sort_order: 1 },
+      ])
+
+      const { data: after } = await supabase
+        .from('dividends')
+        .update({
+          declaration_date: declarationDate,
+          total_amount: total,
+          per_share_amount: perShare,
+          notes: notes || null,
+          declaration_journal_entry_id: newEntry.id,
+          distribution_mode: distributionMode,
+          declaration_type: declarationType,
+          tax_year: getUkTaxYear(declarationDate),
+          class_rates: distributionMode === 'per_class' ? classRates : null,
+        })
+        .eq('id', editingDividendId)
+        .select()
+        .single()
+
+      await supabase.from('dividend_allocations').delete().eq('dividend_id', editingDividendId)
+      const { count } = await supabase.from('dividends').select('id', { count: 'exact', head: true }).eq('client_id', clientId)
+      const newAllocations = previewAllocations().map((a, i) => ({
+        dividend_id: editingDividendId,
+        shareholder_id: a.shareholder.id,
+        shares_held_at_declaration: a.shareholder.shares_held,
+        amount: a.amount,
+        voucher_number: `DIV-${String(count || 1).padStart(4, '0')}-${String(i + 1).padStart(2, '0')}`,
+      }))
+      await supabase.from('dividend_allocations').insert(newAllocations)
+
+      await supabase.rpc('log_accounting_audit', {
+        p_client_id: clientId,
+        p_entity_type: 'dividend',
+        p_entity_id: editingDividendId,
+        p_action: 'updated',
+        p_old_data: before,
+        p_new_data: after,
+        p_description: `Edited dividend — now £${total.toFixed(2)} (original entry reversed, new entry posted)`,
+      })
+
+      setShowConfirm(false)
+      setDeclaring(false)
+      setSaving(false)
+      fetchAll()
+      return
+    }
 
     const { data: entry, error: entryError } = await supabase
       .from('journal_entries')
@@ -211,7 +404,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
       {declaring && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Declare Dividend</h3>
+          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">{editingDividendId ? 'Edit Dividend' : 'Declare Dividend'}</h3>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
@@ -372,7 +565,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
           <div className="flex gap-3">
             <button onClick={handleDeclareClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-              Declare Dividend
+              {editingDividendId ? 'Save Changes' : 'Declare Dividend'}
             </button>
             <button onClick={() => setDeclaring(false)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
               Cancel
@@ -383,13 +576,43 @@ export default function Dividends({ clientId }: { clientId: string }) {
 
       <ConfirmModal
         isOpen={showConfirm}
-        title="Declare this dividend?"
-        message={`£${computedTotal().toFixed(2)} will be declared across ${shareholders.length} shareholder(s), posted as a real journal entry, and a voucher generated for each shareholder. This becomes part of the permanent ledger.`}
-        confirmLabel="Declare Dividend"
+        title={editingDividendId ? 'Save changes to this dividend?' : 'Declare this dividend?'}
+        message={editingDividendId
+          ? `The original declaration entry will be reversed and a new one posted with the updated figures — £${computedTotal().toFixed(2)} across ${shareholders.length} shareholder(s). Vouchers will be regenerated.`
+          : `£${computedTotal().toFixed(2)} will be declared across ${shareholders.length} shareholder(s), posted as a real journal entry, and a voucher generated for each shareholder. This becomes part of the permanent ledger.`}
+        confirmLabel={editingDividendId ? 'Save Changes' : 'Declare Dividend'}
         confirming={saving}
         onConfirm={handleDeclare}
         onCancel={() => setShowConfirm(false)}
       />
+
+      {cancellingDividend && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-semibold text-brand-dark">Cancel this dividend?</h3>
+            <p className="text-sm text-gray-500">
+              £{parseFloat(cancellingDividend.total_amount).toFixed(2)} declared on {new Date(cancellingDividend.declaration_date).toLocaleDateString('en-GB')} — the original declaration entry will be reversed. Vouchers already issued will show as void.
+            </p>
+            {cancelError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-3 py-2">{cancelError}</div>}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reason (optional, but recommended for the board record)</label>
+              <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} className={inputClass} placeholder="e.g. Board decided to defer distribution" />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex-1 bg-red-600 text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-red-700 transition disabled:opacity-50"
+              >
+                {cancelling ? 'Cancelling...' : 'Cancel Dividend'}
+              </button>
+              <button onClick={() => setCancellingDividend(null)} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
+                Keep Dividend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-gray-400">Loading...</p>
@@ -408,6 +631,7 @@ export default function Dividends({ clientId }: { clientId: string }) {
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Total</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Per Share</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -422,9 +646,21 @@ export default function Dividends({ clientId }: { clientId: string }) {
                     <td className="px-6 py-3 text-sm font-semibold text-brand-dark">£{parseFloat(d.total_amount).toFixed(2)}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">£{parseFloat(d.per_share_amount).toFixed(4)}</td>
                     <td className="px-6 py-3">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${d.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${d.status === 'paid' ? 'bg-green-100 text-green-700' : d.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
                         {d.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      {can.manageEngagements && d.status === 'declared' && (
+                        <>
+                          <button onClick={() => openEditForm(d)} className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition">
+                            Edit
+                          </button>
+                          <button onClick={() => openCancelForm(d)} className="text-xs bg-red-50 text-red-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100 transition">
+                            Cancel
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
