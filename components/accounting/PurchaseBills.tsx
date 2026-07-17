@@ -94,7 +94,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     const [billsRes, contactsRes, accountsRes, vatRes] = await Promise.all([
       supabase.from('purchase_bills').select('*, contacts(name)').eq('client_id', clientId).order('bill_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_supplier', true).eq('is_active', true).order('name'),
-      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id').eq('client_id', clientId).eq('is_active', true).order('code'),
+      supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id, default_vat_rate_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
     ])
     if (billsRes.data) setBills(billsRes.data)
@@ -122,6 +122,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
+  }
+
+  function relevantVatRates() {
+    const universal = ['no_vat']
+    const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
+    return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
   }
 
   function removeLine(index: number) {
@@ -528,6 +534,10 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       onChange={(e) => {
                         if (e.target.value === '__add_new__') { setShowAddAccountForLine(index); return }
                         updateLine(index, 'expense_account_id', e.target.value)
+                        const account = accounts.find((a) => a.id === e.target.value)
+                        if (account && !line.vat_rate_id) {
+                          updateLine(index, 'vat_rate_id', account.default_vat_rate_id || '')
+                        }
                       }}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
@@ -556,7 +566,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
                       <option value="">No VAT</option>
-                      {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
+                      {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button
                       onClick={() => removeLine(index)}
