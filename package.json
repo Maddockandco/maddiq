@@ -19,7 +19,8 @@
     "tailwind-merge": "^2.2.1",
     "lucide-react": "^0.383.0",
     "resend": "^3.0.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "@react-pdf/renderer": "^4.5.1"
   },
   "devDependencies": {
     "typescript": "^5",
