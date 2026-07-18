@@ -63,7 +63,7 @@ export default function TradePayables({ clientId }: { clientId: string }) {
       byContact[key] = { name: bill.contacts?.name || 'Unknown', bills: [], buckets: { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 }, total: 0 }
     }
     byContact[key].bills.push(bill)
-    byContact[key].buckets[bill.bucket] += bill.outstanding
+    byContact[key].buckets[bill.bucket as AgingBucket] += bill.outstanding
     byContact[key].total += bill.outstanding
   }
   const contactRows = Object.values(byContact).sort((a, b) => b.total - a.total)
