@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import DatePicker from '@/components/ui/DatePicker'
-import { GripVertical, Plus, X } from 'lucide-react'
+import { GripVertical, Plus, X, Minimize2, Maximize2 } from 'lucide-react'
 import {
   RevenueTrendWidget,
   AgingSummaryWidget,
@@ -34,6 +34,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   const [loading, setLoading] = useState(true)
   const [enabledOptional, setEnabledOptional] = useState<string[]>([])
   const [showAddMenu, setShowAddMenu] = useState(false)
+  const [widgetWidths, setWidgetWidths] = useState<Record<string, 'half' | 'full'>>({})
   const router = useRouter()
   const supabase = createClient()
   useEffect(() => { fetchSummary() }, [params.clientId])
@@ -120,7 +121,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     }
     const layoutResult = await supabase
       .from('dashboard_widget_layout')
-      .select('widget_order, enabled_optional_widgets')
+      .select('widget_order, enabled_optional_widgets, widget_widths')
       .eq('client_id', params.clientId)
       .maybeSingle()
     setAccountCount(accountsResult.count || 0)
@@ -129,6 +130,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     setBankAccounts(bankData)
     const savedOptional: string[] = layoutResult.data?.enabled_optional_widgets || []
     setEnabledOptional(savedOptional)
+    setWidgetWidths(layoutResult.data?.widget_widths || {})
     const defaultOrder = ['summary-cards', ...bankData.map((a) => `bank-${a.id}`), 'recent-entries', ...savedOptional]
     const savedOrder: string[] = layoutResult.data?.widget_order || []
     const merged = [
@@ -138,7 +140,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     setWidgetOrder(merged)
     setLoading(false)
   }
-  async function saveWidgetOrder(newOrder: string[], optionalOverride?: string[]) {
+  async function saveWidgetOrder(newOrder: string[], optionalOverride?: string[], widthsOverride?: Record<string, 'half' | 'full'>) {
     setWidgetOrder(newOrder)
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -147,15 +149,24 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       .eq('user_id', user!.id)
       .single()
     if (!firmUser) return
-    await supabase
+    const { error: saveError } = await supabase
       .from('dashboard_widget_layout')
       .upsert({
         client_id: params.clientId,
         firm_id: firmUser.firm_id,
         widget_order: newOrder,
         enabled_optional_widgets: optionalOverride ?? enabledOptional,
+        widget_widths: widthsOverride ?? widgetWidths,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'client_id' })
+    if (saveError) console.error('Dashboard layout save failed:', saveError.message)
+  }
+  function handleToggleWidth(id: string) {
+    const current = widgetWidths[id] || 'full'
+    const next: 'half' | 'full' = current === 'full' ? 'half' : 'full'
+    const newWidths = { ...widgetWidths, [id]: next }
+    setWidgetWidths(newWidths)
+    saveWidgetOrder(widgetOrder, undefined, newWidths)
   }
   function handleDragStart(id: string) {
     setDraggedId(id)
@@ -236,6 +247,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   }
   function widgetSpanClass(id: string) {
     if (id.startsWith('bank-')) return 'col-span-1'
+    if (OPTIONAL_WIDGETS[id]) return widgetWidths[id] === 'half' ? 'col-span-1' : 'col-span-1 md:col-span-2'
     return 'col-span-1 md:col-span-2'
   }
   const cards = [
@@ -246,13 +258,22 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     if (OPTIONAL_WIDGETS[id]) {
       return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-80 relative">
-          <button
-            onClick={() => handleRemoveOptionalWidget(id)}
-            className="absolute top-3 right-3 text-gray-300 hover:text-red-500 transition z-10"
-            title="Remove widget"
-          >
-            <X size={16} />
-          </button>
+          <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+            <button
+              onClick={() => handleToggleWidth(id)}
+              className="text-gray-300 hover:text-brand-dark transition"
+              title={widgetWidths[id] === 'half' ? 'Widen widget' : 'Narrow widget'}
+            >
+              {widgetWidths[id] === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+            </button>
+            <button
+              onClick={() => handleRemoveOptionalWidget(id)}
+              className="text-gray-300 hover:text-red-500 transition"
+              title="Remove widget"
+            >
+              <X size={16} />
+            </button>
+          </div>
           {OPTIONAL_WIDGETS[id].render(params.clientId)}
         </div>
       )
