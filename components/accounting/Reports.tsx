@@ -5,8 +5,11 @@ import { createClient } from '@/lib/supabase/client'
 import DatePicker from '@/components/ui/DatePicker'
 import { calculateCorporationTax } from '@/lib/corporationTax'
 import { useRole } from '@/hooks/useRole'
+import TradeDebtors from '@/components/accounting/TradeDebtors'
+import TradePayables from '@/components/accounting/TradePayables'
+import VisualDashboard from '@/components/accounting/VisualDashboard'
 
-type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet'
+type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet' | 'trade_debtors' | 'trade_payables' | 'dashboard'
 type Basis = 'accruals' | 'cash'
 
 const GRANULAR_TO_CATEGORY: Record<string, string> = {
@@ -67,6 +70,7 @@ export default function Reports({ clientId }: { clientId: string }) {
   const supabase = createClient()
 
   useEffect(() => {
+    if (!['trial_balance', 'profit_loss', 'balance_sheet'].includes(reportType)) return
     if (reportType === 'profit_loss' && basis === 'cash') {
       fetchCashBasisPL()
     } else {
@@ -648,11 +652,18 @@ export default function Reports({ clientId }: { clientId: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex gap-2">
-          <button onClick={() => setReportType('trial_balance')} className={tabClass(reportType === 'trial_balance')}>Trial Balance</button>
-          <button onClick={() => setReportType('profit_loss')} className={tabClass(reportType === 'profit_loss')}>Profit & Loss</button>
-          <button onClick={() => setReportType('balance_sheet')} className={tabClass(reportType === 'balance_sheet')}>Balance Sheet</button>
-        </div>
+        <select
+          value={reportType}
+          onChange={(e) => setReportType(e.target.value as ReportType)}
+          className="border border-gray-200 rounded-lg px-4 py-2 text-sm font-medium text-brand-dark bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold"
+        >
+          <option value="trial_balance">Trial Balance</option>
+          <option value="profit_loss">Profit & Loss</option>
+          <option value="balance_sheet">Balance Sheet</option>
+          <option value="trade_debtors">Trade Debtors</option>
+          <option value="trade_payables">Trade Payables</option>
+          <option value="dashboard">Dashboard</option>
+        </select>
 
         {reportType === 'profit_loss' ? (
           <div className="flex items-center gap-3 flex-wrap">
@@ -689,7 +700,7 @@ export default function Reports({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {!loading && !(reportType === 'profit_loss' && basis === 'cash') && getUncategorizedAccounts().length > 0 && (
+      {!loading && !(reportType === 'profit_loss' && basis === 'cash') && ['trial_balance', 'profit_loss', 'balance_sheet'].includes(reportType) && getUncategorizedAccounts().length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
           <p className="text-red-700 text-sm font-semibold mb-1">⚠ Uncategorized accounts detected</p>
           <p className="text-red-600 text-xs mb-2">
@@ -707,17 +718,23 @@ export default function Reports({ clientId }: { clientId: string }) {
 
       {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-      {loading ? (
-        <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
-          <p className="text-gray-500 text-sm">Loading report...</p>
-        </div>
-      ) : (
-        <>
-          {reportType === 'trial_balance' && renderTrialBalance()}
-          {reportType === 'profit_loss' && renderProfitLoss()}
-          {reportType === 'balance_sheet' && renderBalanceSheet()}
-        </>
+      {['trial_balance', 'profit_loss', 'balance_sheet'].includes(reportType) && (
+        loading ? (
+          <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+            <p className="text-gray-500 text-sm">Loading report...</p>
+          </div>
+        ) : (
+          <>
+            {reportType === 'trial_balance' && renderTrialBalance()}
+            {reportType === 'profit_loss' && renderProfitLoss()}
+            {reportType === 'balance_sheet' && renderBalanceSheet()}
+          </>
+        )
       )}
+
+      {reportType === 'trade_debtors' && <TradeDebtors clientId={clientId} />}
+      {reportType === 'trade_payables' && <TradePayables clientId={clientId} />}
+      {reportType === 'dashboard' && <VisualDashboard clientId={clientId} />}
     </div>
   )
 }
