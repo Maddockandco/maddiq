@@ -170,7 +170,7 @@ export async function GET(request: Request, { params }: { params: { dividendId: 
   )
 
   const filename = dividend.declaration_type === 'written_resolution' ? 'written-resolution.pdf' : 'board-minutes.pdf'
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${filename}"`,
