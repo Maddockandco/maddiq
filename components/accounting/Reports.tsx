@@ -11,7 +11,7 @@ const GRANULAR_TO_CATEGORY: Record<string, string> = {
   bank: 'asset', current_asset: 'asset', fixed_asset: 'asset', inventory: 'asset', non_current_asset: 'asset', prepayment: 'asset',
   current_liability: 'liability', non_current_liability: 'liability', liability: 'liability',
   equity: 'equity',
-  direct_costs: 'expense', expense: 'expense', overhead: 'expense', depreciation: 'expense',
+  direct_costs: 'expense', expense: 'expense', overhead: 'expense', depreciation: 'expense', corporation_tax: 'expense',
   sales: 'income', revenue: 'income', other_income: 'income',
 }
 
@@ -295,6 +295,7 @@ export default function Reports({ clientId }: { clientId: string }) {
     const otherIncome = income.filter((a) => a.account_type === 'other_income')
     const costOfSales = expenses.filter((a) => a.account_type === 'direct_costs')
     const operatingExpenses = expenses.filter((a) => ['expense', 'overhead', 'depreciation'].includes(a.account_type || ''))
+    const corporationTax = expenses.filter((a) => a.account_type === 'corporation_tax')
 
     const turnoverTotal = turnover.reduce((sum, a) => sum + a.value, 0)
     const costOfSalesTotal = costOfSales.reduce((sum, a) => sum + a.value, 0)
@@ -303,6 +304,8 @@ export default function Reports({ clientId }: { clientId: string }) {
     const operatingProfit = grossProfit - operatingExpensesTotal
     const otherIncomeTotal = otherIncome.reduce((sum, a) => sum + a.value, 0)
     const profitBeforeTax = operatingProfit + otherIncomeTotal
+    const corporationTaxTotal = corporationTax.reduce((sum, a) => sum + a.value, 0)
+    const profitAfterTax = profitBeforeTax - corporationTaxTotal
 
     function plSection(title: string, rows: typeof income, total: number, noDataLabel: string) {
       return (
@@ -354,6 +357,19 @@ export default function Reports({ clientId }: { clientId: string }) {
             £{Math.abs(profitBeforeTax).toFixed(2)}
           </span>
         </div>
+
+        {corporationTax.length > 0 && (
+          <>
+            {plSection('Corporation Tax', corporationTax, corporationTaxTotal, 'No Corporation Tax charge recorded in this period')}
+
+            <div className={`rounded-xl p-4 flex justify-between items-center ${profitAfterTax >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+              <span className="text-sm font-semibold text-brand-dark">{profitAfterTax >= 0 ? 'Profit After Tax' : 'Loss After Tax'}</span>
+              <span className={`text-lg font-bold ${profitAfterTax >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                £{Math.abs(profitAfterTax).toFixed(2)}
+              </span>
+            </div>
+          </>
+        )}
       </div>
     )
   }
