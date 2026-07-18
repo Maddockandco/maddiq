@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import DatePicker from '@/components/ui/DatePicker'
+import { calculateCorporationTax } from '@/lib/corporationTax'
+import { useRole } from '@/hooks/useRole'
 
 type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet'
 type Basis = 'accruals' | 'cash'
@@ -43,6 +45,7 @@ function today() {
 type AccountLine = { code: string; name: string; amount: number; account_type?: string }
 
 export default function Reports({ clientId }: { clientId: string }) {
+  const { can } = useRole()
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
   const [basis, setBasis] = useState<Basis>('accruals')
   const [asOfDate, setAsOfDate] = useState(today())
@@ -53,6 +56,13 @@ export default function Reports({ clientId }: { clientId: string }) {
   const [cashExpenses, setCashExpenses] = useState<AccountLine[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [associatedCount, setAssociatedCount] = useState(0)
+  const [matchingCapAllowances, setMatchingCapAllowances] = useState<any>(null)
+  const [existingCtComputation, setExistingCtComputation] = useState<any>(null)
+  const [ctAccountId, setCtAccountId] = useState('')
+  const [ctPayableAccountId, setCtPayableAccountId] = useState('')
+  const [postingCt, setPostingCt] = useState(false)
+  const [ctPostError, setCtPostError] = useState('')
 
   const supabase = createClient()
 
@@ -63,6 +73,121 @@ export default function Reports({ clientId }: { clientId: string }) {
       fetchLedgerLines()
     }
   }, [clientId, reportType, basis, asOfDate, periodStart, periodEnd])
+
+  useEffect(() => {
+    if (reportType === 'profit_loss' && basis === 'accruals') fetchCtInputs()
+  }, [clientId, reportType, basis, periodStart, periodEnd])
+
+  async function handlePostCtToLedger(estimatedResult: any, depreciationOnlyTotal: number, accountingProfit: number) {
+    if (!ctAccountId || !ctPayableAccountId) {
+      setCtPostError('Corporation Tax and Corporation Tax Payable accounts not found in Chart of Accounts')
+      return
+    }
+    setPostingCt(true)
+    setCtPostError('')
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+    if (!firmUser) { setCtPostError('Could not find your firm'); setPostingCt(false); return }
+
+    const amount = estimatedResult.box440CorporationTaxChargeable
+
+    const { data: entry, error: entryError } = await supabase
+      .from('journal_entries')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        entry_date: periodEnd,
+        reference: 'CT600',
+        description: `Corporation Tax charge for period ${periodStart} to ${periodEnd}`,
+        source: 'corporation_tax',
+        created_by: firmUser.id,
+      })
+      .select()
+      .single()
+
+    if (entryError) { setCtPostError(entryError.message); setPostingCt(false); return }
+
+    await supabase.from('journal_lines').insert([
+      { journal_entry_id: entry.id, account_id: ctAccountId, debit: amount, credit: 0, description: 'Corporation Tax charge', sort_order: 0 },
+      { journal_entry_id: entry.id, account_id: ctPayableAccountId, debit: 0, credit: amount, description: 'Corporation Tax charge', sort_order: 1 },
+    ])
+
+    const { data: saved, error: saveError } = await supabase
+      .from('ct600_computations')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        box_145_turnover: 0,
+        accounting_profit: accountingProfit,
+        depreciation_addback: depreciationOnlyTotal,
+        capital_allowances_total: matchingCapAllowances ? parseFloat(matchingCapAllowances.total_allowances) : 0,
+        box_155_trading_profits: estimatedResult.box155TradingProfits,
+        box_165_net_trading_profits: estimatedResult.box165NetTradingProfits,
+        box_170_interest_income: estimatedResult.box170Interest,
+        box_235_profits_before_deductions: estimatedResult.box235ProfitsBeforeDeductions,
+        box_305_qualifying_donations: estimatedResult.box305QualifyingDonations,
+        box_315_profits_chargeable: estimatedResult.box315ProfitsChargeable,
+        box_326_associated_companies: estimatedResult.box326AssociatedCompanies,
+        box_329_marginal_relief_flag: estimatedResult.box329MarginalReliefFlag,
+        tax_at_main_rate: estimatedResult.taxAtMainRate,
+        box_430_corporation_tax: estimatedResult.box430CorporationTax,
+        box_435_marginal_relief: estimatedResult.box435MarginalRelief,
+        box_440_corporation_tax_chargeable: estimatedResult.box440CorporationTaxChargeable,
+        box_475_net_ct_liability: estimatedResult.box475NetCtLiability,
+        status: 'finalized',
+        journal_entry_id: entry.id,
+        created_by: user!.id,
+      })
+      .select()
+      .single()
+
+    if (saveError) { setCtPostError(saveError.message); setPostingCt(false); return }
+
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'ct600_computation',
+      p_entity_id: saved.id,
+      p_action: 'finalized',
+      p_old_data: null,
+      p_new_data: saved,
+      p_description: `Corporation Tax auto-calculated from the P&L and posted — £${amount.toFixed(2)} for period ${periodStart} to ${periodEnd}`,
+    })
+
+    setExistingCtComputation(saved)
+    setPostingCt(false)
+    fetchLedgerLines()
+  }
+
+  async function fetchCtInputs() {
+    setCtPostError('')
+    const [assocRes, capRes, accRes, ctRes] = await Promise.all([
+      supabase.from('associated_companies').select('id').eq('client_id', clientId).eq('is_active', true),
+      // Find a finalized Capital Allowances period that overlaps this P&L period - capital
+      // allowances are tax-only and never posted to the ledger, so they can't be derived
+      // from journal_lines the way the rest of this figure is
+      supabase
+        .from('capital_allowances_periods')
+        .select('*')
+        .eq('client_id', clientId)
+        .eq('status', 'finalized')
+        .lte('period_start', periodEnd)
+        .gte('period_end', periodStart)
+        .order('period_end', { ascending: false })
+        .limit(1),
+      supabase.from('chart_of_accounts').select('id, name').eq('client_id', clientId).eq('is_active', true).in('name', ['Corporation Tax', 'Corporation Tax Payable']),
+      supabase.from('ct600_computations').select('*').eq('client_id', clientId).eq('period_start', periodStart).eq('period_end', periodEnd).maybeSingle(),
+    ])
+    setAssociatedCount(assocRes.data?.length || 0)
+    setMatchingCapAllowances(capRes.data?.[0] || null)
+    setExistingCtComputation(ctRes.data || null)
+    if (accRes.data) {
+      setCtAccountId(accRes.data.find((a) => a.name === 'Corporation Tax')?.id || '')
+      setCtPayableAccountId(accRes.data.find((a) => a.name === 'Corporation Tax Payable')?.id || '')
+    }
+  }
 
   async function fetchLedgerLines() {
     setLoading(true)
@@ -296,6 +421,7 @@ export default function Reports({ clientId }: { clientId: string }) {
     const costOfSales = expenses.filter((a) => a.account_type === 'direct_costs')
     const operatingExpenses = expenses.filter((a) => ['expense', 'overhead', 'depreciation'].includes(a.account_type || ''))
     const corporationTax = expenses.filter((a) => a.account_type === 'corporation_tax')
+    const depreciationOnly = expenses.filter((a) => a.account_type === 'depreciation')
 
     const turnoverTotal = turnover.reduce((sum, a) => sum + a.value, 0)
     const costOfSalesTotal = costOfSales.reduce((sum, a) => sum + a.value, 0)
@@ -306,6 +432,24 @@ export default function Reports({ clientId }: { clientId: string }) {
     const profitBeforeTax = operatingProfit + otherIncomeTotal
     const corporationTaxTotal = corporationTax.reduce((sum, a) => sum + a.value, 0)
     const profitAfterTax = profitBeforeTax - corporationTaxTotal
+    const depreciationOnlyTotal = depreciationOnly.reduce((sum, a) => sum + a.value, 0)
+
+    // Auto-calculate a live Corporation Tax estimate for this exact period, using the same
+    // profit figures already computed above - no separate manual entry needed. Only makes
+    // sense on an accruals basis, and only once a charge hasn't already been posted.
+    const ctEstimate = (basis === 'accruals' && corporationTax.length === 0 && profitBeforeTax !== 0)
+      ? calculateCorporationTax({
+          accountingProfit: profitBeforeTax,
+          depreciationAddback: depreciationOnlyTotal,
+          capitalAllowancesTotal: matchingCapAllowances ? parseFloat(matchingCapAllowances.total_allowances) : 0,
+          otherIncome: 0, // already included in profitBeforeTax above, so not added again here
+          manualAdjustments: [],
+          qualifyingDonations: 0,
+          associatedCompaniesCount: associatedCount,
+          periodStartDate: periodStart,
+          periodEndDate: periodEnd,
+        })
+      : null
 
     function plSection(title: string, rows: typeof income, total: number, noDataLabel: string) {
       return (
@@ -357,6 +501,46 @@ export default function Reports({ clientId }: { clientId: string }) {
             £{Math.abs(profitBeforeTax).toFixed(2)}
           </span>
         </div>
+
+        {basis === 'cash' && (
+          <p className="text-xs text-gray-400 italic">Corporation Tax is always calculated on an accruals basis — switch to Accruals to see the auto-calculated estimate.</p>
+        )}
+
+        {ctEstimate && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Corporation Tax Estimate (auto-calculated, not yet posted)</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between"><span className="text-gray-500">Depreciation add-back</span><span className="text-brand-dark">£{depreciationOnlyTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Capital allowances deducted</span>
+                <span className="text-brand-dark">
+                  {matchingCapAllowances ? `£${parseFloat(matchingCapAllowances.total_allowances).toFixed(2)}` : '£0.00 (no matching finalized period found)'}
+                </span>
+              </div>
+              <div className="flex justify-between"><span className="text-gray-500">Profits chargeable to CT</span><span className="text-brand-dark">£{ctEstimate.box315ProfitsChargeable.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Rate band</span><span className="text-brand-dark capitalize">{ctEstimate.rateApplied.replace('_', ' ')}</span></div>
+            </div>
+            <div className="flex justify-between items-baseline border-t border-amber-200 pt-2">
+              <span className="text-sm font-semibold text-brand-dark">Estimated Corporation Tax</span>
+              <span className="text-xl font-bold text-brand-dark">£{ctEstimate.box440CorporationTaxChargeable.toFixed(2)}</span>
+            </div>
+            {!matchingCapAllowances && (
+              <p className="text-xs text-amber-700">⚠ No finalized Capital Allowances period matches these exact dates — this estimate treats capital allowances as £0. Finalize a matching period for an accurate figure.</p>
+            )}
+            {ctPostError && <p className="text-xs text-red-600">{ctPostError}</p>}
+            {can.manageEngagements && (
+              <button
+                onClick={() => handlePostCtToLedger(ctEstimate, depreciationOnlyTotal, profitBeforeTax)}
+                disabled={postingCt}
+                className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-xs hover:bg-opacity-90 transition disabled:opacity-50"
+              >
+                {postingCt ? 'Posting...' : 'Post to Ledger'}
+              </button>
+            )}
+          </div>
+        )}
 
         {corporationTax.length > 0 && (
           <>
