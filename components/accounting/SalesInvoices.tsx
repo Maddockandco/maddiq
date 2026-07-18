@@ -15,9 +15,10 @@ type LineDraft = {
   unit_price: string
   income_account_id: string
   vat_rate_id: string
+  project_id?: string
 }
 
-const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '' }
+const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '', project_id: '' }
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -39,6 +40,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [showAddAccountForLine, setShowAddAccountForLine] = useState<number | null>(null)
   const [accounts, setAccounts] = useState<any[]>([])
+  const [projects, setProjects] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [postingId, setPostingId] = useState<string | null>(null)
@@ -68,14 +70,16 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   useEffect(() => { fetchData() }, [clientId])
 
   async function fetchData() {
-    const [invoicesRes, contactsRes, accountsRes, vatRes] = await Promise.all([
+    const [invoicesRes, contactsRes, accountsRes, vatRes, projectsRes] = await Promise.all([
       supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id, default_vat_rate_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('projects').select('id, name').eq('client_id', clientId).eq('status', 'active').order('name'),
     ])
     if (invoicesRes.data) setInvoices(invoicesRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
+    if (projectsRes.data) setProjects(projectsRes.data)
     if (accountsRes.data) {
       const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
       setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type) && !parentIds.has(a.id)))
@@ -172,6 +176,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         unit_price: String(l.unit_price || ''),
         income_account_id: l.income_account_id || '',
         vat_rate_id: l.vat_rate_id || '',
+        project_id: l.project_id || '',
       }))
     )
     setCreating(true)
@@ -234,6 +239,7 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         unit_price: parseFloat(l.unit_price) || 0,
         income_account_id: l.income_account_id || null,
         vat_rate_id: l.vat_rate_id || null,
+        project_id: l.project_id || null,
         vat_amount: vatAmount,
         line_total: net,
         sort_order: i,
@@ -527,6 +533,19 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">
                       Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
                     </p>
+                  )}
+                  {projects.length > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="text-xs text-gray-400">Project:</label>
+                      <select
+                        value={line.project_id || ''}
+                        onChange={(e) => updateLine(index, 'project_id', e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                      >
+                        <option value="">No project</option>
+                        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
                   )}
                 </div>
               )
