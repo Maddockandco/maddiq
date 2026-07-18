@@ -145,7 +145,8 @@ function WrittenResolutionDoc({ client, dividend, allocations }: any) {
           {allocations.map((a: any) => (
             <View key={a.id} style={styles.signatureLine}>
               <Text>{a.shareholders?.name} — {a.shares_held_at_declaration.toLocaleString()} shares</Text>
-              <Text style={{ marginTop: 4 }}>Signature: _______________ Date: _______________</Text>
+              <Text style={{ marginTop: 10 }}>Signature: _______________________</Text>
+              <Text style={{ marginTop: 10 }}>Date: _______________________</Text>
             </View>
           ))}
         </View>
