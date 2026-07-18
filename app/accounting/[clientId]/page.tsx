@@ -245,7 +245,7 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   function renderWidget(id: string) {
     if (OPTIONAL_WIDGETS[id]) {
       return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full relative">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-80 relative">
           <button
             onClick={() => handleRemoveOptionalWidget(id)}
             className="absolute top-3 right-3 text-gray-300 hover:text-red-500 transition z-10"
