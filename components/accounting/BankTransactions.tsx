@@ -630,9 +630,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
           .eq('dividends.client_id', clientId)
           .in('dividends.status', ['declared', 'partially_paid'])
           .gte('amount', amountLow)
-          .lte('amount', amountHigh)
-          .gte('dividends.declaration_date', dateFrom)
-          .lte('dividends.declaration_date', dateTo),
+          .lte('amount', amountHigh),
       ])
       const paymentCandidates = (paymentsRes.data || [])
         .filter((r: any) => !alreadyMatchedIds.has(r.id))
