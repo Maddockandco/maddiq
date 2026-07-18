@@ -63,7 +63,7 @@ export default function TradeDebtors({ clientId }: { clientId: string }) {
       byContact[key] = { name: inv.contacts?.name || 'Unknown', invoices: [], buckets: { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 }, total: 0 }
     }
     byContact[key].invoices.push(inv)
-    byContact[key].buckets[inv.bucket] += inv.outstanding
+    byContact[key].buckets[inv.bucket as AgingBucket] += inv.outstanding
     byContact[key].total += inv.outstanding
   }
   const contactRows = Object.values(byContact).sort((a, b) => b.total - a.total)
