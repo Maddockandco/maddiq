@@ -207,9 +207,17 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
             <p className="text-xs text-gray-400 uppercase tracking-wider">Dividend Declared</p>
             <h1 className="text-2xl font-bold text-brand-dark">{new Date(dividend.declaration_date).toLocaleDateString('en-GB')}</h1>
           </div>
-          <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : dividend.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
-            {dividend.status}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : dividend.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+              {dividend.status}
+            </span>
+            <a
+              href={`/api/dividends/${dividendId}/resolution-pdf`}
+              className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-2 rounded-lg hover:bg-gray-200 transition"
+            >
+              📄 {dividend.declaration_type === 'written_resolution' ? 'Written Resolution' : 'Board Minutes'} (PDF)
+            </a>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 text-sm">
@@ -248,10 +256,13 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
                     <td className="px-4 py-2 text-gray-500 font-mono">{a.voucher_number}</td>
                     <td className="px-4 py-2 text-right text-gray-600">{a.shares_held_at_declaration.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right font-medium text-brand-dark">£{parseFloat(a.amount).toFixed(2)}</td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-2 text-right space-x-3 whitespace-nowrap">
                       <button onClick={() => setViewingVoucherId(a.id)} className="text-xs text-brand-dark font-medium hover:underline">
-                        View Voucher
+                        View
                       </button>
+                      <a href={`/api/dividends/${dividendId}/voucher-pdf/${a.id}`} className="text-xs text-brand-dark font-medium hover:underline">
+                        PDF
+                      </a>
                     </td>
                   </tr>
                 ))}
@@ -352,9 +363,17 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
               <div className="flex justify-between"><span className="text-gray-500">Rate Per Share</span><span className="text-brand-dark">£{parseFloat(dividend.per_share_amount).toFixed(4)}</span></div>
               <div className="flex justify-between border-t border-gray-100 pt-3 font-semibold"><span className="text-brand-dark">Dividend Amount</span><span className="text-brand-dark">£{parseFloat(voucherAllocation.amount).toFixed(2)}</span></div>
             </div>
-            <button onClick={() => setViewingVoucherId(null)} className="w-full mt-6 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
-              Close
-            </button>
+            <div className="flex gap-3 mt-6">
+              <a
+                href={`/api/dividends/${dividendId}/voucher-pdf/${voucherAllocation.id}`}
+                className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition text-center"
+              >
+                Download PDF
+              </a>
+              <button onClick={() => setViewingVoucherId(null)} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
