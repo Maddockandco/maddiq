@@ -106,6 +106,7 @@ export default function AccountingLayout({
     { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
     { href: `${basePath}/capture`, label: 'Capture (Receipts & Invoices)' },
     { href: `${basePath}/dividends`, label: 'Dividends & Shareholders' },
+    { href: `${basePath}/projects`, label: 'Projects' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
