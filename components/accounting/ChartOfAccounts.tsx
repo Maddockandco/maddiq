@@ -97,6 +97,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2200', name: 'Dividends Payable', account_type: 'current_liability' },
+      { code: '2300', name: 'Corporation Tax Payable', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '3100', name: 'Dividends Paid', account_type: 'equity' },
@@ -117,6 +118,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6502', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6503', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
       { code: '6504', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6900', name: 'Corporation Tax', account_type: 'corporation_tax' },
     ],
   },
   hospitality: {
@@ -138,6 +140,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2200', name: 'Dividends Payable', account_type: 'current_liability' },
+      { code: '2300', name: 'Corporation Tax Payable', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '3100', name: 'Dividends Paid', account_type: 'equity' },
@@ -163,6 +166,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6402', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6403', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
       { code: '6404', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6900', name: 'Corporation Tax', account_type: 'corporation_tax' },
     ],
   },
   construction: {
@@ -183,6 +187,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2200', name: 'Dividends Payable', account_type: 'current_liability' },
+      { code: '2300', name: 'Corporation Tax Payable', account_type: 'current_liability' },
       { code: '2050', name: 'CIS Tax Withheld', account_type: 'current_liability' },
       { code: '2100', name: 'VAT Control Account', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
@@ -206,6 +211,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
       { code: '6304', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6900', name: 'Corporation Tax', account_type: 'corporation_tax' },
     ],
   },
   property: {
@@ -226,6 +232,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '1603', name: 'Accumulated Amortisation — Goodwill', account_type: 'fixed_asset' },
       { code: '2000', name: 'Trade Creditors', account_type: 'current_liability' },
       { code: '2200', name: 'Dividends Payable', account_type: 'current_liability' },
+      { code: '2300', name: 'Corporation Tax Payable', account_type: 'current_liability' },
       { code: '3000', name: 'Capital Introduced', account_type: 'equity' },
       { code: '3100', name: 'Dividends Paid', account_type: 'equity' },
       { code: '4000', name: 'Rental Income', account_type: 'sales', vatCode: 'exempt_income' },
@@ -243,6 +250,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
       { code: '6302', name: 'Depreciation — Land & Buildings', account_type: 'depreciation' },
       { code: '6303', name: 'Amortisation — Goodwill', account_type: 'depreciation' },
       { code: '6304', name: 'Small Tools & Equipment', account_type: 'overhead', vatCode: 'standard_expense' },
+      { code: '6900', name: 'Corporation Tax', account_type: 'corporation_tax' },
     ],
   },
 }
