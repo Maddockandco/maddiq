@@ -1007,13 +1007,45 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setDetailLoading(false)
   }
 
-  async function handleUnreconcile(transactionId: string) {
-    setTxnBusy((prev) => ({ ...prev, [transactionId]: true }))
-    setTxnUnreconcileError((prev) => ({ ...prev, [transactionId]: '' }))
-    const { error } = await supabase.rpc('unreconcile_bank_transaction', { p_transaction_id: transactionId })
-    setTxnBusy((prev) => ({ ...prev, [transactionId]: false }))
+  async function handleUnreconcile(txn: any) {
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: true }))
+    setTxnUnreconcileError((prev) => ({ ...prev, [txn.id]: '' }))
+
+    // Dividends have their own payment journal entry (source='dividend'), which the
+    // generic unreconcile RPC doesn't know to reverse - and the allocation's paid_date
+    // needs resetting too, or it'll never show up as a match candidate again
+    if (txn.matched_type === 'dividend_allocation') {
+      const { data: allocation } = await supabase.from('dividend_allocations').select('*').eq('id', txn.matched_id).single()
+
+      if (allocation) {
+        if (txn.journal_entry_id) {
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', txn.journal_entry_id)
+          await supabase.from('journal_entries').delete().eq('id', txn.journal_entry_id).eq('source', 'dividend')
+        }
+
+        await supabase.from('dividend_allocations').update({ paid_date: null, payment_journal_entry_id: null }).eq('id', allocation.id)
+
+        const { data: siblingAllocations } = await supabase.from('dividend_allocations').select('paid_date').eq('dividend_id', allocation.dividend_id)
+        const anyPaid = (siblingAllocations || []).some((a) => a.paid_date)
+        const newStatus = anyPaid ? 'partially_paid' : 'declared'
+        await supabase.from('dividends').update({ status: newStatus }).eq('id', allocation.dividend_id)
+
+        await supabase.rpc('log_accounting_audit', {
+          p_client_id: clientId,
+          p_entity_type: 'dividend',
+          p_entity_id: allocation.dividend_id,
+          p_action: 'updated',
+          p_old_data: { status: 'paid or partially_paid' },
+          p_new_data: { status: newStatus },
+          p_description: `Unreconciled a dividend payment for £${parseFloat(allocation.amount).toFixed(2)} - allocation marked unpaid again`,
+        })
+      }
+    }
+
+    const { error } = await supabase.rpc('unreconcile_bank_transaction', { p_transaction_id: txn.id })
+    setTxnBusy((prev) => ({ ...prev, [txn.id]: false }))
     if (error) {
-      setTxnUnreconcileError((prev) => ({ ...prev, [transactionId]: error.message }))
+      setTxnUnreconcileError((prev) => ({ ...prev, [txn.id]: error.message }))
       return
     }
     fetchTransactions()
@@ -1464,7 +1496,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       <label className="block text-xs font-medium text-gray-500">Comment</label>
                       {txn.status === 'reconciled' && can.manageEngagements && (
                         <button
-                          onClick={() => handleUnreconcile(txn.id)}
+                          onClick={() => handleUnreconcile(txn)}
                           disabled={txnBusy[txn.id]}
                           className="text-xs text-red-500 font-medium hover:underline disabled:opacity-50"
                         >
