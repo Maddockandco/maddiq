@@ -1,11 +1,26 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import DatePicker from '@/components/ui/DatePicker'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Plus, X } from 'lucide-react'
+import {
+  RevenueTrendWidget,
+  AgingSummaryWidget,
+  TopCustomersWidget,
+  TopSuppliersWidget,
+  ProfitSnapshotWidget,
+} from '@/components/accounting/DashboardWidgets'
 
+// Optional widgets the user can add/remove, on top of the always-on core ones
+// (summary cards, bank account cards, recent entries)
+const OPTIONAL_WIDGETS: Record<string, { label: string; render: (clientId: string) => React.ReactNode }> = {
+  'opt-revenue-trend': { label: 'Revenue & Expense Trend', render: (clientId) => <RevenueTrendWidget clientId={clientId} /> },
+  'opt-aging-summary': { label: 'Debtors vs Payables Aging', render: (clientId) => <AgingSummaryWidget clientId={clientId} /> },
+  'opt-top-customers': { label: 'Top Customers by Amount Owed', render: (clientId) => <TopCustomersWidget clientId={clientId} /> },
+  'opt-top-suppliers': { label: 'Top Suppliers by Amount Owed', render: (clientId) => <TopSuppliersWidget clientId={clientId} /> },
+  'opt-profit-snapshot': { label: "This Month's Profit", render: (clientId) => <ProfitSnapshotWidget clientId={clientId} /> },
+}
 export default function AccountingDashboardPage({ params }: { params: { clientId: string } }) {
   const [accountCount, setAccountCount] = useState(0)
   const [entryCount, setEntryCount] = useState(0)
@@ -17,29 +32,26 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
   const [editDate, setEditDate] = useState('')
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [enabledOptional, setEnabledOptional] = useState<string[]>([])
+  const [showAddMenu, setShowAddMenu] = useState(false)
   const router = useRouter()
   const supabase = createClient()
-
   useEffect(() => { fetchSummary() }, [params.clientId])
-
   async function fetchSummary() {
     const accountsResult = await supabase
       .from('chart_of_accounts')
       .select('id', { count: 'exact', head: true })
       .eq('client_id', params.clientId)
-
     const entriesResult = await supabase
       .from('journal_entries')
       .select('id', { count: 'exact', head: true })
       .eq('client_id', params.clientId)
-
     const recentResult = await supabase
       .from('journal_entries')
       .select('id, entry_date, description, reference, source')
       .eq('client_id', params.clientId)
       .order('entry_date', { ascending: false })
       .limit(5)
-
     const bankAccountsResult = await supabase
       .from('chart_of_accounts')
       .select('id, code, name, statement_balance, statement_balance_date')
@@ -47,48 +59,38 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       .eq('is_active', true)
       .eq('account_type', 'bank')
       .order('code')
-
     let bankData = bankAccountsResult.data || []
-
     if (bankData.length > 0) {
       const bankIds = bankData.map((a) => a.id)
-
       const { data: journalLines } = await supabase
         .from('journal_lines')
         .select('account_id, debit, credit, journal_entries!inner(client_id)')
         .eq('journal_entries.client_id', params.clientId)
         .in('account_id', bankIds)
-
       const balances: Record<string, number> = {}
       ;(journalLines || []).forEach((l: any) => {
         balances[l.account_id] = (balances[l.account_id] || 0) + (parseFloat(l.debit) || 0) - (parseFloat(l.credit) || 0)
       })
-
       const { data: unreconciled } = await supabase
         .from('bank_transactions')
         .select('bank_account_id')
         .eq('client_id', params.clientId)
         .eq('status', 'unreconciled')
         .in('bank_account_id', bankIds)
-
       const unreconciledCounts: Record<string, number> = {}
       ;(unreconciled || []).forEach((t: any) => {
         unreconciledCounts[t.bank_account_id] = (unreconciledCounts[t.bank_account_id] || 0) + 1
       })
-
       const { data: connections } = await supabase
         .from('bank_connections')
         .select('*')
         .eq('client_id', params.clientId)
         .in('bank_account_id', bankIds)
         .order('created_at', { ascending: false })
-
       const connectionByAccount: Record<string, any> = {}
       ;(connections || []).forEach((c: any) => {
-        // Keep only the most recent connection per account (already ordered newest-first)
         if (!connectionByAccount[c.bank_account_id]) connectionByAccount[c.bank_account_id] = c
       })
-
       bankData = bankData.map((a) => {
         const connection = connectionByAccount[a.id]
         let connectionStatus: 'connected' | 'expiring_soon' | 'expired' | 'not_connected' = 'not_connected'
@@ -116,30 +118,27 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         }
       })
     }
-
     const layoutResult = await supabase
       .from('dashboard_widget_layout')
-      .select('widget_order')
+      .select('widget_order, enabled_optional_widgets')
       .eq('client_id', params.clientId)
       .maybeSingle()
-
     setAccountCount(accountsResult.count || 0)
     setEntryCount(entriesResult.count || 0)
     if (recentResult.data) setRecentEntries(recentResult.data)
     setBankAccounts(bankData)
-
-    const defaultOrder = ['summary-cards', ...bankData.map((a) => `bank-${a.id}`), 'recent-entries']
+    const savedOptional: string[] = layoutResult.data?.enabled_optional_widgets || []
+    setEnabledOptional(savedOptional)
+    const defaultOrder = ['summary-cards', ...bankData.map((a) => `bank-${a.id}`), 'recent-entries', ...savedOptional]
     const savedOrder: string[] = layoutResult.data?.widget_order || []
     const merged = [
       ...savedOrder.filter((id) => defaultOrder.includes(id)),
       ...defaultOrder.filter((id) => !savedOrder.includes(id)),
     ]
     setWidgetOrder(merged)
-
     setLoading(false)
   }
-
-  async function saveWidgetOrder(newOrder: string[]) {
+  async function saveWidgetOrder(newOrder: string[], optionalOverride?: string[]) {
     setWidgetOrder(newOrder)
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -148,21 +147,19 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       .eq('user_id', user!.id)
       .single()
     if (!firmUser) return
-
     await supabase
       .from('dashboard_widget_layout')
       .upsert({
         client_id: params.clientId,
         firm_id: firmUser.firm_id,
         widget_order: newOrder,
+        enabled_optional_widgets: optionalOverride ?? enabledOptional,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'client_id' })
   }
-
   function handleDragStart(id: string) {
     setDraggedId(id)
   }
-
   function handleDragOver(e: React.DragEvent, overId: string) {
     e.preventDefault()
     if (!draggedId || draggedId === overId) return
@@ -174,18 +171,28 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
     newOrder.splice(overIndex, 0, draggedId)
     setWidgetOrder(newOrder)
   }
-
   function handleDragEnd() {
     if (draggedId) saveWidgetOrder(widgetOrder)
     setDraggedId(null)
   }
-
+  function handleAddOptionalWidget(id: string) {
+    const newOptional = [...enabledOptional, id]
+    const newOrder = [...widgetOrder, id]
+    setEnabledOptional(newOptional)
+    saveWidgetOrder(newOrder, newOptional)
+    setShowAddMenu(false)
+  }
+  function handleRemoveOptionalWidget(id: string) {
+    const newOptional = enabledOptional.filter((w) => w !== id)
+    const newOrder = widgetOrder.filter((w) => w !== id)
+    setEnabledOptional(newOptional)
+    saveWidgetOrder(newOrder, newOptional)
+  }
   function openEditBalance(bank: any) {
     setEditingBankId(bank.id)
     setEditBalance(bank.statement_balance != null ? String(bank.statement_balance) : '')
     setEditDate(bank.statement_balance_date || new Date().toISOString().split('T')[0])
   }
-
   async function saveStatementBalance(bankId: string) {
     await supabase
       .from('chart_of_accounts')
@@ -194,14 +201,11 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         statement_balance_date: editDate,
       })
       .eq('id', bankId)
-
     setEditingBankId(null)
     fetchSummary()
   }
-
   const [reconnectingId, setReconnectingId] = useState<string | null>(null)
   const [reconnectError, setReconnectError] = useState('')
-
   async function handleReconnect(bank: any) {
     if (!bank.connection) return
     setReconnectingId(bank.id)
@@ -230,19 +234,29 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       setReconnectingId(null)
     }
   }
-
-  // Widgets spanning the full row (2 columns on md+) vs half-width (bank cards)
   function widgetSpanClass(id: string) {
     if (id.startsWith('bank-')) return 'col-span-1'
     return 'col-span-1 md:col-span-2'
   }
-
   const cards = [
     { label: 'Accounts set up', value: accountCount, path: '/chart-of-accounts', colour: 'bg-brand-dark', textColour: 'text-white' },
     { label: 'Journal entries posted', value: entryCount, path: '/journal-entries', colour: 'bg-brand-gold', textColour: 'text-brand-dark' },
   ]
-
   function renderWidget(id: string) {
+    if (OPTIONAL_WIDGETS[id]) {
+      return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full relative">
+          <button
+            onClick={() => handleRemoveOptionalWidget(id)}
+            className="absolute top-3 right-3 text-gray-300 hover:text-red-500 transition z-10"
+            title="Remove widget"
+          >
+            <X size={16} />
+          </button>
+          {OPTIONAL_WIDGETS[id].render(params.clientId)}
+        </div>
+      )
+    }
     if (id === 'summary-cards') {
       return (
         <div className="grid grid-cols-2 gap-4">
@@ -263,7 +277,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         </div>
       )
     }
-
     if (id === 'recent-entries') {
       return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full">
@@ -276,7 +289,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               View all →
             </button>
           </div>
-
           {recentEntries.length === 0 ? (
             <div className="text-center py-6">
               <p className="text-gray-500 text-sm mb-3">No journal entries posted yet</p>
@@ -308,15 +320,12 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         </div>
       )
     }
-
     if (id.startsWith('bank-')) {
       const bankId = id.replace('bank-', '')
       const bank = bankAccounts.find((b) => b.id === bankId)
       if (!bank) return null
-
       const statementBalance = bank.statement_balance ?? 0
       const difference = statementBalance - bank.maddiqBalance
-
       return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 h-full">
           <div className="flex items-center justify-between mb-3">
@@ -343,7 +352,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               </button>
             )}
           </div>
-
           {(bank.connectionStatus === 'expired' || bank.connectionStatus === 'expiring_soon') && (
             <div className={`rounded-lg px-3 py-2 mb-3 ${bank.connectionStatus === 'expired' ? 'bg-red-50' : 'bg-amber-50'}`}>
               {reconnectError && reconnectingId === bank.id && (
@@ -365,7 +373,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               </div>
             </div>
           )}
-
           {bank.connectionStatus === 'not_connected' && (
             <div className="bg-gray-50 rounded-lg px-3 py-2 mb-3">
               <div className="flex items-center justify-between">
@@ -379,7 +386,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               </div>
             </div>
           )}
-
           {editingBankId === bank.id ? (
             <div className="space-y-3 mb-3">
               <div className="grid grid-cols-2 gap-2">
@@ -420,7 +426,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
               </div>
             </div>
           )}
-
           <div className="flex items-center justify-between border-t border-gray-100 pt-3">
             <div>
               <p className="text-xs text-gray-500">Difference</p>
@@ -438,10 +443,8 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
         </div>
       )
     }
-
     return null
   }
-
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-gray-200">
@@ -449,7 +452,6 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
       </div>
     )
   }
-
   return (
     <div className="space-y-4">
       {accountCount === 0 && (
@@ -464,9 +466,34 @@ export default function AccountingDashboardPage({ params }: { params: { clientId
           </button>
         </div>
       )}
-
-      <p className="text-xs text-gray-400">Drag the handles to rearrange widgets — your layout is saved automatically.</p>
-
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">Drag the handles to rearrange widgets — your layout is saved automatically.</p>
+        <div className="relative">
+          <button
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            className="flex items-center gap-1.5 bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition"
+          >
+            <Plus size={14} /> Add Widget
+          </button>
+          {showAddMenu && (
+            <div className="absolute right-0 mt-2 bg-white rounded-xl shadow-lg border border-gray-200 py-2 w-64 z-20">
+              {(Object.keys(OPTIONAL_WIDGETS) as string[]).filter((id) => !enabledOptional.includes(id)).length === 0 ? (
+                <p className="px-4 py-2 text-xs text-gray-400">All available widgets are already on your dashboard</p>
+              ) : (
+                (Object.keys(OPTIONAL_WIDGETS) as string[]).filter((id) => !enabledOptional.includes(id)).map((id) => (
+                  <button
+                    key={id}
+                    onClick={() => handleAddOptionalWidget(id)}
+                    className="w-full text-left px-4 py-2 text-sm text-brand-dark hover:bg-brand-light transition"
+                  >
+                    {OPTIONAL_WIDGETS[id].label}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {widgetOrder.map((id) => (
           <div
