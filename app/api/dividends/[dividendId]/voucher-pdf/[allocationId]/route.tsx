@@ -75,7 +75,7 @@ export async function GET(request: Request, { params }: { params: { dividendId: 
 
   const buffer = await renderToBuffer(React.createElement(VoucherDoc, { client, dividend, allocation }))
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="dividend-voucher-${allocation.voucher_number}.pdf"`,
