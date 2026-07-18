@@ -6,6 +6,7 @@ import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateCorporationTax, ManualAdjustment } from '@/lib/corporationTax'
+import { getAccountingProfit, AccountingProfitResult } from '@/lib/accountingProfit'
 
 export default function CorporationTax({ clientId }: { clientId: string }) {
   const supabase = createClient()
@@ -20,41 +21,57 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
   const [calculating, setCalculating] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
-  const [accountingProfit, setAccountingProfit] = useState('')
+  const [profitResult, setProfitResult] = useState<AccountingProfitResult | null>(null)
+  const [fetchingProfit, setFetchingProfit] = useState(false)
   const [selectedCapAllowancesId, setSelectedCapAllowancesId] = useState('')
-  const [selectedDepreciationId, setSelectedDepreciationId] = useState('')
-  const [otherIncome, setOtherIncome] = useState('0')
+  const [otherIncomeOverride, setOtherIncomeOverride] = useState('')
   const [qualifyingDonations, setQualifyingDonations] = useState('0')
   const [adjustments, setAdjustments] = useState<ManualAdjustment[]>([])
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [finalizingId, setFinalizingId] = useState<string | null>(null)
+  const [ctAccountId, setCtAccountId] = useState('')
+  const [ctPayableAccountId, setCtPayableAccountId] = useState('')
 
   useEffect(() => { fetchAll() }, [clientId])
 
+  useEffect(() => {
+    if (periodStart && periodEnd) fetchProfit()
+  }, [periodStart, periodEnd])
+
+  async function fetchProfit() {
+    setFetchingProfit(true)
+    const result = await getAccountingProfit(clientId, periodStart, periodEnd)
+    setProfitResult(result)
+    setFetchingProfit(false)
+  }
+
   async function fetchAll() {
     setLoading(true)
-    const [compRes, capRes, depRes, assocRes] = await Promise.all([
+    const [compRes, capRes, assocRes, accRes] = await Promise.all([
       supabase.from('ct600_computations').select('*').eq('client_id', clientId).order('period_end', { ascending: false }),
       supabase.from('capital_allowances_periods').select('*').eq('client_id', clientId).eq('status', 'finalized').order('period_end', { ascending: false }),
-      supabase.from('depreciation_periods').select('*').eq('client_id', clientId).order('period_end', { ascending: false }),
       supabase.from('associated_companies').select('id').eq('client_id', clientId).eq('is_active', true),
+      supabase.from('chart_of_accounts').select('id, name').eq('client_id', clientId).eq('is_active', true).in('name', ['Corporation Tax', 'Corporation Tax Payable']),
     ])
     if (compRes.data) setComputations(compRes.data)
     if (capRes.data) setCapAllowancesPeriods(capRes.data)
-    if (depRes.data) setDepreciationPeriods(depRes.data)
     if (assocRes.data) setAssociatedCount(assocRes.data.length)
+    if (accRes.data) {
+      setCtAccountId(accRes.data.find((a) => a.name === 'Corporation Tax')?.id || '')
+      setCtPayableAccountId(accRes.data.find((a) => a.name === 'Corporation Tax Payable')?.id || '')
+    }
     setLoading(false)
   }
 
   function openCalculator() {
     setPeriodStart('')
     setPeriodEnd('')
-    setAccountingProfit('')
+    setProfitResult(null)
     setSelectedCapAllowancesId('')
-    setSelectedDepreciationId('')
-    setOtherIncome('0')
+    setOtherIncomeOverride('')
     setQualifyingDonations('0')
     setAdjustments([])
     setNotes('')
@@ -83,18 +100,14 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
     return p ? parseFloat(p.total_allowances) : 0
   }
 
-  function getDepreciationTotal() {
-    const p = depreciationPeriods.find((p) => p.id === selectedDepreciationId)
-    return p ? parseFloat(p.total_depreciation) : 0
-  }
-
   function computeResult() {
-    if (!periodStart || !periodEnd || !accountingProfit) return null
+    if (!periodStart || !periodEnd || !profitResult) return null
+    const otherIncome = otherIncomeOverride !== '' ? parseFloat(otherIncomeOverride) || 0 : profitResult.otherIncome
     return calculateCorporationTax({
-      accountingProfit: parseFloat(accountingProfit) || 0,
-      depreciationAddback: getDepreciationTotal(),
+      accountingProfit: profitResult.accountingProfit,
+      depreciationAddback: profitResult.depreciationTotal,
       capitalAllowancesTotal: getCapitalAllowancesTotal(),
-      otherIncome: parseFloat(otherIncome) || 0,
+      otherIncome,
       manualAdjustments: adjustments,
       qualifyingDonations: parseFloat(qualifyingDonations) || 0,
       associatedCompaniesCount: associatedCount,
@@ -107,7 +120,7 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
 
   function handleSaveClick() {
     if (!periodStart || !periodEnd) { setError('Enter the accounting period dates'); return }
-    if (!accountingProfit) { setError('Enter the accounting profit for the period'); return }
+    if (!profitResult) { setError('Could not pull accounting profit for this period - check the dates'); return }
     setShowConfirm(true)
   }
 
@@ -130,8 +143,8 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
         period_start: periodStart,
         period_end: periodEnd,
         box_145_turnover: 0,
-        accounting_profit: parseFloat(accountingProfit) || 0,
-        depreciation_addback: getDepreciationTotal(),
+        accounting_profit: profitResult?.accountingProfit || 0,
+        depreciation_addback: profitResult?.depreciationTotal || 0,
         capital_allowances_total: getCapitalAllowancesTotal(),
         box_155_trading_profits: res.box155TradingProfits,
         box_165_net_trading_profits: res.box165NetTradingProfits,
@@ -172,6 +185,61 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
     fetchAll()
   }
 
+  async function handleFinalize(computation: any) {
+    if (!ctAccountId || !ctPayableAccountId) {
+      setError('Corporation Tax and Corporation Tax Payable accounts not found in Chart of Accounts')
+      return
+    }
+    setFinalizingId(computation.id)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
+    if (!firmUser) { setFinalizingId(null); return }
+
+    const amount = parseFloat(computation.box_440_corporation_tax_chargeable)
+
+    const { data: entry, error: entryError } = await supabase
+      .from('journal_entries')
+      .insert({
+        firm_id: firmUser.firm_id,
+        client_id: clientId,
+        entry_date: computation.period_end,
+        reference: 'CT600',
+        description: `Corporation Tax charge for period ${computation.period_start} to ${computation.period_end}`,
+        source: 'corporation_tax',
+        created_by: firmUser.id,
+      })
+      .select()
+      .single()
+
+    if (entryError) { setError(entryError.message); setFinalizingId(null); return }
+
+    await supabase.from('journal_lines').insert([
+      { journal_entry_id: entry.id, account_id: ctAccountId, debit: amount, credit: 0, description: 'Corporation Tax charge', sort_order: 0 },
+      { journal_entry_id: entry.id, account_id: ctPayableAccountId, debit: 0, credit: amount, description: 'Corporation Tax charge', sort_order: 1 },
+    ])
+
+    const { data: after } = await supabase
+      .from('ct600_computations')
+      .update({ status: 'finalized', journal_entry_id: entry.id })
+      .eq('id', computation.id)
+      .select()
+      .single()
+
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'ct600_computation',
+      p_entity_id: computation.id,
+      p_action: 'finalized',
+      p_old_data: { status: 'draft' },
+      p_new_data: { status: 'finalized' },
+      p_description: `Finalized Corporation Tax computation and posted £${amount.toFixed(2)} to the ledger`,
+    })
+
+    setFinalizingId(null)
+    fetchAll()
+  }
+
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
 
   return (
@@ -207,40 +275,38 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
             </div>
           </div>
 
+          {fetchingProfit && <p className="text-xs text-gray-400">Pulling accounting profit from the ledger for this period...</p>}
+
+          {profitResult && !fetchingProfit && (
+            <div className="bg-brand-light rounded-xl p-4 space-y-1 text-sm">
+              <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-2">Pulled automatically from the P&L for this period</p>
+              <div className="flex justify-between"><span className="text-gray-500">Turnover</span><span className="text-brand-dark">£{profitResult.turnover.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Gross Profit</span><span className="text-brand-dark">£{profitResult.grossProfit.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Operating Profit</span><span className="text-brand-dark">£{profitResult.operatingProfit.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Depreciation charged (add-back)</span><span className="text-brand-dark">£{profitResult.depreciationTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span className="text-brand-dark">Accounting Profit (Profit Before Tax)</span><span className="text-brand-dark">£{profitResult.accountingProfit.toFixed(2)}</span></div>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Accounting Profit for the Period (£)</label>
-            <input type="number" value={accountingProfit} onChange={(e) => setAccountingProfit(e.target.value)} className={inputClass} placeholder="Profit before tax, from the P&L for this period" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Capital Allowances Period (deducts)</label>
+            <select value={selectedCapAllowancesId} onChange={(e) => setSelectedCapAllowancesId(e.target.value)} className={inputClass}>
+              <option value="">None</option>
+              {capAllowancesPeriods.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')} (£{parseFloat(p.total_allowances).toFixed(2)})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Capital allowances are tax-only and never posted to the ledger, so this can't be auto-pulled - select the matching finalized period.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Depreciation Period (adds back)</label>
-              <select value={selectedDepreciationId} onChange={(e) => setSelectedDepreciationId(e.target.value)} className={inputClass}>
-                <option value="">None / manual</option>
-                {depreciationPeriods.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')} (£{parseFloat(p.total_depreciation).toFixed(2)})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Capital Allowances Period (deducts)</label>
-              <select value={selectedCapAllowancesId} onChange={(e) => setSelectedCapAllowancesId(e.target.value)} className={inputClass}>
-                <option value="">None / manual</option>
-                {capAllowancesPeriods.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {new Date(p.period_start).toLocaleDateString('en-GB')} – {new Date(p.period_end).toLocaleDateString('en-GB')} (£{parseFloat(p.total_allowances).toFixed(2)})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Other Income (£) — e.g. bank interest</label>
-              <input type="number" value={otherIncome} onChange={(e) => setOtherIncome(e.target.value)} className={inputClass} />
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Other Income Override (£) {profitResult && `— auto-detected: £${profitResult.otherIncome.toFixed(2)}`}
+              </label>
+              <input type="number" value={otherIncomeOverride} onChange={(e) => setOtherIncomeOverride(e.target.value)} className={inputClass} placeholder="Leave blank to use the auto-detected figure" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Qualifying Donations (£) — e.g. Gift Aid</label>
@@ -341,6 +407,7 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Profits Chargeable</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">CT Chargeable</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -355,6 +422,17 @@ export default function CorporationTax({ clientId }: { clientId: string }) {
                       <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${c.status === 'finalized' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                         {c.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-3 text-right">
+                      {can.manageEngagements && c.status === 'draft' && (
+                        <button
+                          onClick={() => handleFinalize(c)}
+                          disabled={finalizingId === c.id}
+                          className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                        >
+                          {finalizingId === c.id ? 'Posting...' : 'Finalize & Post to Ledger'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
