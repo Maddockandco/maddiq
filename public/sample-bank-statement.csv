@@ -1,0 +1,9 @@
+Date,Description,Reference,Amount
+01/07/2026,Sales Invoice Payment - Acme Testing Ltd,INV-0001,1250.00
+02/07/2026,Office Supplies - Staples,,-45.99
+03/07/2026,Bank Interest Received,,2.15
+05/07/2026,Monthly Software Subscription,DD-2201,-29.99
+08/07/2026,Customer Payment - Bramble & Co,INV-0004,875.50
+10/07/2026,Bank Charges,,-5.00
+12/07/2026,Supplier Payment - Northwind Supplies,BILL-0012,-620.00
+15/07/2026,HMRC VAT Payment,VAT-Q2,-1840.32
