@@ -107,6 +107,7 @@ export default function AccountingLayout({
     { href: `${basePath}/capture`, label: 'Capture (Receipts & Invoices)' },
     { href: `${basePath}/dividends`, label: 'Dividends & Shareholders' },
     { href: `${basePath}/projects`, label: 'Projects' },
+    { href: `${basePath}/corporation-tax`, label: 'Corporation Tax' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
