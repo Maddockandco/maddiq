@@ -1215,6 +1215,24 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">Import Bank Statement (CSV)</h3>
           {importError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{importError}</div>}
 
+          {csvHeaders.length === 0 && (
+            <div className="bg-brand-light rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">How this works</p>
+              <p className="text-xs text-gray-600">
+                Any CSV export from the bank works — you'll map its columns to the right fields in the next step,
+                and choose the date format it uses. At minimum it needs a date, a description, and either a single
+                signed amount column (negative for money out) or separate money-in/money-out columns.
+              </p>
+              <a
+                href="/sample-bank-statement.csv"
+                download
+                className="text-xs text-brand-dark font-semibold hover:underline inline-block"
+              >
+                📄 Download a sample CSV to see the expected format
+              </a>
+            </div>
+          )}
+
           {csvHeaders.length === 0 ? (
             <div>
               <input type="file" accept=".csv" onChange={handleFileSelect} className="text-sm" />
