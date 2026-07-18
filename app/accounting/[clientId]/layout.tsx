@@ -1,11 +1,9 @@
 'use client'
-
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-
 export default function AccountingLayout({
   children,
   params,
@@ -16,7 +14,6 @@ export default function AccountingLayout({
   const { clientId } = params
   const pathname = usePathname()
   const supabase = createClient()
-
   const [clientName, setClientName] = useState('')
   const [accessChecked, setAccessChecked] = useState(false)
   const [hasAccess, setHasAccess] = useState(true)
@@ -26,7 +23,6 @@ export default function AccountingLayout({
   const salesDropdownRef = useRef<HTMLDivElement>(null)
   const purchasesDropdownRef = useRef<HTMLDivElement>(null)
   const accountingDropdownRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
     async function fetchClient() {
       const { data } = await supabase
@@ -38,37 +34,30 @@ export default function AccountingLayout({
     }
     fetchClient()
   }, [clientId])
-
   useEffect(() => {
     async function checkAccess() {
       setAccessChecked(false)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setHasAccess(false); setAccessChecked(true); return }
-
       const { data: firmUser } = await supabase
         .from('firm_users')
         .select('id, role')
         .eq('user_id', user.id)
         .single()
-
       if (!firmUser) { setHasAccess(false); setAccessChecked(true); return }
-
       // Practice owners see every client by default - everyone else needs an explicit assignment
       if (firmUser.role === 'practice_owner') { setHasAccess(true); setAccessChecked(true); return }
-
       const { data: assignment } = await supabase
         .from('client_assignments')
         .select('id')
         .eq('client_id', clientId)
         .eq('firm_user_id', firmUser.id)
         .maybeSingle()
-
       setHasAccess(!!assignment)
       setAccessChecked(true)
     }
     checkAccess()
   }, [clientId])
-
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (salesDropdownRef.current && !salesDropdownRef.current.contains(e.target as Node)) {
@@ -84,21 +73,17 @@ export default function AccountingLayout({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-
   const basePath = `/accounting/${clientId}`
-
   const salesSubPages = [
     { href: `${basePath}/sales-orders`, label: 'Sales Orders' },
     { href: `${basePath}/sales-invoices`, label: 'Sales Invoices' },
     { href: `${basePath}/sales-receipts`, label: 'Receipts' },
   ]
-
   const purchasesSubPages = [
     { href: `${basePath}/purchase-orders`, label: 'Purchase Orders' },
     { href: `${basePath}/purchase-bills`, label: 'Purchase Bills' },
     { href: `${basePath}/purchase-payments`, label: 'Payments' },
   ]
-
   const accountingSubPages = [
     { href: `${basePath}/chart-of-accounts`, label: 'Chart of Accounts' },
     { href: `${basePath}/bank-transactions`, label: 'Bank Transactions' },
@@ -108,19 +93,17 @@ export default function AccountingLayout({
     { href: `${basePath}/dividends`, label: 'Dividends & Shareholders' },
     { href: `${basePath}/projects`, label: 'Projects' },
     { href: `${basePath}/corporation-tax`, label: 'Corporation Tax' },
+    { href: `${basePath}/vat-return`, label: 'VAT Returns' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
   ]
-
   const isOnSalesSubPage = salesSubPages.some((p) => pathname === p.href)
   const isOnPurchasesSubPage = purchasesSubPages.some((p) => pathname === p.href)
   const isOnAccountingSubPage = accountingSubPages.some((p) => pathname === p.href)
-
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-semibold rounded-lg transition ${
       active ? 'bg-brand-gold text-brand-dark' : 'text-white hover:bg-white/10'
     }`
-
   function renderDropdown(
     label: string,
     isOpen: boolean,
@@ -157,7 +140,6 @@ export default function AccountingLayout({
       </div>
     )
   }
-
   if (accessChecked && !hasAccess) {
     return (
       <div className="min-h-screen bg-brand-light flex items-center justify-center p-8">
@@ -170,38 +152,29 @@ export default function AccountingLayout({
       </div>
     )
   }
-
   return (
     <div className="min-h-screen bg-brand-light">
       <div className="bg-brand-dark px-8 pt-6 pb-0">
         <p className="text-white/50 text-xs uppercase tracking-wider mb-1">Accounting</p>
         <h1 className="text-white text-xl font-semibold mb-4">{clientName || 'Loading client...'}</h1>
-
         <nav className="flex items-center gap-2">
           <Link href={basePath} className={tabClass(pathname === basePath)}>
             Dashboard
           </Link>
-
           <Link href={`${basePath}/contacts`} className={tabClass(pathname === `${basePath}/contacts`)}>
             Contacts
           </Link>
-
           {renderDropdown('Sales', salesDropdownOpen, setSalesDropdownOpen, salesDropdownRef, isOnSalesSubPage, salesSubPages)}
-
           {renderDropdown('Purchases', purchasesDropdownOpen, setPurchasesDropdownOpen, purchasesDropdownRef, isOnPurchasesSubPage, purchasesSubPages)}
-
           {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
-
           <Link href={`${basePath}/fixed-assets`} className={tabClass(pathname === `${basePath}/fixed-assets`)}>
             Fixed Assets
           </Link>
-
           <Link href={`${basePath}/reports`} className={tabClass(pathname === `${basePath}/reports`)}>
             Reports
           </Link>
         </nav>
       </div>
-
       <div className="p-8">{children}</div>
     </div>
   )
