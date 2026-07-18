@@ -20,6 +20,7 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
   const [viewingVoucherId, setViewingVoucherId] = useState<string | null>(null)
 
   const [showMarkPaid, setShowMarkPaid] = useState(false)
+  const [payingAllocationId, setPayingAllocationId] = useState<string | null>(null)
   const [showCancel, setShowCancel] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
@@ -117,6 +118,15 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
     setPaymentDate(new Date().toISOString().split('T')[0])
     setBankAccountId('')
     setMarkError('')
+    setPayingAllocationId(null) // null = paying all remaining unpaid allocations at once
+    setShowMarkPaid(true)
+  }
+
+  function openMarkAllocationPaid(allocationId: string) {
+    setPaymentDate(new Date().toISOString().split('T')[0])
+    setBankAccountId('')
+    setMarkError('')
+    setPayingAllocationId(allocationId)
     setShowMarkPaid(true)
   }
 
@@ -124,6 +134,14 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
     if (!bankAccountId) { setMarkError('Select which bank account paid this'); return }
     setMarking(true)
     setMarkError('')
+
+    const toPay = payingAllocationId
+      ? allocations.filter((a) => a.id === payingAllocationId)
+      : allocations.filter((a) => !a.paid_date)
+
+    if (toPay.length === 0) { setMarkError('Nothing left to pay'); setMarking(false); return }
+
+    const totalToPay = toPay.reduce((sum, a) => sum + parseFloat(a.amount), 0)
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
@@ -136,7 +154,9 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
         client_id: clientId,
         entry_date: paymentDate,
         reference: 'DIVIDEND-PAID',
-        description: `Dividend paid — £${parseFloat(dividend.total_amount).toFixed(2)}`,
+        description: payingAllocationId
+          ? `Dividend paid — ${toPay[0].shareholders?.name} — £${totalToPay.toFixed(2)}`
+          : `Dividend paid — £${totalToPay.toFixed(2)}`,
         source: 'dividend',
         created_by: firmUser.id,
       })
@@ -145,7 +165,6 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
 
     if (entryError) { setMarkError(entryError.message); setMarking(false); return }
 
-    // Find the Dividends Payable account from the declaration entry's lines
     const { data: declarationLines } = await supabase
       .from('journal_lines')
       .select('account_id, credit')
@@ -155,20 +174,32 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
     const payableAccountId = declarationLines?.[0]?.account_id
 
     await supabase.from('journal_lines').insert([
-      { journal_entry_id: entry.id, account_id: payableAccountId, debit: dividend.total_amount, credit: 0, description: 'Dividend paid', sort_order: 0 },
-      { journal_entry_id: entry.id, account_id: bankAccountId, debit: 0, credit: dividend.total_amount, description: 'Dividend paid', sort_order: 1 },
+      { journal_entry_id: entry.id, account_id: payableAccountId, debit: totalToPay, credit: 0, description: 'Dividend paid', sort_order: 0 },
+      { journal_entry_id: entry.id, account_id: bankAccountId, debit: 0, credit: totalToPay, description: 'Dividend paid', sort_order: 1 },
     ])
 
-    await supabase.from('dividends').update({ status: 'paid', payment_date: paymentDate, payment_journal_entry_id: entry.id }).eq('id', dividendId)
+    await supabase
+      .from('dividend_allocations')
+      .update({ paid_date: paymentDate, payment_journal_entry_id: entry.id })
+      .in('id', toPay.map((a) => a.id))
+
+    const { data: remaining } = await supabase.from('dividend_allocations').select('paid_date').eq('dividend_id', dividendId)
+    const allPaid = (remaining || []).every((a) => a.paid_date)
+    const nonePaid = (remaining || []).every((a) => !a.paid_date)
+    const newStatus = allPaid ? 'paid' : nonePaid ? 'declared' : 'partially_paid'
+
+    await supabase.from('dividends').update({ status: newStatus, payment_date: allPaid ? paymentDate : dividend.payment_date }).eq('id', dividendId)
 
     const { error: auditError2 } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
       p_entity_id: dividendId,
       p_action: 'paid',
-      p_old_data: { status: 'declared' },
-      p_new_data: { status: 'paid', payment_date: paymentDate },
-      p_description: `Marked dividend as paid — £${parseFloat(dividend.total_amount).toFixed(2)}`,
+      p_old_data: { status: dividend.status },
+      p_new_data: { status: newStatus, payment_date: paymentDate },
+      p_description: payingAllocationId
+        ? `Paid ${toPay[0].shareholders?.name} — £${totalToPay.toFixed(2)}`
+        : `Marked dividend as paid — £${totalToPay.toFixed(2)}`,
     })
     if (auditError2) console.error('Audit log failed:', auditError2.message)
 
@@ -208,8 +239,8 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
             <h1 className="text-2xl font-bold text-brand-dark">{new Date(dividend.declaration_date).toLocaleDateString('en-GB')}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : dividend.status === 'cancelled' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
-              {dividend.status}
+            <span className={`text-sm px-3 py-1.5 rounded-full font-medium capitalize ${dividend.status === 'paid' ? 'bg-green-100 text-green-700' : dividend.status === 'cancelled' ? 'bg-red-100 text-red-600' : dividend.status === 'partially_paid' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+              {dividend.status.replace('_', ' ')}
             </span>
             <a
               href={`/api/dividends/${dividendId}/resolution-pdf`}
@@ -246,6 +277,7 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
                   <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Voucher #</th>
                   <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Shares</th>
                   <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Amount</th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Status</th>
                   <th></th>
                 </tr>
               </thead>
@@ -256,7 +288,21 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
                     <td className="px-4 py-2 text-gray-500 font-mono">{a.voucher_number}</td>
                     <td className="px-4 py-2 text-right text-gray-600">{a.shares_held_at_declaration.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right font-medium text-brand-dark">£{parseFloat(a.amount).toFixed(2)}</td>
+                    <td className="px-4 py-2">
+                      {a.paid_date ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">
+                          Paid {new Date(a.paid_date).toLocaleDateString('en-GB')}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">Unpaid</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-right space-x-3 whitespace-nowrap">
+                      {can.manageEngagements && !a.paid_date && ['declared', 'partially_paid'].includes(dividend.status) && (
+                        <button onClick={() => openMarkAllocationPaid(a.id)} className="text-xs text-brand-dark font-medium hover:underline">
+                          Mark Paid
+                        </button>
+                      )}
                       <button onClick={() => setViewingVoucherId(a.id)} className="text-xs text-brand-dark font-medium hover:underline">
                         View
                       </button>
@@ -285,17 +331,21 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
           </div>
         )}
 
-        {can.manageEngagements && dividend.status === 'declared' && !showMarkPaid && !showCancel && (
+        {can.manageEngagements && ['declared', 'partially_paid'].includes(dividend.status) && !showMarkPaid && !showCancel && (
           <div className="pt-4 border-t border-gray-100 flex gap-3">
             <button onClick={openMarkPaid} className="bg-brand-gold text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-              Mark as Paid
+              Mark Remaining as Paid
             </button>
-            <button onClick={() => router.push(`/accounting/${clientId}/dividends?edit=${dividendId}`)} className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
-              Edit
-            </button>
-            <button onClick={openCancel} className="bg-red-50 text-red-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-red-100 transition">
-              Cancel Dividend
-            </button>
+            {dividend.status === 'declared' && (
+              <>
+                <button onClick={() => router.push(`/accounting/${clientId}/dividends?edit=${dividendId}`)} className="bg-gray-100 text-brand-dark font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+                  Edit
+                </button>
+                <button onClick={openCancel} className="bg-red-50 text-red-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-red-100 transition">
+                  Cancel Dividend
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -319,6 +369,11 @@ export default function DividendDetail({ clientId, dividendId }: { clientId: str
 
         {showMarkPaid && (
           <div className="pt-4 border-t border-gray-100 space-y-3">
+            <p className="text-sm text-brand-dark">
+              {payingAllocationId
+                ? `Paying ${allocations.find((a) => a.id === payingAllocationId)?.shareholders?.name} — £${parseFloat(allocations.find((a) => a.id === payingAllocationId)?.amount || 0).toFixed(2)}`
+                : `Paying all remaining unpaid shareholders — £${allocations.filter((a) => !a.paid_date).reduce((sum, a) => sum + parseFloat(a.amount), 0).toFixed(2)}`}
+            </p>
             {markError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{markError}</div>}
             <div className="flex items-end gap-4 flex-wrap">
               <div>
