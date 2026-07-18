@@ -107,7 +107,7 @@ const STATUS_STYLES: Record<string, string> = {
 const MATCH_TYPE_LABELS: Record<string, string> = {
   sales_receipt: 'Matched to Receipt',
   purchase_payment: 'Matched to Payment',
-  dividend: 'Matched to Dividend Payment',
+  dividend_allocation: 'Matched to Dividend Payment',
   journal_entry: 'Reconciled (new entry)',
 }
 
@@ -624,21 +624,27 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
           .gte('payment_date', dateFrom)
           .lte('payment_date', dateTo),
         supabase
-          .from('dividends')
-          .select('*')
-          .eq('client_id', clientId)
-          .eq('status', 'declared')
-          .gte('total_amount', amountLow)
-          .lte('total_amount', amountHigh)
-          .gte('declaration_date', dateFrom)
-          .lte('declaration_date', dateTo),
+          .from('dividend_allocations')
+          .select('*, shareholders(name), dividends!inner(client_id, status, declaration_date, declaration_journal_entry_id)')
+          .is('paid_date', null)
+          .eq('dividends.client_id', clientId)
+          .in('dividends.status', ['declared', 'partially_paid'])
+          .gte('amount', amountLow)
+          .lte('amount', amountHigh)
+          .gte('dividends.declaration_date', dateFrom)
+          .lte('dividends.declaration_date', dateTo),
       ])
       const paymentCandidates = (paymentsRes.data || [])
         .filter((r: any) => !alreadyMatchedIds.has(r.id))
         .map((r: any) => ({ ...r, matchType: 'purchase_payment' }))
       const dividendCandidates = (dividendsRes.data || [])
         .filter((d: any) => !alreadyMatchedIds.has(d.id))
-        .map((d: any) => ({ ...d, matchType: 'dividend', amount: d.total_amount, payment_date: d.declaration_date }))
+        .map((d: any) => ({
+          ...d,
+          matchType: 'dividend_allocation',
+          payment_date: d.dividends.declaration_date,
+          shareholderName: d.shareholders?.name,
+        }))
       candidates = [...paymentCandidates, ...dividendCandidates]
     }
 
@@ -743,10 +749,10 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     setTxnAddAccountSaving((prev) => ({ ...prev, [txn.id]: false }))
   }
 
-  async function confirmDividendMatch(txn: any, dividend: any) {
-    const amountDiff = Math.abs(Math.abs(txn.amount) - parseFloat(dividend.total_amount))
+  async function confirmDividendMatch(txn: any, allocation: any) {
+    const amountDiff = Math.abs(Math.abs(txn.amount) - parseFloat(allocation.amount))
     if (amountDiff > 0) {
-      setTxnError((prev) => ({ ...prev, [txn.id]: `This bank line doesn't exactly match the dividend total (£${amountDiff.toFixed(2)} difference) — dividend payments need to match exactly, since a partial payment would need its own separate tracking.` }))
+      setTxnError((prev) => ({ ...prev, [txn.id]: `This bank line doesn't exactly match this shareholder's amount (£${amountDiff.toFixed(2)} difference).` }))
       return
     }
 
@@ -764,7 +770,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     const { data: declarationLines } = await supabase
       .from('journal_lines')
       .select('account_id, credit')
-      .eq('journal_entry_id', dividend.declaration_journal_entry_id)
+      .eq('journal_entry_id', allocation.dividends.declaration_journal_entry_id)
       .gt('credit', 0)
 
     const payableAccountId = declarationLines?.[0]?.account_id
@@ -776,7 +782,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
         client_id: clientId,
         entry_date: txn.transaction_date,
         reference: 'DIVIDEND-PAID',
-        description: `Dividend paid — £${parseFloat(dividend.total_amount).toFixed(2)}`,
+        description: `Dividend paid — ${allocation.shareholderName} — £${parseFloat(allocation.amount).toFixed(2)}`,
         source: 'dividend',
         created_by: firmUser.id,
       })
@@ -790,29 +796,34 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     }
 
     await supabase.from('journal_lines').insert([
-      { journal_entry_id: entry.id, account_id: payableAccountId, debit: dividend.total_amount, credit: 0, description: 'Dividend paid', sort_order: 0 },
-      { journal_entry_id: entry.id, account_id: txn.bank_account_id, debit: 0, credit: dividend.total_amount, description: 'Dividend paid', sort_order: 1 },
+      { journal_entry_id: entry.id, account_id: payableAccountId, debit: allocation.amount, credit: 0, description: 'Dividend paid', sort_order: 0 },
+      { journal_entry_id: entry.id, account_id: txn.bank_account_id, debit: 0, credit: allocation.amount, description: 'Dividend paid', sort_order: 1 },
     ])
 
     await supabase
-      .from('dividends')
-      .update({ status: 'paid', payment_date: txn.transaction_date, payment_journal_entry_id: entry.id })
-      .eq('id', dividend.id)
+      .from('dividend_allocations')
+      .update({ paid_date: txn.transaction_date, payment_journal_entry_id: entry.id })
+      .eq('id', allocation.id)
+
+    const { data: siblingAllocations } = await supabase.from('dividend_allocations').select('paid_date').eq('dividend_id', allocation.dividend_id)
+    const allPaid = (siblingAllocations || []).every((a) => a.paid_date)
+    const newStatus = allPaid ? 'paid' : 'partially_paid'
+    await supabase.from('dividends').update({ status: newStatus, payment_date: allPaid ? txn.transaction_date : undefined }).eq('id', allocation.dividend_id)
 
     await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'dividend',
-      p_entity_id: dividend.id,
+      p_entity_id: allocation.dividend_id,
       p_action: 'paid',
-      p_old_data: { status: 'declared' },
-      p_new_data: { status: 'paid', payment_date: txn.transaction_date },
-      p_description: `Marked dividend as paid via bank reconciliation — £${parseFloat(dividend.total_amount).toFixed(2)}`,
+      p_old_data: { status: allocation.dividends.status },
+      p_new_data: { status: newStatus, payment_date: txn.transaction_date },
+      p_description: `Paid ${allocation.shareholderName} via bank reconciliation — £${parseFloat(allocation.amount).toFixed(2)}`,
     })
 
     const { error: reconcileError } = await supabase.rpc('reconcile_bank_transaction_match', {
       p_transaction_id: txn.id,
-      p_matched_type: 'dividend',
-      p_matched_id: dividend.id,
+      p_matched_type: 'dividend_allocation',
+      p_matched_id: allocation.id,
       p_journal_entry_id: entry.id,
       p_offset_account_id: null,
     })
@@ -990,8 +1001,8 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
     } else if (txn.matched_type === 'purchase_payment') {
       const { data } = await supabase.from('purchase_payments').select('*, contacts(name)').eq('id', txn.matched_id).single()
       info = data
-    } else if (txn.matched_type === 'dividend') {
-      const { data } = await supabase.from('dividends').select('*').eq('id', txn.matched_id).single()
+    } else if (txn.matched_type === 'dividend_allocation') {
+      const { data } = await supabase.from('dividend_allocations').select('*, shareholders(name)').eq('id', txn.matched_id).single()
       info = data
     }
     setDetailInfo((prev) => ({ ...prev, [txn.id]: info }))
@@ -1437,10 +1448,10 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                         ) : info ? (
                           <div>
                             <p className="text-sm font-medium text-brand-dark">
-                              {txn.matched_type === 'dividend' ? 'Dividend Payment' : info.contacts?.name}
+                              {txn.matched_type === 'dividend_allocation' ? `Dividend — ${info.shareholders?.name}` : info.contacts?.name}
                             </p>
                             <p className="text-xs text-gray-400">
-                              {new Date(info.receipt_date || info.payment_date || info.declaration_date).toLocaleDateString('en-GB')} · £{parseFloat(info.amount || info.total_amount).toFixed(2)}
+                              {new Date(info.receipt_date || info.payment_date || info.paid_date).toLocaleDateString('en-GB')} · £{parseFloat(info.amount).toFixed(2)}
                               {info.reference && ` · ${info.reference}`}
                               {info.voided && <span className="text-red-600 font-medium"> · Voided</span>}
                             </p>
@@ -1583,14 +1594,14 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <p className="text-sm font-medium text-brand-dark">
-                                      {m.matchType === 'dividend' ? 'Dividend Payment' : m.contacts?.name}
+                                      {m.matchType === 'dividend_allocation' ? `Dividend — ${m.shareholderName}` : m.contacts?.name}
                                     </p>
                                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confidence.style}`}>{confidence.label}</span>
                                   </div>
                                   <p className="text-xs text-gray-400">
                                     {new Date(m.receipt_date || m.payment_date).toLocaleDateString('en-GB')} · £{parseFloat(m.amount).toFixed(2)}
                                     {amountDiff > 0 && ` (£${amountDiff.toFixed(2)} difference)`}
-                                    {' · '}{m.matchType === 'dividend' ? 'declared dividend, not yet marked paid' : (m.reference || 'no reference')}
+                                    {' · '}{m.matchType === 'dividend_allocation' ? 'unpaid shareholder allocation' : (m.reference || 'no reference')}
                                   </p>
                                 </div>
                                 {isSelected && <span className="text-brand-dark text-sm">✓</span>}
@@ -1706,7 +1717,7 @@ export default function BankTransactions({ clientId }: { clientId: string }) {
                       )}
                       {selected && (
                         <button
-                          onClick={() => selected.matchType === 'dividend' ? confirmDividendMatch(txn, selected) : confirmMatch(txn)}
+                          onClick={() => selected.matchType === 'dividend_allocation' ? confirmDividendMatch(txn, selected) : confirmMatch(txn)}
                           disabled={busy}
                           className="w-full bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
                         >
