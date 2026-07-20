@@ -20,9 +20,11 @@ export default function AccountingLayout({
   const [salesDropdownOpen, setSalesDropdownOpen] = useState(false)
   const [purchasesDropdownOpen, setPurchasesDropdownOpen] = useState(false)
   const [accountingDropdownOpen, setAccountingDropdownOpen] = useState(false)
+  const [taxesDropdownOpen, setTaxesDropdownOpen] = useState(false)
   const salesDropdownRef = useRef<HTMLDivElement>(null)
   const purchasesDropdownRef = useRef<HTMLDivElement>(null)
   const accountingDropdownRef = useRef<HTMLDivElement>(null)
+  const taxesDropdownRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     async function fetchClient() {
       const { data } = await supabase
@@ -69,6 +71,9 @@ export default function AccountingLayout({
       if (accountingDropdownRef.current && !accountingDropdownRef.current.contains(e.target as Node)) {
         setAccountingDropdownOpen(false)
       }
+      if (taxesDropdownRef.current && !taxesDropdownRef.current.contains(e.target as Node)) {
+        setTaxesDropdownOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -91,15 +96,17 @@ export default function AccountingLayout({
     { href: `${basePath}/opening-balances`, label: 'Opening Balances' },
     { href: `${basePath}/capture`, label: 'Capture (Receipts & Invoices)' },
     { href: `${basePath}/dividends`, label: 'Dividends & Shareholders' },
-    { href: `${basePath}/projects`, label: 'Projects' },
-    { href: `${basePath}/corporation-tax`, label: 'Corporation Tax' },
-    { href: `${basePath}/vat-return`, label: 'VAT Returns' },
     { href: `${basePath}/audit-trail`, label: 'Audit Trail' },
     { href: `${basePath}/settings`, label: 'Settings' },
+  ]
+  const taxesSubPages = [
+    { href: `${basePath}/vat-return`, label: 'VAT Returns' },
+    { href: `${basePath}/corporation-tax`, label: 'Corporation Tax' },
   ]
   const isOnSalesSubPage = salesSubPages.some((p) => pathname === p.href)
   const isOnPurchasesSubPage = purchasesSubPages.some((p) => pathname === p.href)
   const isOnAccountingSubPage = accountingSubPages.some((p) => pathname === p.href)
+  const isOnTaxesSubPage = taxesSubPages.some((p) => pathname === p.href)
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-semibold rounded-lg transition ${
       active ? 'bg-brand-gold text-brand-dark' : 'text-white hover:bg-white/10'
@@ -166,7 +173,11 @@ export default function AccountingLayout({
           </Link>
           {renderDropdown('Sales', salesDropdownOpen, setSalesDropdownOpen, salesDropdownRef, isOnSalesSubPage, salesSubPages)}
           {renderDropdown('Purchases', purchasesDropdownOpen, setPurchasesDropdownOpen, purchasesDropdownRef, isOnPurchasesSubPage, purchasesSubPages)}
+          <Link href={`${basePath}/projects`} className={tabClass(pathname === `${basePath}/projects`)}>
+            Projects
+          </Link>
           {renderDropdown('Accounting', accountingDropdownOpen, setAccountingDropdownOpen, accountingDropdownRef, isOnAccountingSubPage, accountingSubPages)}
+          {renderDropdown('Taxes', taxesDropdownOpen, setTaxesDropdownOpen, taxesDropdownRef, isOnTaxesSubPage, taxesSubPages)}
           <Link href={`${basePath}/fixed-assets`} className={tabClass(pathname === `${basePath}/fixed-assets`)}>
             Fixed Assets
           </Link>
