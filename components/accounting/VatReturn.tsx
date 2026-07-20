@@ -68,8 +68,12 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     let calc: VatReturnResult
     if (settings?.scheme === 'cash_accounting') {
       calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd)
-    } else if (settings?.scheme === 'flat_rate' && settings?.flat_rate_percentage) {
-      calc = await calculateVatReturnFlatRate(clientId, periodStart, periodEnd, parseFloat(settings.flat_rate_percentage))
+    } else if (settings?.scheme === 'flat_rate') {
+      calc = await calculateVatReturnFlatRate(clientId, periodStart, periodEnd, {
+        sector: settings?.flat_rate_sector || null,
+        registrationDate: settings?.registration_date || null,
+        lctOverride: settings?.lct_override || 'auto',
+      })
     } else {
       calc = await calculateVatReturn(clientId, periodStart, periodEnd)
     }
@@ -302,6 +306,20 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                     View Details
                   </button>
                 </div>
+
+                {settings?.scheme === 'flat_rate' && 'appliedPercentage' in result && (
+                  <div className="bg-brand-light rounded-xl p-4 text-sm text-brand-dark space-y-1">
+                    <p>
+                      Rate applied this period: <span className="font-bold">{(result as any).appliedPercentage}%</span>
+                      {' — '}
+                      {(result as any).isLimitedCostTrader ? 'Limited Cost Trader rate (automatic)' : 'sector rate (automatic)'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Qualifying goods spend this period: £{(result as any).lctDetail.qualifyingGoodsSpend.toFixed(2)} vs threshold £{(result as any).lctDetail.threshold.toFixed(2)}
+                      {settings?.lct_override && settings.lct_override !== 'auto' && ' — manually overridden in VAT Setup'}
+                    </p>
+                  </div>
+                )}
 
                 {calcTab === 'return' && (
                   <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
