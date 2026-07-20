@@ -285,8 +285,15 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
   }
 
   async function handleMarkSent(quote: any) {
-    await supabase.from('sales_quotes').update({ status: 'sent' }).eq('id', quote.id)
-    await logAudit({ entityId: quote.id, action: 'sent', oldData: { status: 'draft' }, newData: { status: 'sent' }, description: `Marked quote "${quote.quote_number}" as sent to customer` })
+    setError('')
+    const res = await fetch('/api/sales-quotes/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quoteId: quote.id }),
+    })
+    const data = await res.json()
+    if (data.error) { setError(data.error); return }
+    await logAudit({ entityId: quote.id, action: 'sent', oldData: { status: 'draft' }, newData: { status: 'sent' }, description: `Emailed quote "${quote.quote_number}" to customer` })
     fetchData()
   }
 
@@ -331,6 +338,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
+      {error && !creating && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
       {can.manageEngagements && !creating && (
         <div className="flex justify-end">
           <button onClick={() => setCreating(true)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
@@ -507,7 +515,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
                           <button onClick={() => openEditForm(q)} className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition">Edit</button>
                         )}
                         {can.manageEngagements && q.status === 'draft' && (
-                          <button onClick={() => handleMarkSent(q)} className="text-xs bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-200 transition">Mark as Sent</button>
+                          <button onClick={() => handleMarkSent(q)} className="text-xs bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-200 transition">Send Quote</button>
                         )}
                         {can.manageEngagements && q.status === 'accepted' && (
                           <button onClick={() => openConvert(q)} className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
