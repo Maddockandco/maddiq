@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
@@ -34,6 +34,7 @@ function addDays(dateStr: string, days: number) {
 export default function SalesQuotes({ clientId }: { clientId: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const hasAutoOpenedRef = useRef(false)
   const [quotes, setQuotes] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
@@ -78,10 +79,13 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
       }))
       setQuotes(withTotals)
 
-      const editQuoteId = searchParams.get('edit')
-      if (editQuoteId) {
-        const toEdit = withTotals.find((q: any) => q.id === editQuoteId)
-        if (toEdit && ['draft', 'sent'].includes(toEdit.status)) openEditForm(toEdit)
+      if (!hasAutoOpenedRef.current) {
+        hasAutoOpenedRef.current = true
+        const editQuoteId = searchParams.get('edit')
+        if (editQuoteId) {
+          const toEdit = withTotals.find((q: any) => q.id === editQuoteId)
+          if (toEdit && ['draft', 'sent'].includes(toEdit.status)) openEditForm(toEdit)
+        }
       }
     }
     if (contactsRes.data) setContacts(contactsRes.data)
@@ -252,7 +256,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
           ? `Edited sent quote "${before?.quote_number}" — reverted to draft, new link issued, now £${total.toFixed(2)} total`
           : `Edited draft quote "${before?.quote_number}" — now £${total.toFixed(2)} total`,
       })
-      setCreating(false); resetForm(); fetchData(); setSaving(false)
+      setCreating(false); resetForm(); router.replace(`/accounting/${clientId}/sales-quotes`); fetchData(); setSaving(false)
       return
     }
 
@@ -277,7 +281,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
     const { error: linesError } = await supabase.from('sales_quote_lines').insert(linesPayload(quote.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
     await logAudit({ entityId: quote.id, action: 'created', newData: quote, description: `Created quote "${quoteNumber}" for £${total.toFixed(2)}` })
-    setCreating(false); resetForm(); fetchData(); setSaving(false)
+    setCreating(false); resetForm(); router.replace(`/accounting/${clientId}/sales-quotes`); fetchData(); setSaving(false)
   }
 
   async function handleMarkSent(quote: any) {
@@ -458,7 +462,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
             <button onClick={handleSave} disabled={saving} className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
               {saving ? 'Saving...' : editingQuoteId ? 'Save Changes' : 'Save as draft'}
             </button>
-            <button onClick={() => { setCreating(false); resetForm() }} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
+            <button onClick={() => { setCreating(false); resetForm(); router.replace(`/accounting/${clientId}/sales-quotes`) }} className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
               Cancel
             </button>
           </div>
