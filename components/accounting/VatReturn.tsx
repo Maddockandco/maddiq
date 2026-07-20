@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
-import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, VatReturnResult } from '@/lib/vatReturn'
+import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, getVatReturnDetail, VatReturnResult, VatReturnDetail } from '@/lib/vatReturn'
 
 const STAGGER_MONTHS: Record<number, number[]> = {
   1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
@@ -33,6 +33,9 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [periodEnd, setPeriodEnd] = useState('')
   const [result, setResult] = useState<VatReturnResult | null>(null)
   const [calculatingResult, setCalculatingResult] = useState(false)
+  const [calcTab, setCalcTab] = useState<'return' | 'details'>('return')
+  const [detail, setDetail] = useState<VatReturnDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
   const [box2, setBox2] = useState('0')
   const [box8, setBox8] = useState('0')
   const [box9, setBox9] = useState('0')
@@ -61,6 +64,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   async function fetchLiveCalculation() {
     setCalculatingResult(true)
+    setDetail(null)
     let calc: VatReturnResult
     if (settings?.scheme === 'cash_accounting') {
       calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd)
@@ -71,6 +75,15 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     }
     setResult(calc)
     setCalculatingResult(false)
+  }
+
+  async function handleViewDetails() {
+    setCalcTab('details')
+    if (detail) return // already fetched for this period - no need to refetch on every tab click
+    setLoadingDetail(true)
+    const d = await getVatReturnDetail(clientId, periodStart, periodEnd, settings?.scheme || 'standard')
+    setDetail(d)
+    setLoadingDetail(false)
   }
 
   function suggestNextPeriod(): { start: string; end: string } | null {
@@ -111,6 +124,8 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setBox9('0')
     setNotes('')
     setError('')
+    setCalcTab('return')
+    setDetail(null)
     setCalculating(true)
   }
 
@@ -272,24 +287,149 @@ export default function VatReturn({ clientId }: { clientId: string }) {
             {calculatingResult && <p className="text-xs text-gray-400">Calculating from invoices and bills for this period...</p>}
 
             {result && !calculatingResult && (
-              <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
-                {result.reverseChargeLinesFound > 0 && (
-                  <div className="bg-amber-100 px-5 py-2.5">
-                    <p className="text-xs text-amber-800">
-                      ⚠ {result.reverseChargeLinesFound} line(s) this period use a reverse charge VAT code — review manually before filing.
-                    </p>
+              <>
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                  <button
+                    onClick={() => setCalcTab('return')}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+                  >
+                    View Return
+                  </button>
+                  <button
+                    onClick={handleViewDetails}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+                  >
+                    View Details
+                  </button>
+                </div>
+
+                {calcTab === 'return' && (
+                  <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+                    {result.reverseChargeLinesFound > 0 && (
+                      <div className="bg-amber-100 px-5 py-2.5">
+                        <p className="text-xs text-amber-800">
+                          ⚠ {result.reverseChargeLinesFound} line(s) this period use a reverse charge VAT code — review manually before filing.
+                        </p>
+                      </div>
+                    )}
+                    {formBox(1, 'VAT due on sales and other outputs', result.box1VatOnSales.toFixed(2))}
+                    {formBox(2, 'VAT due on acquisitions from EU member states (NI only)', box2, { editable: true, onChange: setBox2 })}
+                    {formBox(3, 'Total VAT due (Box 1 + Box 2)', (result.box1VatOnSales + box2Val).toFixed(2), { bold: true })}
+                    {formBox(4, 'VAT reclaimed on purchases', result.box4VatReclaimed.toFixed(2))}
+                    {formBox(5, `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(netVat).toFixed(2), { bold: true })}
+                    {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
+                    {formBox(7, 'Total value of purchases, excluding VAT', result.box7TotalPurchasesExVat.toFixed(2))}
+                    {formBox(8, 'Total value of goods supplied to EU (NI only)', box8, { editable: true, onChange: setBox8 })}
+                    {formBox(9, 'Total value of goods acquired from EU (NI only)', box9, { editable: true, onChange: setBox9 })}
                   </div>
                 )}
-                {formBox(1, 'VAT due on sales and other outputs', result.box1VatOnSales.toFixed(2))}
-                {formBox(2, 'VAT due on acquisitions from EU member states (NI only)', box2, { editable: true, onChange: setBox2 })}
-                {formBox(3, 'Total VAT due (Box 1 + Box 2)', (result.box1VatOnSales + box2Val).toFixed(2), { bold: true })}
-                {formBox(4, 'VAT reclaimed on purchases', result.box4VatReclaimed.toFixed(2))}
-                {formBox(5, `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(netVat).toFixed(2), { bold: true })}
-                {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
-                {formBox(7, 'Total value of purchases, excluding VAT', result.box7TotalPurchasesExVat.toFixed(2))}
-                {formBox(8, 'Total value of goods supplied to EU (NI only)', box8, { editable: true, onChange: setBox8 })}
-                {formBox(9, 'Total value of goods acquired from EU (NI only)', box9, { editable: true, onChange: setBox9 })}
-              </div>
+
+                {calcTab === 'details' && (
+                  <div className="space-y-6">
+                    {loadingDetail ? (
+                      <p className="text-xs text-gray-400">Loading underlying transactions...</p>
+                    ) : detail ? (
+                      <>
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">
+                              Sales — feeds Box 1 (VAT) and Box 6 ({settings?.scheme === 'flat_rate' ? 'gross' : 'net'} value)
+                            </p>
+                            <p className="text-xs text-gray-400">{detail.salesTransactions.length} line(s)</p>
+                          </div>
+                          {detail.box1IsCalculated && (
+                            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+                              Box 1 under Flat Rate is calculated as gross turnover × your rate — it isn't a sum of these lines' own VAT amounts, since that's not how this scheme works.
+                            </p>
+                          )}
+                          {detail.salesTransactions.length === 0 ? (
+                            <p className="text-xs text-gray-400">No sales lines in this period</p>
+                          ) : (
+                            <div className="border border-gray-200 rounded-lg overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-gray-50">
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Customer</th>
+                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
+                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {detail.salesTransactions.map((t, i) => (
+                                    <tr key={i} className="border-t border-gray-100">
+                                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
+                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
+                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.salesTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
+                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.salesTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Purchases — feeds Box 4 (VAT) and Box 7 (net value)</p>
+                            <p className="text-xs text-gray-400">{detail.purchaseTransactions.length} line(s)</p>
+                          </div>
+                          {settings?.scheme === 'flat_rate' && (
+                            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+                              Only capital purchases over £2,000 (including VAT) are shown — under Flat Rate, everything else isn't reclaimable.
+                            </p>
+                          )}
+                          {detail.purchaseTransactions.length === 0 ? (
+                            <p className="text-xs text-gray-400">No purchase lines in this period</p>
+                          ) : (
+                            <div className="border border-gray-200 rounded-lg overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-gray-50">
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Supplier</th>
+                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
+                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {detail.purchaseTransactions.map((t, i) => (
+                                    <tr key={i} className="border-t border-gray-100">
+                                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
+                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
+                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.purchaseTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
+                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.purchaseTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+              </>
             )}
 
             <div>
