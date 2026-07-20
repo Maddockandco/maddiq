@@ -1,70 +1,34 @@
-import { GOODS_CATEGORY_OPTIONS, FlatRateGoodsCategory } from '@/lib/limitedCostTrader'
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { suggestGoodsCategory } from '@/lib/aiGoodsCategorySuggestion'
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-5'
-
-const PROMPT_TEMPLATE = (accountName: string, accountType: string) => `You are helping categorise a UK accounting Chart of Accounts entry for HMRC's VAT Flat Rate Scheme "Limited Cost Trader" test.
-
-Account name: "${accountName}"
-Account type: "${accountType}"
-
-Choose exactly one category from this list:
-- qualifying_good: a genuine physical good/stock/material purchase that counts toward HMRC's 2% / £1,000 test
-- excluded_capital: capital expenditure (equipment, vehicles, property bought as an asset)
-- excluded_food_drink: food or drink for consumption by the business or its staff
-- excluded_vehicle_fuel: vehicles, vehicle parts, or fuel (this is excluded UNLESS the account name suggests the business's actual trade is vehicles - e.g. a taxi firm, courier, or haulage company buying fuel to resell/deliver, in which case treat it as qualifying_good)
-- excluded_digital: software, subscriptions, SaaS, or any digital/electronic service
-- service: anything that isn't a physical good at all (rent, fees, insurance, utilities, subscriptions services, labour, etc.)
-
-Respond with JSON only, no markdown fences, no commentary:
-{
-  "category": one of the exact strings above,
-  "reasoning": a short one-sentence explanation a UK accountant would find useful
-}`
-
-export interface GoodsCategorySuggestion {
-  category: FlatRateGoodsCategory
-  reasoning: string
-}
-
-export async function suggestGoodsCategory(accountName: string, accountType: string): Promise<GoodsCategorySuggestion> {
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 300,
-      messages: [{ role: 'user', content: PROMPT_TEMPLATE(accountName, accountType) }],
-    }),
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Anthropic API error (${response.status}): ${errorText}`)
+export async function POST(req: NextRequest) {
+  const { accountName, accountType } = await req.json()
+  if (!accountName || !accountType) {
+    return NextResponse.json({ error: 'Missing accountName or accountType' }, { status: 400 })
   }
 
-  const data = await response.json()
-  const textBlock = data.content?.find((c: any) => c.type === 'text')
-  if (!textBlock) {
-    throw new Error('No text response from category suggestion')
+  const authHeader = req.headers.get('authorization')
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+  if (!bearerToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const cleaned = textBlock.text.replace(/```json|```/g, '').trim()
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${bearerToken}` } } }
+  )
 
-  let parsed: any
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
   try {
-    parsed = JSON.parse(cleaned)
-  } catch (err) {
-    throw new Error(`Could not parse category suggestion as JSON: ${cleaned.slice(0, 200)}`)
+    const suggestion = await suggestGoodsCategory(accountName, accountType)
+    return NextResponse.json({ suggestion })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
-
-  if (!GOODS_CATEGORY_OPTIONS.includes(parsed.category)) {
-    throw new Error(`Model returned an unrecognised category: ${parsed.category}`)
-  }
-
-  return { category: parsed.category, reasoning: parsed.reasoning || '' }
 }
