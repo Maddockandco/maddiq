@@ -43,6 +43,18 @@ export default function QuoteResponsePage({ params }: { params: { token: string 
     if (respondError) { setError(respondError.message); setResponding(false); return }
     setResponded(response)
     setResponding(false)
+
+    // Notify whoever created the quote - failing quietly here shouldn't block the
+    // customer from seeing their confirmation, since the response itself already saved
+    try {
+      await fetch('/api/sales-quotes/notify-response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId: quote.id, response }),
+      })
+    } catch (e) {
+      console.error('Failed to send response notification:', e)
+    }
   }
 
   const total = lines.reduce((sum, l) => sum + parseFloat(l.line_total) + parseFloat(l.vat_amount), 0)
