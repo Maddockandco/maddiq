@@ -1,6 +1,6 @@
 'use client'
-import VatReturn from '@/components/accounting/VatReturn'
+import VatWorkspace from '@/components/accounting/VatWorkspace'
 
 export default function VatReturnPage({ params }: { params: { clientId: string } }) {
-  return <VatReturn clientId={params.clientId} />
+  return <VatWorkspace clientId={params.clientId} />
 }
