@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -8,7 +7,6 @@ import DatePicker from '@/components/ui/DatePicker'
 import AddContactModal from '@/components/accounting/AddContactModal'
 import AddAccountModal from '@/components/accounting/AddAccountModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
-
 type LineDraft = {
   description: string
   quantity: string
@@ -25,13 +23,11 @@ type LineDraft = {
   faUsefulLifeYears?: string
   faDepreciationRatePercent?: string
 }
-
 const EMPTY_LINE: LineDraft = {
   description: '', quantity: '1', unit_price: '', expense_account_id: '', vat_rate_id: '', project_id: '',
   faTreatment: undefined, faWriteoffAccountId: '', faCategory: 'main_pool', faCo2: '', faIsNew: true,
   faDepreciationMethod: 'straight_line', faUsefulLifeYears: '5', faDepreciationRatePercent: '20',
 }
-
 const FA_CATEGORY_LABELS: Record<string, string> = {
   main_pool: 'Main Pool (general plant & machinery)',
   special_rate_pool: 'Special Rate Pool (integral features, long-life assets)',
@@ -42,7 +38,6 @@ const FA_CATEGORY_LABELS: Record<string, string> = {
   goodwill: 'Goodwill',
 }
 const FA_CAR_CATEGORIES = ['car_zero_emission', 'car_main_rate', 'car_special_rate']
-
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
   awaiting_payment: 'bg-blue-100 text-blue-700',
@@ -50,13 +45,11 @@ const STATUS_STYLES: Record<string, string> = {
   paid: 'bg-green-100 text-green-700',
   void: 'bg-red-100 text-red-600',
 }
-
 function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
-
 export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [bills, setBills] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
@@ -68,12 +61,10 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [postingId, setPostingId] = useState<string | null>(null)
   const [postError, setPostError] = useState<Record<string, string>>({})
-
   const [voidingId, setVoidingId] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [voiding, setVoiding] = useState(false)
   const [voidError, setVoidError] = useState('')
-
   const [creating, setCreating] = useState(false)
   const [editingBillId, setEditingBillId] = useState<string | null>(null)
   const [replacesBillId, setReplacesBillId] = useState<string | null>(null)
@@ -85,13 +76,11 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
+  const [lineErrors, setLineErrors] = useState<Record<number, string>>({})
   const { can } = useRole()
   const router = useRouter()
   const supabase = createClient()
-
   useEffect(() => { fetchData() }, [clientId])
-
   async function fetchData() {
     const [billsRes, contactsRes, accountsRes, vatRes, projectsRes] = await Promise.all([
       supabase.from('purchase_bills').select('*, contacts(name)').eq('client_id', clientId).order('bill_date', { ascending: false }),
@@ -108,8 +97,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       setAccounts(accountsRes.data.filter((a) => {
         if (parentIds.has(a.id)) return false
         if (['direct_costs', 'expense', 'overhead'].includes(a.account_type)) return true
-        // Fixed asset additions (at Cost) are fine here, but never the accumulated
-        // depreciation/amortisation side - that's only ever touched by the Depreciation calculator
         if (a.account_type === 'fixed_asset' && !a.name.startsWith('Accumulated')) return true
         return false
       }))
@@ -117,27 +104,22 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
   }
-
   function addLine() {
     setLines([...lines, { ...EMPTY_LINE }])
   }
-
   function updateLine(index: number, field: keyof LineDraft, value: any) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
   }
-
   function relevantVatRates() {
     const universal = ['no_vat']
     const expenseOnly = ['reverse_charge_expense_20', 'reverse_charge_construction', 'vat_on_imports', 'ec_acquisitions_20', 'ec_acquisitions_zero']
     return vatRates.filter((r) => r.code.endsWith('_expense') || universal.includes(r.code) || expenseOnly.includes(r.code))
   }
-
   function removeLine(index: number) {
     setLines(lines.filter((_, i) => i !== index))
   }
-
   function lineAmounts(line: LineDraft) {
     const qty = parseFloat(line.quantity) || 0
     const price = parseFloat(line.unit_price) || 0
@@ -146,7 +128,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     const vatAmount = rate ? net * (parseFloat(rate.rate) / 100) : 0
     return { net, vatAmount, gross: net + vatAmount }
   }
-
   function calculateTotals() {
     let subtotal = 0
     let vatTotal = 0
@@ -157,7 +138,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     })
     return { subtotal, vatTotal, total: subtotal + vatTotal }
   }
-
   function resetForm() {
     setContactId('')
     setBillNumber('')
@@ -166,10 +146,10 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
+    setLineErrors({})
     setReplacesBillId(null)
     setEditingBillId(null)
   }
-
   async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
     const { error: logError } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
@@ -182,15 +162,14 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     })
     if (logError) console.error('Audit log failed:', logError.message)
   }
-
   async function openEditForm(bill: any) {
     setError('')
+    setLineErrors({})
     const { data: existingLines } = await supabase
       .from('purchase_bill_lines')
       .select('*')
       .eq('bill_id', bill.id)
       .order('sort_order')
-
     setEditingBillId(bill.id)
     setReplacesBillId(null)
     setContactId(bill.contact_id)
@@ -210,14 +189,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     )
     setCreating(true)
   }
-
   function handleContactChange(id: string) {
     setContactId(id)
     const contact = contacts.find((c) => c.id === id)
     const terms = contact?.payment_terms_days ?? 30
     setDueDate(addDays(billDate, terms))
   }
-
   function openCorrectedBill(voidedBill: any) {
     resetForm()
     setContactId(voidedBill.contact_id)
@@ -228,20 +205,52 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setReplacesBillId(voidedBill.id)
     setCreating(true)
   }
-
   async function handleCreate() {
     setSaving(true)
     setError('')
-
+    setLineErrors({})
     if (!contactId) { setError('Select a supplier'); setSaving(false); return }
     if (!dueDate) { setError('Due date is required'); setSaving(false); return }
-    const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
-    if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
-    if (validLines.some((l) => l.faTreatment === 'writeoff' && !l.faWriteoffAccountId)) {
-      setError('Select an expense account for any line set to "Write off in full"')
+
+    const touchedLines = lines
+      .map((l, i) => ({ line: l, index: i }))
+      .filter(({ line }) => line.description.trim() !== '' || line.unit_price !== '')
+
+    if (touchedLines.length === 0) {
+      setError('At least one line with a description and price is required')
       setSaving(false)
       return
     }
+
+    const newLineErrors: Record<number, string> = {}
+    for (const { line, index } of touchedLines) {
+      const missing: string[] = []
+      if (!line.description.trim()) missing.push('description')
+      if (!(parseFloat(line.unit_price) > 0)) missing.push('unit price')
+      if (!line.vat_rate_id) missing.push('VAT rate')
+
+      const selectedAccount = accounts.find((a) => a.id === line.expense_account_id)
+      if (!line.expense_account_id) {
+        missing.push('expense account')
+      } else if (selectedAccount?.account_type === 'fixed_asset') {
+        if (!line.faTreatment) {
+          missing.push('capitalise or write-off choice')
+        } else if (line.faTreatment === 'writeoff' && !line.faWriteoffAccountId) {
+          missing.push('write-off expense account')
+        }
+      }
+
+      if (missing.length > 0) newLineErrors[index] = `Missing: ${missing.join(', ')} - complete or remove this line`
+    }
+
+    if (Object.keys(newLineErrors).length > 0) {
+      setLineErrors(newLineErrors)
+      setError('Some lines are incomplete - fix or remove them below')
+      setSaving(false)
+      return
+    }
+
+    const validLines = touchedLines.map(({ line }) => line)
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -250,9 +259,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       .eq('user_id', user!.id)
       .single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
-
     const { subtotal, vatTotal, total } = calculateTotals()
-
     const linesPayload = (billId: string) => validLines.map((l, i) => {
       const { net, vatAmount } = lineAmounts(l)
       const isWriteoff = l.faTreatment === 'writeoff' && l.faWriteoffAccountId
@@ -269,7 +276,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         sort_order: i,
       }
     })
-
     async function createFlaggedFixedAssets(billId: string) {
       const supplierName = contacts.find((c) => c.id === contactId)?.name || null
       for (const l of validLines) {
@@ -292,10 +298,8 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         })
       }
     }
-
     if (editingBillId) {
       const { data: before } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
-
       const { error: updateError } = await supabase
         .from('purchase_bills')
         .update({
@@ -309,13 +313,10 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           notes: notes || null,
         })
         .eq('id', editingBillId)
-
       if (updateError) { setError(updateError.message); setSaving(false); return }
-
       await supabase.from('purchase_bill_lines').delete().eq('bill_id', editingBillId)
       const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(editingBillId))
       if (linesError) { setError(linesError.message); setSaving(false); return }
-
       const { data: after } = await supabase.from('purchase_bills').select('*, purchase_bill_lines(*)').eq('id', editingBillId).single()
       await logAudit({
         entityId: editingBillId,
@@ -324,14 +325,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         newData: after,
         description: `Edited draft bill "${billNumber || editingBillId}" — now £${total.toFixed(2)} total`,
       })
-
       setCreating(false)
       resetForm()
       fetchData()
       setSaving(false)
       return
     }
-
     const { data: bill, error: billError } = await supabase
       .from('purchase_bills')
       .insert({
@@ -351,49 +350,38 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       })
       .select()
       .single()
-
     if (billError) { setError(billError.message); setSaving(false); return }
-
     const { error: linesError } = await supabase.from('purchase_bill_lines').insert(linesPayload(bill.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
-
     await createFlaggedFixedAssets(bill.id)
-
     await logAudit({
       entityId: bill.id,
       action: 'created',
       newData: bill,
       description: `Created draft bill "${billNumber || bill.id}" for £${total.toFixed(2)}`,
     })
-
     setCreating(false)
     resetForm()
     fetchData()
     setSaving(false)
   }
-
   async function handlePost(billId: string) {
     setPostingId(billId)
     setPostError((prev) => ({ ...prev, [billId]: '' }))
-
     const { error: postErr } = await supabase.rpc('post_purchase_bill', { p_bill_id: billId })
-
     if (postErr) {
       setPostError((prev) => ({ ...prev, [billId]: postErr.message }))
       setPostingId(null)
       return
     }
-
     setPostingId(null)
     fetchData()
   }
-
   function openVoid(billId: string) {
     setVoidReason('')
     setVoidError('')
     setVoidingId(billId)
   }
-
   async function handleVoid() {
     if (!voidingId) return
     if (!voidReason.trim()) {
@@ -402,39 +390,32 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     }
     setVoiding(true)
     setVoidError('')
-
     const { error: voidErr } = await supabase.rpc('void_purchase_bill', {
       p_bill_id: voidingId,
       p_reason: voidReason.trim(),
     })
-
     if (voidErr) {
       setVoidError(voidErr.message)
       setVoiding(false)
       return
     }
-
     setVoidingId(null)
     setVoiding(false)
     fetchData()
   }
-
   const { subtotal, vatTotal, total } = calculateTotals()
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading purchase bills...</p>
     </div>
   )
-
   if (contacts.length === 0 && !creating) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
       <p className="text-gray-500 text-sm mb-2">No suppliers available</p>
       <p className="text-gray-400 text-xs">Add a supplier in Contacts first before creating bills</p>
     </div>
   )
-
   return (
     <div className="space-y-6">
       {can.manageEngagements && !creating && (
@@ -447,7 +428,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           </button>
         </div>
       )}
-
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">
@@ -459,7 +439,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
               : "Creating directly — this won't be linked to a Purchase Order"}
           </p>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
-
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
@@ -500,7 +479,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
               <DatePicker value={dueDate} onChange={setDueDate} className="w-full" />
             </div>
           </div>
-
           <div className="space-y-2">
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-1">
               <div className="col-span-4">Description</div>
@@ -513,7 +491,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
             {lines.map((line, index) => {
               const { net, vatAmount } = lineAmounts(line)
               return (
-                <div key={index}>
+                <div key={index} className={lineErrors[index] ? 'bg-red-50 rounded-lg p-2 -mx-2' : ''}>
                   <div className="grid grid-cols-12 gap-2 items-center">
                     <input
                       type="text"
@@ -571,7 +549,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
-                      <option value="">No VAT</option>
+                      <option value="">Select VAT rate...</option>
                       {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button
@@ -582,6 +560,9 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                       ✕
                     </button>
                   </div>
+                  {lineErrors[index] && (
+                    <p className="text-xs text-red-600 pl-1 mt-1 font-medium">⚠ {lineErrors[index]}</p>
+                  )}
                   {(net > 0) && (
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">
                       Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
@@ -619,7 +600,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                           Write off in full as an expense
                         </button>
                       </div>
-
                       {line.faTreatment === 'writeoff' && (
                         <div className="pt-1">
                           <label className="block text-xs font-medium text-gray-500 mb-1">Expense account (e.g. Small Tools & Equipment, for items below your capitalisation threshold)</label>
@@ -633,7 +613,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                           </select>
                         </div>
                       )}
-
                       {line.faTreatment === 'capitalise' && (
                         <div className="grid grid-cols-2 gap-2 pt-1">
                           <select
@@ -696,22 +675,18 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
               )
             })}
           </div>
-
           <button onClick={addLine} className="text-xs text-brand-dark font-medium hover:underline">
             + Add line
           </button>
-
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
           </div>
-
           <div className="bg-gray-50 rounded-xl p-4 flex justify-end gap-6 text-sm">
             <div><span className="text-gray-500">Subtotal: </span><span className="font-semibold text-brand-dark">£{subtotal.toFixed(2)}</span></div>
             <div><span className="text-gray-500">VAT: </span><span className="font-semibold text-brand-dark">£{vatTotal.toFixed(2)}</span></div>
             <div><span className="text-gray-500">Total: </span><span className="font-semibold text-brand-dark">£{total.toFixed(2)}</span></div>
           </div>
-
           <div className="flex gap-3">
             <button onClick={handleCreate} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
@@ -724,7 +699,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           </div>
         </div>
       )}
-
       {bills.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
           <p className="text-gray-500 text-sm mb-2">No bills yet</p>
@@ -830,7 +804,6 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
           </div>
         </div>
       )}
-
       <ConfirmModal
         isOpen={!!voidingId}
         title="Void this bill?"
@@ -851,3 +824,4 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     </div>
   )
 }
+    
