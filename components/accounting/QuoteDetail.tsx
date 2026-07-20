@@ -34,6 +34,7 @@ export default function QuoteDetail({ clientId, quoteId }: { clientId: string; q
   const [expectedDate, setExpectedDate] = useState('')
   const [converting, setConverting] = useState(false)
   const [convertError, setConvertError] = useState('')
+  const [sendError, setSendError] = useState('')
 
   useEffect(() => { fetchData() }, [quoteId])
 
@@ -49,7 +50,14 @@ export default function QuoteDetail({ clientId, quoteId }: { clientId: string; q
   }
 
   async function handleMarkSent() {
-    await supabase.from('sales_quotes').update({ status: 'sent' }).eq('id', quoteId)
+    setSendError('')
+    const res = await fetch('/api/sales-quotes/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quoteId }),
+    })
+    const data = await res.json()
+    if (data.error) { setSendError(data.error); return }
     await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
       p_entity_type: 'sales_quote',
@@ -57,7 +65,7 @@ export default function QuoteDetail({ clientId, quoteId }: { clientId: string; q
       p_action: 'sent',
       p_old_data: { status: 'draft' },
       p_new_data: { status: 'sent' },
-      p_description: `Marked quote "${quote.quote_number}" as sent to customer`,
+      p_description: `Emailed quote "${quote.quote_number}" to customer`,
     })
     fetchData()
   }
@@ -192,6 +200,8 @@ export default function QuoteDetail({ clientId, quoteId }: { clientId: string; q
           </div>
         )}
 
+        {sendError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mb-4">{sendError}</div>}
+
         {can.manageEngagements && !convertOpen && (
           <div className="flex gap-3 pt-4 border-t border-gray-100">
             {['draft', 'sent'].includes(quote.status) && (
@@ -201,7 +211,7 @@ export default function QuoteDetail({ clientId, quoteId }: { clientId: string; q
             )}
             {quote.status === 'draft' && (
               <button onClick={handleMarkSent} className="bg-blue-100 text-blue-700 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-blue-200 transition">
-                Mark as Sent
+                Send Quote
               </button>
             )}
             {quote.status === 'accepted' && (
