@@ -39,7 +39,7 @@ export default function QuoteResponsePage({ params }: { params: { token: string 
   async function handleRespond(response: 'accepted' | 'declined') {
     setResponding(true)
     setError('')
-    const { error: respondError } = await supabase.rpc('respond_to_quote', { p_token: params.token, p_response: response })
+    const { data: newInvoiceId, error: respondError } = await supabase.rpc('respond_to_quote', { p_token: params.token, p_response: response })
     if (respondError) { setError(respondError.message); setResponding(false); return }
     setResponded(response)
     setResponding(false)
@@ -54,6 +54,20 @@ export default function QuoteResponsePage({ params }: { params: { token: string 
       })
     } catch (e) {
       console.error('Failed to send response notification:', e)
+    }
+
+    // On acceptance, an invoice was just created automatically - send it to the
+    // customer straight away, same reasoning as above: don't block their confirmation
+    if (response === 'accepted' && newInvoiceId) {
+      try {
+        await fetch('/api/sales-invoices/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId: newInvoiceId }),
+        })
+      } catch (e) {
+        console.error('Failed to send invoice email:', e)
+      }
     }
   }
 
