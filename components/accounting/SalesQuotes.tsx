@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -33,6 +33,7 @@ function addDays(dateStr: string, days: number) {
 
 export default function SalesQuotes({ clientId }: { clientId: string }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [quotes, setQuotes] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
@@ -76,6 +77,12 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
         return { ...q, sales_quote_lines_total: total }
       }))
       setQuotes(withTotals)
+
+      const editQuoteId = searchParams.get('edit')
+      if (editQuoteId) {
+        const toEdit = withTotals.find((q: any) => q.id === editQuoteId)
+        if (toEdit && ['draft', 'sent'].includes(toEdit.status)) openEditForm(toEdit)
+      }
     }
     if (contactsRes.data) setContacts(contactsRes.data)
     if (accountsRes.data) setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type)))
@@ -218,16 +225,33 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
 
     if (editingQuoteId) {
       const { data: before } = await supabase.from('sales_quotes').select('*, sales_quote_lines(*)').eq('id', editingQuoteId).single()
+      const wasSent = before?.status === 'sent'
       const { error: updateError } = await supabase
         .from('sales_quotes')
-        .update({ contact_id: contactId, quote_date: quoteDate, expiry_date: expiryDate || null, notes: notes || null })
+        .update({
+          contact_id: contactId,
+          quote_date: quoteDate,
+          expiry_date: expiryDate || null,
+          notes: notes || null,
+          // If it had already been sent, revert to draft and issue a fresh link -
+          // the customer shouldn't silently see different figures on the same link
+          ...(wasSent ? { status: 'draft', accept_token: crypto.randomUUID() } : {}),
+        })
         .eq('id', editingQuoteId)
       if (updateError) { setError(updateError.message); setSaving(false); return }
       await supabase.from('sales_quote_lines').delete().eq('quote_id', editingQuoteId)
       const { error: linesError } = await supabase.from('sales_quote_lines').insert(linesPayload(editingQuoteId))
       if (linesError) { setError(linesError.message); setSaving(false); return }
       const { data: after } = await supabase.from('sales_quotes').select('*, sales_quote_lines(*)').eq('id', editingQuoteId).single()
-      await logAudit({ entityId: editingQuoteId, action: 'updated', oldData: before, newData: after, description: `Edited draft quote "${before?.quote_number}" — now £${total.toFixed(2)} total` })
+      await logAudit({
+        entityId: editingQuoteId,
+        action: 'updated',
+        oldData: before,
+        newData: after,
+        description: wasSent
+          ? `Edited sent quote "${before?.quote_number}" — reverted to draft, new link issued, now £${total.toFixed(2)} total`
+          : `Edited draft quote "${before?.quote_number}" — now £${total.toFixed(2)} total`,
+      })
       setCreating(false); resetForm(); fetchData(); setSaving(false)
       return
     }
@@ -463,7 +487,11 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
                 {quotes.map((q) => (
                   <>
                     <tr key={q.id} className="border-b border-gray-100">
-                      <td className="px-6 py-3 text-sm font-mono text-brand-dark font-medium">{q.quote_number}</td>
+                      <td className="px-6 py-3 text-sm">
+                        <button onClick={() => router.push(`/accounting/${clientId}/sales-quotes/${q.id}`)} className="font-mono text-brand-dark font-medium hover:underline">
+                          {q.quote_number}
+                        </button>
+                      </td>
                       <td className="px-6 py-3 text-sm font-medium text-brand-dark">{q.contacts?.name}</td>
                       <td className="px-6 py-3 text-sm text-gray-500">{new Date(q.quote_date).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3 text-sm text-right font-semibold text-brand-dark">£{parseFloat(q.sales_quote_lines_total || 0).toFixed(2)}</td>
@@ -471,11 +499,11 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLES[q.status]}`}>{q.status}</span>
                       </td>
                       <td className="px-6 py-3 text-right space-x-2 whitespace-nowrap">
+                        {can.manageEngagements && ['draft', 'sent'].includes(q.status) && (
+                          <button onClick={() => openEditForm(q)} className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition">Edit</button>
+                        )}
                         {can.manageEngagements && q.status === 'draft' && (
-                          <>
-                            <button onClick={() => openEditForm(q)} className="text-xs bg-gray-100 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-200 transition">Edit</button>
-                            <button onClick={() => handleMarkSent(q)} className="text-xs bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-200 transition">Mark as Sent</button>
-                          </>
+                          <button onClick={() => handleMarkSent(q)} className="text-xs bg-blue-100 text-blue-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-200 transition">Mark as Sent</button>
                         )}
                         {can.manageEngagements && q.status === 'accepted' && (
                           <button onClick={() => openConvert(q)} className="text-xs bg-brand-gold text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition">
