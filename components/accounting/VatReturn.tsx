@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
-import { calculateVatReturn, VatReturnResult } from '@/lib/vatReturn'
+import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, VatReturnResult } from '@/lib/vatReturn'
 
 const STAGGER_MONTHS: Record<number, number[]> = {
   1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
@@ -61,7 +61,14 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   async function fetchLiveCalculation() {
     setCalculatingResult(true)
-    const calc = await calculateVatReturn(clientId, periodStart, periodEnd)
+    let calc: VatReturnResult
+    if (settings?.scheme === 'cash_accounting') {
+      calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd)
+    } else if (settings?.scheme === 'flat_rate' && settings?.flat_rate_percentage) {
+      calc = await calculateVatReturnFlatRate(clientId, periodStart, periodEnd, parseFloat(settings.flat_rate_percentage))
+    } else {
+      calc = await calculateVatReturn(clientId, periodStart, periodEnd)
+    }
     setResult(calc)
     setCalculatingResult(false)
   }
@@ -236,11 +243,16 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
       {calculating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="bg-brand-dark px-6 py-4">
-            <p className="text-white/60 text-xs uppercase tracking-wider">VAT Return</p>
-            <h3 className="text-white text-lg font-semibold">
-              {periodStart && periodEnd ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}` : 'New Period'}
-            </h3>
+          <div className="bg-brand-dark px-6 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-white/60 text-xs uppercase tracking-wider">VAT Return</p>
+              <h3 className="text-white text-lg font-semibold">
+                {periodStart && periodEnd ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}` : 'New Period'}
+              </h3>
+            </div>
+            <span className="text-xs px-3 py-1.5 rounded-full font-medium bg-white/10 text-white capitalize">
+              {settings?.scheme ? settings.scheme.replace('_', ' ') : 'Standard'} Scheme
+            </span>
           </div>
 
           <div className="p-6 space-y-4">
@@ -273,7 +285,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                 {formBox(3, 'Total VAT due (Box 1 + Box 2)', (result.box1VatOnSales + box2Val).toFixed(2), { bold: true })}
                 {formBox(4, 'VAT reclaimed on purchases', result.box4VatReclaimed.toFixed(2))}
                 {formBox(5, `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(netVat).toFixed(2), { bold: true })}
-                {formBox(6, 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
+                {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
                 {formBox(7, 'Total value of purchases, excluding VAT', result.box7TotalPurchasesExVat.toFixed(2))}
                 {formBox(8, 'Total value of goods supplied to EU (NI only)', box8, { editable: true, onChange: setBox8 })}
                 {formBox(9, 'Total value of goods acquired from EU (NI only)', box9, { editable: true, onChange: setBox9 })}
