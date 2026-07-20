@@ -22,6 +22,170 @@ export type VatReturnResult = {
   reverseChargeLinesFound: number
 }
 
+export type VatTransactionDetail = {
+  date: string
+  reference: string
+  contactName: string
+  netAmount: number
+  vatAmount: number
+  note?: string
+}
+
+export type VatReturnDetail = {
+  salesTransactions: VatTransactionDetail[] // underlies Box 1 (sum of vatAmount) and Box 6 (sum of netAmount)
+  purchaseTransactions: VatTransactionDetail[] // underlies Box 4 (sum of vatAmount) and Box 7 (sum of netAmount)
+  box1IsCalculated?: boolean // true for Flat Rate, where Box 1 is a % of turnover, not a sum of individual VAT amounts
+}
+
+export async function getVatReturnDetail(
+  clientId: string,
+  periodStart: string,
+  periodEnd: string,
+  scheme: 'standard' | 'cash_accounting' | 'flat_rate' | 'annual_accounting' = 'standard'
+): Promise<VatReturnDetail> {
+  const supabase = createClient()
+
+  if (scheme === 'cash_accounting') {
+    const [salesAllocRes, purchaseAllocRes] = await Promise.all([
+      supabase
+        .from('sales_receipt_allocations')
+        .select('amount_allocated, sales_receipts!inner(receipt_date, reference, client_id, voided, contacts(name)), sales_invoices!inner(invoice_number, total, subtotal, vat_total)')
+        .eq('sales_receipts.client_id', clientId)
+        .eq('sales_receipts.voided', false)
+        .gte('sales_receipts.receipt_date', periodStart)
+        .lte('sales_receipts.receipt_date', periodEnd),
+      supabase
+        .from('purchase_payment_allocations')
+        .select('amount_allocated, purchase_payments!inner(payment_date, reference, client_id, voided, contacts(name)), purchase_bills!inner(bill_number, total, subtotal, vat_total)')
+        .eq('purchase_payments.client_id', clientId)
+        .eq('purchase_payments.voided', false)
+        .gte('purchase_payments.payment_date', periodStart)
+        .lte('purchase_payments.payment_date', periodEnd),
+    ])
+
+    const salesTransactions: VatTransactionDetail[] = (salesAllocRes.data || []).map((a: any) => {
+      const invoiceTotal = parseFloat(a.sales_invoices.total) || 0
+      const proportion = invoiceTotal > 0 ? (parseFloat(a.amount_allocated) || 0) / invoiceTotal : 0
+      return {
+        date: a.sales_receipts.receipt_date,
+        reference: a.sales_invoices.invoice_number,
+        contactName: a.sales_receipts.contacts?.name || '',
+        netAmount: Math.round((parseFloat(a.sales_invoices.subtotal) || 0) * proportion * 100) / 100,
+        vatAmount: Math.round((parseFloat(a.sales_invoices.vat_total) || 0) * proportion * 100) / 100,
+        note: `£${parseFloat(a.amount_allocated).toFixed(2)} of £${invoiceTotal.toFixed(2)} paid this period`,
+      }
+    })
+
+    const purchaseTransactions: VatTransactionDetail[] = (purchaseAllocRes.data || []).map((a: any) => {
+      const billTotal = parseFloat(a.purchase_bills.total) || 0
+      const proportion = billTotal > 0 ? (parseFloat(a.amount_allocated) || 0) / billTotal : 0
+      return {
+        date: a.purchase_payments.payment_date,
+        reference: a.purchase_bills.bill_number || '(no ref)',
+        contactName: a.purchase_payments.contacts?.name || '',
+        netAmount: Math.round((parseFloat(a.purchase_bills.subtotal) || 0) * proportion * 100) / 100,
+        vatAmount: Math.round((parseFloat(a.purchase_bills.vat_total) || 0) * proportion * 100) / 100,
+        note: `£${parseFloat(a.amount_allocated).toFixed(2)} of £${billTotal.toFixed(2)} paid this period`,
+      }
+    })
+
+    return { salesTransactions, purchaseTransactions }
+  }
+
+  // Standard and Flat Rate both draw from invoice/bill lines by tax point date -
+  // Flat Rate just uses the totals differently (gross turnover, % rate) rather than
+  // summing each line's own VAT, so Box 1 is flagged as calculated rather than itemized
+  const [salesRes, purchaseRes] = await Promise.all([
+    supabase
+      .from('sales_invoice_lines')
+      .select('vat_amount, line_total, description, sales_invoices!inner(invoice_date, invoice_number, client_id, status, contacts(name))')
+      .eq('sales_invoices.client_id', clientId)
+      .neq('sales_invoices.status', 'draft')
+      .neq('sales_invoices.status', 'cancelled')
+      .gte('sales_invoices.invoice_date', periodStart)
+      .lte('sales_invoices.invoice_date', periodEnd),
+    supabase
+      .from('purchase_bill_lines')
+      .select('vat_amount, line_total, description, expense_account_id, chart_of_accounts(account_type), purchase_bills!inner(bill_date, bill_number, client_id, status, contacts(name))')
+      .eq('purchase_bills.client_id', clientId)
+      .neq('purchase_bills.status', 'draft')
+      .neq('purchase_bills.status', 'cancelled')
+      .gte('purchase_bills.bill_date', periodStart)
+      .lte('purchase_bills.bill_date', periodEnd),
+  ])
+
+  const salesTransactions: VatTransactionDetail[] = (salesRes.data || []).map((l: any) => ({
+    date: l.sales_invoices.invoice_date,
+    reference: l.sales_invoices.invoice_number,
+    contactName: l.sales_invoices.contacts?.name || '',
+    netAmount: parseFloat(l.line_total) || 0,
+    vatAmount: parseFloat(l.vat_amount) || 0,
+    note: l.description,
+  }))
+
+  let purchaseTransactions: VatTransactionDetail[] = (purchaseRes.data || []).map((l: any) => ({
+    date: l.purchase_bills.bill_date,
+    reference: l.purchase_bills.bill_number || '(no ref)',
+    contactName: l.purchase_bills.contacts?.name || '',
+    netAmount: parseFloat(l.line_total) || 0,
+    vatAmount: parseFloat(l.vat_amount) || 0,
+    note: l.description,
+  }))
+
+  if (scheme === 'flat_rate') {
+    // Under Flat Rate, input VAT isn't normally reclaimed at all except on capital
+    // purchases over £2,000 including VAT - filter the purchase list down to just those,
+    // since that's genuinely all that contributes to Box 4 under this scheme
+    purchaseTransactions = (purchaseRes.data || [])
+      .filter((l: any) => {
+        if (l.chart_of_accounts?.account_type !== 'fixed_asset') return false
+        const gross = (parseFloat(l.line_total) || 0) + (parseFloat(l.vat_amount) || 0)
+        return gross >= 2000
+      })
+      .map((l: any) => ({
+        date: l.purchase_bills.bill_date,
+        reference: l.purchase_bills.bill_number || '(no ref)',
+        contactName: l.purchase_bills.contacts?.name || '',
+        netAmount: parseFloat(l.line_total) || 0,
+        vatAmount: parseFloat(l.vat_amount) || 0,
+        note: `${l.description} (capital purchase over £2,000)`,
+      }))
+    return { salesTransactions, purchaseTransactions, box1IsCalculated: true }
+  }
+
+  return { salesTransactions, purchaseTransactions }
+}
+
+
+  const supabase = createClient()
+
+  const [salesRes, purchaseRes] = await Promise.all([
+    supabase
+      .from('sales_invoice_lines')
+      .select('vat_amount, line_total, vat_rate_id, vat_rates(code), sales_invoices!inner(invoice_date, client_id, status)')
+      .eq('sales_invoices.client_id', clientId)
+      .neq('sales_invoices.status', 'draft')
+      .neq('sales_invoices.status', 'cancelled')
+      .gte('sales_invoices.invoice_date', periodStart)
+      .lte('sales_invoices.invoice_date', periodEnd),
+    supabase
+      .from('purchase_bill_lines')
+      .select('vat_amount, line_total, vat_rate_id, vat_rates(code), purchase_bills!inner(bill_date, client_id, status)')
+      .eq('purchase_bills.client_id', clientId)
+      .neq('purchase_bills.status', 'draft')
+      .neq('purchase_bills.status', 'cancelled')
+      .gte('purchase_bills.bill_date', periodStart)
+      .lte('purchase_bills.bill_date', periodEnd),
+  ])
+
+  let box1 = 0, box6 = 0
+  let reverseChargeCount = 0
+  for (const l of salesRes.data || []) {
+    box1 += parseFloat((l as any).vat_amount) || 0
+    box6 += parseFloat((l as any).line_total) || 0
+    if ((l as any).vat_rates?.code?.includes('reverse_charge')) reverseChargeCount++
+  }
+
 export async function calculateVatReturn(clientId: string, periodStart: string, periodEnd: string): Promise<VatReturnResult> {
   const supabase = createClient()
 
