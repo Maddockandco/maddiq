@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -7,7 +6,6 @@ import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import AddContactModal from '@/components/accounting/AddContactModal'
 import AddAccountModal from '@/components/accounting/AddAccountModal'
-
 type LineDraft = {
   description: string
   quantity: string
@@ -15,9 +13,7 @@ type LineDraft = {
   income_account_id: string
   vat_rate_id: string
 }
-
 const EMPTY_LINE: LineDraft = { description: '', quantity: '1', unit_price: '', income_account_id: '', vat_rate_id: '' }
-
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
   sent: 'bg-blue-100 text-blue-700',
@@ -25,13 +21,11 @@ const STATUS_STYLES: Record<string, string> = {
   converted: 'bg-brand-gold/20 text-brand-dark',
   cancelled: 'bg-red-100 text-red-600',
 }
-
 function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr)
   d.setDate(d.getDate() + days)
   return d.toISOString().split('T')[0]
 }
-
 export default function SalesOrders({ clientId }: { clientId: string }) {
   const router = useRouter()
   const [orders, setOrders] = useState<any[]>([])
@@ -43,7 +37,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null)
-
   const [contactId, setContactId] = useState('')
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0])
   const [expectedDate, setExpectedDate] = useState('')
@@ -51,18 +44,15 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
+  const [lineErrors, setLineErrors] = useState<Record<number, string>>({})
   const [convertingOrderId, setConvertingOrderId] = useState<string | null>(null)
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
   const [converting, setConverting] = useState(false)
   const [convertError, setConvertError] = useState('')
-
   const { can } = useRole()
   const supabase = createClient()
-
   useEffect(() => { fetchData() }, [clientId])
-
   async function fetchData() {
     const [ordersRes, contactsRes, accountsRes, vatRes] = await Promise.all([
       supabase.from('sales_orders').select('*, contacts(name, payment_terms_days)').eq('client_id', clientId).order('order_date', { ascending: false }),
@@ -76,27 +66,22 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     if (vatRes.data) setVatRates(vatRes.data)
     setLoading(false)
   }
-
   function addLine() {
     setLines([...lines, { ...EMPTY_LINE }])
   }
-
   function updateLine(index: number, field: keyof LineDraft, value: string) {
     const updated = [...lines]
     updated[index] = { ...updated[index], [field]: value }
     setLines(updated)
   }
-
   function relevantVatRates() {
     const universal = ['no_vat']
     const incomeOnly = ['zero_ec_goods_income', 'zero_ec_services_income', 'oss_digital_services', 'toms_margin', 'flat_rate']
     return vatRates.filter((r) => r.code.endsWith('_income') || universal.includes(r.code) || incomeOnly.includes(r.code))
   }
-
   function removeLine(index: number) {
     setLines(lines.filter((_, i) => i !== index))
   }
-
   function lineAmounts(line: LineDraft) {
     const qty = parseFloat(line.quantity) || 0
     const price = parseFloat(line.unit_price) || 0
@@ -105,7 +90,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     const vatAmount = rate ? net * (parseFloat(rate.rate) / 100) : 0
     return { net, vatAmount, gross: net + vatAmount }
   }
-
   function calculateTotals() {
     let subtotal = 0
     let vatTotal = 0
@@ -116,7 +100,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     })
     return { subtotal, vatTotal, total: subtotal + vatTotal }
   }
-
   function resetForm() {
     setContactId('')
     setOrderDate(new Date().toISOString().split('T')[0])
@@ -124,17 +107,17 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     setNotes('')
     setLines([{ ...EMPTY_LINE }])
     setError('')
+    setLineErrors({})
     setEditingOrderId(null)
   }
-
   async function openEditForm(order: any) {
     setError('')
+    setLineErrors({})
     const { data: existingLines } = await supabase
       .from('sales_order_lines')
       .select('*')
       .eq('order_id', order.id)
       .order('sort_order')
-
     setEditingOrderId(order.id)
     setContactId(order.contact_id)
     setOrderDate(order.order_date)
@@ -151,7 +134,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     )
     setCreating(true)
   }
-
   async function logAudit(params: { entityId: string; action: string; oldData?: any; newData?: any; description: string }) {
     const { error: logError } = await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
@@ -164,14 +146,43 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     })
     if (logError) console.error('Audit log failed:', logError.message)
   }
-
   async function handleSave() {
     setSaving(true)
     setError('')
-
+    setLineErrors({})
     if (!contactId) { setError('Select a customer'); setSaving(false); return }
-    const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
-    if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
+
+    // A line is "touched" if the person has started filling it in at all - an
+    // untouched blank line is just ignored, but any line with something in it
+    // must be fully complete before saving
+    const touchedLines = lines
+      .map((l, i) => ({ line: l, index: i }))
+      .filter(({ line }) => line.description.trim() !== '' || line.unit_price !== '')
+
+    if (touchedLines.length === 0) {
+      setError('At least one line with a description and price is required')
+      setSaving(false)
+      return
+    }
+
+    const newLineErrors: Record<number, string> = {}
+    for (const { line, index } of touchedLines) {
+      const missing: string[] = []
+      if (!line.description.trim()) missing.push('description')
+      if (!(parseFloat(line.unit_price) > 0)) missing.push('unit price')
+      if (!line.income_account_id) missing.push('income account')
+      if (!line.vat_rate_id) missing.push('VAT rate')
+      if (missing.length > 0) newLineErrors[index] = `Missing: ${missing.join(', ')} - complete or remove this line`
+    }
+
+    if (Object.keys(newLineErrors).length > 0) {
+      setLineErrors(newLineErrors)
+      setError('Some lines are incomplete - fix or remove them below')
+      setSaving(false)
+      return
+    }
+
+    const validLines = touchedLines.map(({ line }) => line)
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase
@@ -180,9 +191,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
       .eq('user_id', user!.id)
       .single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
-
     const { subtotal, vatTotal, total } = calculateTotals()
-
     const linesPayload = (orderId: string) => validLines.map((l, i) => {
       const { net, vatAmount } = lineAmounts(l)
       return {
@@ -197,10 +206,8 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
         sort_order: i,
       }
     })
-
     if (editingOrderId) {
       const { data: before } = await supabase.from('sales_orders').select('*, sales_order_lines(*)').eq('id', editingOrderId).single()
-
       const { error: updateError } = await supabase
         .from('sales_orders')
         .update({
@@ -213,13 +220,10 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
           notes: notes || null,
         })
         .eq('id', editingOrderId)
-
       if (updateError) { setError(updateError.message); setSaving(false); return }
-
       await supabase.from('sales_order_lines').delete().eq('order_id', editingOrderId)
       const { error: linesError } = await supabase.from('sales_order_lines').insert(linesPayload(editingOrderId))
       if (linesError) { setError(linesError.message); setSaving(false); return }
-
       const { data: after } = await supabase.from('sales_orders').select('*, sales_order_lines(*)').eq('id', editingOrderId).single()
       await logAudit({
         entityId: editingOrderId,
@@ -228,20 +232,17 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
         newData: after,
         description: `Edited draft sales order "${before?.order_number}" — now £${total.toFixed(2)} total`,
       })
-
       setCreating(false)
       resetForm()
       fetchData()
       setSaving(false)
       return
     }
-
     const { count } = await supabase
       .from('sales_orders')
       .select('id', { count: 'exact', head: true })
       .eq('client_id', clientId)
     const orderNumber = `SO-${String((count || 0) + 1).padStart(4, '0')}`
-
     const { data: order, error: orderError } = await supabase
       .from('sales_orders')
       .insert({
@@ -260,25 +261,20 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
       })
       .select()
       .single()
-
     if (orderError) { setError(orderError.message); setSaving(false); return }
-
     const { error: linesError } = await supabase.from('sales_order_lines').insert(linesPayload(order.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
-
     await logAudit({
       entityId: order.id,
       action: 'created',
       newData: order,
       description: `Created sales order "${orderNumber}" for £${total.toFixed(2)}`,
     })
-
     setCreating(false)
     resetForm()
     fetchData()
     setSaving(false)
   }
-
   async function handleStatusChange(orderId: string, newStatus: string) {
     const order = orders.find((o) => o.id === orderId)
     await supabase.from('sales_orders').update({ status: newStatus }).eq('id', orderId)
@@ -291,7 +287,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
       description: `Changed status of "${order?.order_number}" from ${order?.status} to ${newStatus}`,
     })
   }
-
   function openConvert(order: any) {
     const todayStr = new Date().toISOString().split('T')[0]
     const terms = order.contacts?.payment_terms_days ?? 30
@@ -300,51 +295,42 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
     setConvertError('')
     setConvertingOrderId(order.id)
   }
-
   async function handleConvert(orderId: string) {
     setConverting(true)
     setConvertError('')
-
     const order = orders.find((o) => o.id === orderId)
     const { error: convertErr } = await supabase.rpc('convert_sales_order_to_invoice', {
       p_order_id: orderId,
       p_invoice_date: invoiceDate,
       p_due_date: dueDate,
     })
-
     if (convertErr) {
       setConvertError(convertErr.message)
       setConverting(false)
       return
     }
-
     await logAudit({
       entityId: orderId,
       action: 'converted_to_invoice',
       description: `Converted "${order?.order_number}" to a sales invoice`,
     })
-
     setConvertingOrderId(null)
     setConverting(false)
     fetchData()
   }
-
   const { subtotal, vatTotal, total } = calculateTotals()
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-
   if (loading) return (
     <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
       <p className="text-gray-500 text-sm">Loading sales orders...</p>
     </div>
   )
-
   if (contacts.length === 0) return (
     <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
       <p className="text-gray-500 text-sm mb-2">No customers available</p>
       <p className="text-gray-400 text-xs">Add a customer in Contacts first before creating sales orders</p>
     </div>
   )
-
   return (
     <div className="space-y-6">
       {can.manageEngagements && !creating && (
@@ -357,12 +343,10 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
           </button>
         </div>
       )}
-
       {creating && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
           <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">{editingOrderId ? 'Edit Draft Sales Order' : 'New Sales Order'}</h3>
           {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Customer</label>
@@ -399,7 +383,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
               <DatePicker value={expectedDate} onChange={setExpectedDate} className="w-full" />
             </div>
           </div>
-
           <div className="space-y-2">
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-1">
               <div className="col-span-4">Description</div>
@@ -412,7 +395,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
             {lines.map((line, index) => {
               const { net, vatAmount } = lineAmounts(line)
               return (
-                <div key={index}>
+                <div key={index} className={lineErrors[index] ? 'bg-red-50 rounded-lg p-2 -mx-2' : ''}>
                   <div className="grid grid-cols-12 gap-2 items-center">
                     <input
                       type="text"
@@ -466,7 +449,7 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                       onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
                     >
-                      <option value="">No VAT</option>
+                      <option value="">Select VAT rate...</option>
                       {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button
@@ -477,6 +460,9 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
                       ✕
                     </button>
                   </div>
+                  {lineErrors[index] && (
+                    <p className="text-xs text-red-600 pl-1 mt-1 font-medium">⚠ {lineErrors[index]}</p>
+                  )}
                   {(net > 0) && (
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">
                       Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}
@@ -486,22 +472,18 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
               )
             })}
           </div>
-
           <button onClick={addLine} className="text-xs text-brand-dark font-medium hover:underline">
             + Add line
           </button>
-
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
           </div>
-
           <div className="bg-gray-50 rounded-xl p-4 flex justify-end gap-6 text-sm">
             <div><span className="text-gray-500">Subtotal: </span><span className="font-semibold text-brand-dark">£{subtotal.toFixed(2)}</span></div>
             <div><span className="text-gray-500">VAT: </span><span className="font-semibold text-brand-dark">£{vatTotal.toFixed(2)}</span></div>
             <div><span className="text-gray-500">Total: </span><span className="font-semibold text-brand-dark">£{total.toFixed(2)}</span></div>
           </div>
-
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving}
               className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
@@ -514,7 +496,6 @@ export default function SalesOrders({ clientId }: { clientId: string }) {
           </div>
         </div>
       )}
-
       {orders.length === 0 && !creating ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center border border-gray-200">
           <p className="text-gray-500 text-sm">No sales orders yet</p>
