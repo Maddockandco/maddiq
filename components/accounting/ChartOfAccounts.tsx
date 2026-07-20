@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import { detectIndustry } from '@/lib/industryDetection'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import { FlatRateGoodsCategory, GOODS_CATEGORY_LABELS, GOODS_CATEGORY_OPTIONS } from '@/lib/limitedCostTrader'
 
 const ACCOUNT_TYPE_GROUPS = [
   {
@@ -277,6 +278,9 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [suggestedIndustry, setSuggestedIndustry] = useState<string | null>(null)
   const [vatRates, setVatRates] = useState<any[]>([])
   const [vatRateId, setVatRateId] = useState('')
+  const [goodsCategory, setGoodsCategory] = useState<FlatRateGoodsCategory>('service')
+  const [suggestingGoodsCategory, setSuggestingGoodsCategory] = useState(false)
+  const [goodsCategoryReasoning, setGoodsCategoryReasoning] = useState<string | null>(null)
   const [isIntendedGroup, setIsIntendedGroup] = useState(false)
   const [quickFixVatRate, setQuickFixVatRate] = useState<Record<string, string>>({})
   const [quickFixSaving, setQuickFixSaving] = useState<Record<string, boolean>>({})
@@ -347,6 +351,8 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setAccountType('expense')
     setParentId('')
     setVatRateId('')
+    setGoodsCategory('service')
+    setGoodsCategoryReasoning(null)
     setIsIntendedGroup(false)
     setEditingId(null)
     setError('')
@@ -359,10 +365,41 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setAccountType(account.account_type)
     setParentId(account.parent_id || '')
     setVatRateId(account.default_vat_rate_id || '')
+    setGoodsCategory(account.flat_rate_goods_category || 'service')
+    setGoodsCategoryReasoning(null)
     setIsIntendedGroup(false)
     setEditingId(account.id)
     setError('')
     setFormOpen(true)
+  }
+
+  function isExpenseType(type: string) {
+    return TYPE_TO_CATEGORY[type] === 'expense'
+  }
+
+  async function handleSuggestGoodsCategory() {
+    if (!name.trim()) return
+    setSuggestingGoodsCategory(true)
+    setGoodsCategoryReasoning(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/accounting/suggest-goods-category', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ accountName: name, accountType }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Suggestion failed')
+      setGoodsCategory(body.suggestion.category)
+      setGoodsCategoryReasoning(body.suggestion.reasoning)
+    } catch (err: any) {
+      setError(`Couldn't get a suggestion: ${err.message}`)
+    } finally {
+      setSuggestingGoodsCategory(false)
+    }
   }
 
   function isVatRelevantType(type: string) {
@@ -459,6 +496,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
           account_type: accountType,
           parent_id: parentId || null,
           default_vat_rate_id: isVatRelevantType(accountType) ? (vatRateId || null) : null,
+          flat_rate_goods_category: isExpenseType(accountType) ? goodsCategory : 'service',
         })
         .eq('id', editingId)
         .select()
@@ -490,6 +528,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
           account_type: accountType,
           parent_id: parentId || null,
           default_vat_rate_id: isVatRelevantType(accountType) ? (vatRateId || null) : null,
+          flat_rate_goods_category: isExpenseType(accountType) ? goodsCategory : 'service',
         })
         .select()
         .single()
@@ -968,6 +1007,31 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                   </p>
                 </div>
               )
+            )}
+
+            {isExpenseType(accountType) && (
+              <div className="md:col-span-3 bg-brand-light rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-gray-500">Flat Rate Scheme — goods category</label>
+                  <button
+                    type="button"
+                    onClick={handleSuggestGoodsCategory}
+                    disabled={suggestingGoodsCategory || !name.trim()}
+                    className="text-xs font-medium text-brand-dark underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {suggestingGoodsCategory ? 'Thinking...' : 'Suggest for me'}
+                  </button>
+                </div>
+                <select value={goodsCategory} onChange={(e) => setGoodsCategory(e.target.value as FlatRateGoodsCategory)} className={inputClass}>
+                  {GOODS_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{GOODS_CATEGORY_LABELS[c]}</option>)}
+                </select>
+                {goodsCategoryReasoning && (
+                  <p className="text-xs text-gray-500 italic">{goodsCategoryReasoning}</p>
+                )}
+                <p className="text-xs text-gray-400">
+                  Used for clients on the Flat Rate Scheme to determine Limited Cost Trader status. Most accounts should be "Service" — only mark an account as a qualifying good if it's a genuine, ongoing physical stock/materials purchase.
+                </p>
+              </div>
             )}
           </div>
           {editingId && (
