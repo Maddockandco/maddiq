@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
+import { FLAT_RATE_SECTORS, LIMITED_COST_TRADER_RATE } from '@/lib/flatRateSectors'
+import { calculateLimitedCostStatus, LimitedCostTraderResult } from '@/lib/limitedCostTrader'
 
 // UK VAT Return, structured around the real 9 boxes, computed on a standard (accrual)
 // VAT accounting basis - i.e. by invoice/bill date (tax point), not payment date.
@@ -149,16 +151,48 @@ export async function calculateVatReturnCashBasis(clientId: string, periodStart:
   }
 }
 
+export type LctOverride = 'auto' | 'force_standard' | 'force_limited_cost'
+
+export interface FlatRateSettings {
+  sector: string | null
+  registrationDate: string | null
+  lctOverride?: LctOverride
+}
+
+// The 1% first-year discount applies for the 12 months following VAT registration
+// under the scheme, based on the PERIOD being filed - not the date the calculation
+// happens to be run. (Previously this compared against "today", which would silently
+// under/over-apply the discount for a return calculated after the fact.)
+function firstYearDiscountActive(registrationDate: string | null, periodEnd: string): boolean {
+  if (!registrationDate) return false
+  const oneYearOn = new Date(registrationDate)
+  oneYearOn.setFullYear(oneYearOn.getFullYear() + 1)
+  return new Date(periodEnd) < oneYearOn
+}
+
 // Flat Rate Scheme: the business still charges standard VAT on invoices, but pays
 // HMRC a fixed % of GROSS (VAT-inclusive) turnover instead of the difference between
 // output and input VAT. Input VAT is not normally reclaimed at all, except on capital
 // asset purchases over £2,000 including VAT, which can still be reclaimed in full.
+//
+// The Limited Cost Trader status (16.5% flat regardless of sector) is a PER-PERIOD
+// test based on actual goods spend that period, not a one-off setting - a business
+// can flip in and out of LCT status from one return to the next. This is now
+// determined automatically from real purchase data (see lib/limitedCostTrader.ts),
+// with an optional manual override for genuine accountant judgement calls.
 export async function calculateVatReturnFlatRate(
   clientId: string,
   periodStart: string,
   periodEnd: string,
-  flatRatePercentage: number
-): Promise<VatReturnResult & { grossTurnover: number }> {
+  flatRateSettings: FlatRateSettings
+): Promise<
+  VatReturnResult & {
+    grossTurnover: number
+    appliedPercentage: number
+    isLimitedCostTrader: boolean
+    lctDetail: LimitedCostTraderResult
+  }
+> {
   const supabase = createClient()
 
   const [salesRes, capitalPurchasesRes] = await Promise.all([
@@ -196,7 +230,17 @@ export async function calculateVatReturnFlatRate(
     if (net + vat >= 2000) box4 += vat
   }
 
-  const box1 = grossTurnover * (flatRatePercentage / 100)
+  const lctDetail = await calculateLimitedCostStatus(clientId, periodStart, periodEnd, grossTurnover)
+  const override = flatRateSettings.lctOverride || 'auto'
+  const isLimitedCostTrader =
+    override === 'force_limited_cost' ? true : override === 'force_standard' ? false : lctDetail.isLimitedCostTrader
+
+  const sectorRate = FLAT_RATE_SECTORS.find((s) => s.sector === flatRateSettings.sector)?.rate
+  const baseRate = isLimitedCostTrader ? LIMITED_COST_TRADER_RATE : sectorRate ?? LIMITED_COST_TRADER_RATE
+  const discountActive = firstYearDiscountActive(flatRateSettings.registrationDate, periodEnd)
+  const appliedPercentage = discountActive ? Math.round((baseRate - 1) * 100) / 100 : baseRate
+
+  const box1 = grossTurnover * (appliedPercentage / 100)
   const box3 = box1
   const box5 = box3 - box4
 
@@ -209,6 +253,9 @@ export async function calculateVatReturnFlatRate(
     box7TotalPurchasesExVat: Math.round(netSales * 100) / 100,
     reverseChargeLinesFound: 0,
     grossTurnover: Math.round(grossTurnover * 100) / 100,
+    appliedPercentage,
+    isLimitedCostTrader,
+    lctDetail,
   }
 }
 
