@@ -25,8 +25,10 @@ export async function POST(request: Request) {
   if (!creatorEmail) return NextResponse.json({ success: true, note: 'Creator has no email on file' })
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://maddiq.vercel.app'
-  const quoteDetailLink = `${appUrl}/accounting/${quote.client_id}/sales-quotes/${quoteId}`
   const accepted = response === 'accepted'
+  const quoteDetailLink = accepted && quote.converted_to_sales_order_id
+    ? `${appUrl}/accounting/${quote.client_id}/sales-orders/${quote.converted_to_sales_order_id}`
+    : `${appUrl}/accounting/${quote.client_id}/sales-quotes/${quoteId}`
 
   const { error: sendError } = await resend.emails.send({
     from: 'hello@maddockandco.com',
@@ -38,10 +40,10 @@ export async function POST(request: Request) {
           ${quote.contacts?.name || 'The customer'} has ${accepted ? 'accepted' : 'declined'} quote ${quote.quote_number}
         </h2>
         <p>Client: <strong>${quote.clients?.name || ''}</strong></p>
-        ${accepted ? '<p>You can now convert this quote into a Sales Order.</p>' : ''}
+        ${accepted ? '<p>A Sales Order has been created automatically and is ready to go.</p>' : ''}
         <p style="margin: 32px 0;">
           <a href="${quoteDetailLink}" style="background: #343b46; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-            View Quote
+            {accepted ? 'View Sales Order' : 'View Quote'}
           </a>
         </p>
       </div>
