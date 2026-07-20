@@ -7,11 +7,26 @@ import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateVatReturn, VatReturnResult } from '@/lib/vatReturn'
 
+const STAGGER_MONTHS: Record<number, number[]> = {
+  1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
+  2: [1, 4, 7, 10], // Feb, May, Aug, Nov
+  3: [0, 3, 6, 9],  // Jan, Apr, Jul, Oct
+}
+
+function lastDayOfMonth(year: number, month: number): string {
+  return new Date(year, month + 1, 0).toISOString().split('T')[0]
+}
+
+function firstDayOfMonth(year: number, month: number): string {
+  return new Date(year, month, 1).toISOString().split('T')[0]
+}
+
 export default function VatReturn({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const { can } = useRole()
 
   const [returns, setReturns] = useState<any[]>([])
+  const [settings, setSettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [calculating, setCalculating] = useState(false)
   const [periodStart, setPeriodStart] = useState('')
@@ -27,16 +42,20 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [markingFiledId, setMarkingFiledId] = useState<string | null>(null)
 
-  useEffect(() => { fetchReturns() }, [clientId])
+  useEffect(() => { fetchAll() }, [clientId])
 
   useEffect(() => {
     if (periodStart && periodEnd) fetchLiveCalculation()
   }, [periodStart, periodEnd])
 
-  async function fetchReturns() {
+  async function fetchAll() {
     setLoading(true)
-    const { data } = await supabase.from('vat_returns').select('*').eq('client_id', clientId).order('period_end', { ascending: false })
-    setReturns(data || [])
+    const [returnsRes, settingsRes] = await Promise.all([
+      supabase.from('vat_returns').select('*').eq('client_id', clientId).order('period_end', { ascending: false }),
+      supabase.from('vat_settings').select('*').eq('client_id', clientId).maybeSingle(),
+    ])
+    setReturns(returnsRes.data || [])
+    setSettings(settingsRes.data || null)
     setLoading(false)
   }
 
@@ -47,9 +66,38 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setCalculatingResult(false)
   }
 
+  function suggestNextPeriod(): { start: string; end: string } | null {
+    if (!settings) return null
+    const lastReturn = returns[0]
+    const anchorDate = lastReturn ? new Date(lastReturn.period_end) : settings.registration_date ? new Date(settings.registration_date) : null
+    if (!anchorDate) return null
+
+    if (settings.filing_frequency === 'monthly') {
+      const next = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + (lastReturn ? 1 : 0), 1)
+      return { start: firstDayOfMonth(next.getFullYear(), next.getMonth()), end: lastDayOfMonth(next.getFullYear(), next.getMonth()) }
+    }
+
+    if (settings.filing_frequency === 'quarterly' && settings.stagger_group) {
+      const staggerMonths = STAGGER_MONTHS[settings.stagger_group]
+      let year = anchorDate.getFullYear()
+      let monthIdx = staggerMonths.findIndex((m) => m >= anchorDate.getMonth())
+      if (lastReturn || monthIdx === -1) {
+        monthIdx += 1
+      }
+      if (monthIdx >= staggerMonths.length) { monthIdx = 0; year += 1 }
+      const endMonth = staggerMonths[monthIdx]
+      const startMonth = endMonth - 2 < 0 ? endMonth + 10 : endMonth - 2
+      const startYear = endMonth - 2 < 0 ? year - 1 : year
+      return { start: firstDayOfMonth(startYear, startMonth), end: lastDayOfMonth(year, endMonth) }
+    }
+
+    return null
+  }
+
   function openCalculator() {
-    setPeriodStart('')
-    setPeriodEnd('')
+    const suggested = suggestNextPeriod()
+    setPeriodStart(suggested?.start || '')
+    setPeriodEnd(suggested?.end || '')
     setResult(null)
     setBox2('0')
     setBox8('0')
@@ -116,18 +164,13 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setShowConfirm(false)
     setCalculating(false)
     setSaving(false)
-    fetchReturns()
+    fetchAll()
   }
 
   async function handleMarkFiled(vatReturn: any) {
     setMarkingFiledId(vatReturn.id)
     const filedDate = new Date().toISOString().split('T')[0]
-    const { data: updated } = await supabase
-      .from('vat_returns')
-      .update({ status: 'filed', filed_date: filedDate })
-      .eq('id', vatReturn.id)
-      .select()
-      .single()
+    await supabase.from('vat_returns').update({ status: 'filed', filed_date: filedDate }).eq('id', vatReturn.id)
 
     await supabase.rpc('log_accounting_audit', {
       p_client_id: clientId,
@@ -140,10 +183,33 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     })
 
     setMarkingFiledId(null)
-    fetchReturns()
+    fetchAll()
   }
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+  const box2Val = parseFloat(box2) || 0
+  const netVat = result ? result.box1VatOnSales + box2Val - result.box4VatReclaimed : 0
+
+  function formBox(number: number, label: string, value: string, options?: { editable?: boolean; onChange?: (v: string) => void; bold?: boolean }) {
+    return (
+      <div className={`flex items-center justify-between px-5 py-3.5 ${options?.bold ? 'bg-brand-light' : ''}`}>
+        <div className="flex items-baseline gap-3">
+          <span className="text-xs font-bold text-white bg-brand-dark rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0">{number}</span>
+          <span className={`text-sm ${options?.bold ? 'font-semibold text-brand-dark' : 'text-gray-600'}`}>{label}</span>
+        </div>
+        {options?.editable ? (
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => options.onChange?.(e.target.value)}
+            className="w-32 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-brand-gold"
+          />
+        ) : (
+          <span className={`text-sm font-mono ${options?.bold ? 'font-bold text-brand-dark text-base' : 'text-brand-dark'}`}>£{value}</span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -156,80 +222,77 @@ export default function VatReturn({ clientId }: { clientId: string }) {
         )}
       </div>
 
+      {!settings && !loading && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-sm text-amber-700">No VAT Setup found for this client yet — set up their VAT scheme and filing frequency first so periods can be suggested automatically.</p>
+        </div>
+      )}
+
       <div className="bg-amber-50 rounded-xl p-4">
         <p className="text-xs text-amber-700">
-          Calculated on a standard (accrual) VAT accounting basis, using invoice/bill dates rather than payment dates. Boxes 2, 8, and 9 relate to Northern Ireland EU goods movements and are left for manual entry, since they need EU trade data this app doesn't hold. If any line uses a reverse charge VAT code, it's flagged below for manual review — reverse charge treatment isn't automated yet. This is not yet connected to HMRC for filing; that's a separate, upcoming piece.
+          Calculated on a standard (accrual) VAT accounting basis, using invoice/bill dates. Boxes 2, 8, and 9 relate to Northern Ireland EU goods movements and are left for manual entry. Reverse charge lines are flagged for manual review, not automated. Not yet connected to HMRC for filing — that's a separate, upcoming piece.
         </p>
       </div>
 
       {calculating && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">New VAT Return</h3>
-          {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Period Start</label>
-              <DatePicker value={periodStart} onChange={setPeriodStart} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Period End</label>
-              <DatePicker value={periodEnd} onChange={setPeriodEnd} />
-            </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-brand-dark px-6 py-4">
+            <p className="text-white/60 text-xs uppercase tracking-wider">VAT Return</p>
+            <h3 className="text-white text-lg font-semibold">
+              {periodStart && periodEnd ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}` : 'New Period'}
+            </h3>
           </div>
 
-          {calculatingResult && <p className="text-xs text-gray-400">Calculating from invoices and bills for this period...</p>}
+          <div className="p-6 space-y-4">
+            {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-          {result && !calculatingResult && (
-            <div className="bg-brand-light rounded-xl p-4 space-y-2">
-              {result.reverseChargeLinesFound > 0 && (
-                <div className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-2 mb-2">
-                  <p className="text-xs text-amber-800">
-                    ⚠ {result.reverseChargeLinesFound} line(s) in this period use a reverse charge VAT code. These aren't specially handled below — review manually before filing.
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="flex justify-between"><span className="text-gray-500">Box 1 — VAT due on sales</span><span className="text-brand-dark">£{result.box1VatOnSales.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Box 4 — VAT reclaimed on purchases</span><span className="text-brand-dark">£{result.box4VatReclaimed.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Box 6 — Total sales, ex VAT</span><span className="text-brand-dark">£{result.box6TotalSalesExVat.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Box 7 — Total purchases, ex VAT</span><span className="text-brand-dark">£{result.box7TotalPurchasesExVat.toFixed(2)}</span></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Period Start</label>
+                <DatePicker value={periodStart} onChange={setPeriodStart} />
               </div>
-              <div className="grid grid-cols-3 gap-3 text-sm border-t border-gray-200 pt-2">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Box 2 — EU acquisitions (NI only)</label>
-                  <input type="number" value={box2} onChange={(e) => setBox2(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Box 8 — EU goods supplied (NI only)</label>
-                  <input type="number" value={box8} onChange={(e) => setBox8(e.target.value)} className={inputClass} />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Box 9 — EU goods acquired (NI only)</label>
-                  <input type="number" value={box9} onChange={(e) => setBox9(e.target.value)} className={inputClass} />
-                </div>
-              </div>
-              <div className="flex justify-between items-baseline border-t border-gray-200 pt-2">
-                <span className="text-sm font-semibold text-brand-dark">Box 5 — Net VAT {(result.box1VatOnSales + (parseFloat(box2) || 0) - result.box4VatReclaimed) >= 0 ? 'to pay' : 'to reclaim'}</span>
-                <span className="text-2xl font-bold text-brand-dark">
-                  £{Math.abs(result.box1VatOnSales + (parseFloat(box2) || 0) - result.box4VatReclaimed).toFixed(2)}
-                </span>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Period End</label>
+                <DatePicker value={periodEnd} onChange={setPeriodEnd} />
               </div>
             </div>
-          )}
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
-          </div>
+            {calculatingResult && <p className="text-xs text-gray-400">Calculating from invoices and bills for this period...</p>}
 
-          <div className="flex gap-3">
-            <button onClick={handleSaveClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-              Save VAT Return
-            </button>
-            <button onClick={() => setCalculating(false)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
-              Cancel
-            </button>
+            {result && !calculatingResult && (
+              <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+                {result.reverseChargeLinesFound > 0 && (
+                  <div className="bg-amber-100 px-5 py-2.5">
+                    <p className="text-xs text-amber-800">
+                      ⚠ {result.reverseChargeLinesFound} line(s) this period use a reverse charge VAT code — review manually before filing.
+                    </p>
+                  </div>
+                )}
+                {formBox(1, 'VAT due on sales and other outputs', result.box1VatOnSales.toFixed(2))}
+                {formBox(2, 'VAT due on acquisitions from EU member states (NI only)', box2, { editable: true, onChange: setBox2 })}
+                {formBox(3, 'Total VAT due (Box 1 + Box 2)', (result.box1VatOnSales + box2Val).toFixed(2), { bold: true })}
+                {formBox(4, 'VAT reclaimed on purchases', result.box4VatReclaimed.toFixed(2))}
+                {formBox(5, `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(netVat).toFixed(2), { bold: true })}
+                {formBox(6, 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
+                {formBox(7, 'Total value of purchases, excluding VAT', result.box7TotalPurchasesExVat.toFixed(2))}
+                {formBox(8, 'Total value of goods supplied to EU (NI only)', box8, { editable: true, onChange: setBox8 })}
+                {formBox(9, 'Total value of goods acquired from EU (NI only)', box9, { editable: true, onChange: setBox9 })}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={handleSaveClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+                Save VAT Return
+              </button>
+              <button onClick={() => setCalculating(false)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -237,7 +300,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
       <ConfirmModal
         isOpen={showConfirm}
         title="Save this VAT Return?"
-        message={result ? `Net VAT ${(result.box1VatOnSales + (parseFloat(box2) || 0) - result.box4VatReclaimed) >= 0 ? 'to pay' : 'to reclaim'}: £${Math.abs(result.box1VatOnSales + (parseFloat(box2) || 0) - result.box4VatReclaimed).toFixed(2)} for the period ${periodStart} to ${periodEnd}.` : ''}
+        message={result ? `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}: £${Math.abs(netVat).toFixed(2)} for the period ${periodStart} to ${periodEnd}.` : ''}
         confirmLabel="Save VAT Return"
         confirming={saving}
         onConfirm={handleSave}
