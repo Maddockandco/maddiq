@@ -12,6 +12,12 @@ const STAGGER_LABELS: Record<number, string> = {
   3: 'Stagger 3 — Jan / Apr / Jul / Oct quarter ends',
 }
 
+const LCT_OVERRIDE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'auto', label: 'Automatic — determine from actual purchase history each period (recommended)' },
+  { value: 'force_standard', label: 'Always use the sector rate (override)' },
+  { value: 'force_limited_cost', label: 'Always use the 16.5% Limited Cost Trader rate (override)' },
+]
+
 export default function VatSettings({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const { can } = useRole()
@@ -28,7 +34,7 @@ export default function VatSettings({ clientId }: { clientId: string }) {
   const [filingFrequency, setFilingFrequency] = useState('quarterly')
   const [staggerGroup, setStaggerGroup] = useState('1')
   const [flatRateSector, setFlatRateSector] = useState('')
-  const [isLimitedCostBusiness, setIsLimitedCostBusiness] = useState(false)
+  const [lctOverride, setLctOverride] = useState('auto')
 
   useEffect(() => { fetchSettings() }, [clientId])
 
@@ -43,7 +49,7 @@ export default function VatSettings({ clientId }: { clientId: string }) {
       setFilingFrequency(data.filing_frequency || 'quarterly')
       setStaggerGroup(String(data.stagger_group || 1))
       setFlatRateSector(data.flat_rate_sector || '')
-      setIsLimitedCostBusiness(!!data.is_limited_cost_business)
+      setLctOverride(data.lct_override || 'auto')
     }
     setLoading(false)
   }
@@ -55,15 +61,9 @@ export default function VatSettings({ clientId }: { clientId: string }) {
     return new Date() < oneYearOn
   }
 
-  function currentFlatRatePercentage(): number | null {
-    const base = isLimitedCostBusiness ? LIMITED_COST_TRADER_RATE : FLAT_RATE_SECTORS.find((s) => s.sector === flatRateSector)?.rate
-    if (base == null) return null
-    return firstYearDiscountActive() ? Math.round((base - 1) * 100) / 100 : base
-  }
-
   async function handleSave() {
-    if (scheme === 'flat_rate' && !isLimitedCostBusiness && !flatRateSector) {
-      setError('Select a business sector for the Flat Rate Scheme')
+    if (scheme === 'flat_rate' && !flatRateSector) {
+      setError("Select a business sector for the Flat Rate Scheme — this is the rate used for any period the client isn't a Limited Cost Trader")
       return
     }
     setSaving(true)
@@ -74,8 +74,6 @@ export default function VatSettings({ clientId }: { clientId: string }) {
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); return }
 
-    const percentage = scheme === 'flat_rate' ? currentFlatRatePercentage() : null
-
     const payload = {
       firm_id: firmUser.firm_id,
       client_id: clientId,
@@ -84,9 +82,8 @@ export default function VatSettings({ clientId }: { clientId: string }) {
       scheme,
       filing_frequency: filingFrequency,
       stagger_group: filingFrequency === 'quarterly' ? parseInt(staggerGroup) : null,
-      flat_rate_sector: scheme === 'flat_rate' ? (isLimitedCostBusiness ? null : flatRateSector) : null,
-      flat_rate_percentage: percentage,
-      is_limited_cost_business: scheme === 'flat_rate' ? isLimitedCostBusiness : false,
+      flat_rate_sector: scheme === 'flat_rate' ? flatRateSector : null,
+      lct_override: scheme === 'flat_rate' ? lctOverride : 'auto',
       updated_at: new Date().toISOString(),
       created_by: user!.id,
     }
@@ -100,6 +97,7 @@ export default function VatSettings({ clientId }: { clientId: string }) {
   }
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+  const sectorRate = FLAT_RATE_SECTORS.find((s) => s.sector === flatRateSector)?.rate
 
   if (loading) return <p className="text-sm text-gray-400">Loading...</p>
 
@@ -145,23 +143,40 @@ export default function VatSettings({ clientId }: { clientId: string }) {
 
         {scheme === 'flat_rate' && (
           <div className="bg-brand-light rounded-xl p-4 space-y-3">
-            <label className="flex items-center gap-2 text-sm text-brand-dark">
-              <input type="checkbox" checked={isLimitedCostBusiness} onChange={(e) => setIsLimitedCostBusiness(e.target.checked)} />
-              This is a limited cost business (spends under 2% of turnover, or under £1,000/year, on goods) — uses {LIMITED_COST_TRADER_RATE}% regardless of sector
-            </label>
-            {!isLimitedCostBusiness && (
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Business Sector</label>
-                <select value={flatRateSector} onChange={(e) => setFlatRateSector(e.target.value)} className={inputClass}>
-                  <option value="">Select a sector...</option>
-                  {FLAT_RATE_SECTORS.map((s) => <option key={s.sector} value={s.sector}>{s.sector} — {s.rate}%</option>)}
-                </select>
-              </div>
-            )}
-            {currentFlatRatePercentage() != null && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Business Sector</label>
+              <select value={flatRateSector} onChange={(e) => setFlatRateSector(e.target.value)} className={inputClass}>
+                <option value="">Select a sector...</option>
+                {FLAT_RATE_SECTORS.map((s) => <option key={s.sector} value={s.sector}>{s.sector} — {s.rate}%</option>)}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                This is the rate used for any period the client isn't a Limited Cost Trader. Limited Cost Trader status
+                (16.5% flat, regardless of sector) is now determined automatically each period from actual purchase
+                history — it can genuinely change from one return to the next, so it's calculated live rather than
+                fixed here.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Limited Cost Trader Determination</label>
+              <select value={lctOverride} onChange={(e) => setLctOverride(e.target.value)} className={inputClass}>
+                {LCT_OVERRIDE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {lctOverride !== 'auto' && (
+                <p className="text-xs text-amber-700 mt-1">
+                  Overriding the automatic test — only do this for a specific judgement call you've made yourself
+                  (e.g. HMRC's "relevant goods" definition genuinely doesn't fit this client's setup).
+                </p>
+              )}
+            </div>
+
+            {sectorRate != null && (
               <p className="text-sm text-brand-dark">
-                Rate to apply: <span className="font-bold">{currentFlatRatePercentage()}%</span>
+                Sector rate: <span className="font-bold">{firstYearDiscountActive() ? Math.round((sectorRate - 1) * 100) / 100 : sectorRate}%</span>
+                {' · '}Limited Cost Trader rate: <span className="font-bold">{firstYearDiscountActive() ? Math.round((LIMITED_COST_TRADER_RATE - 1) * 100) / 100 : LIMITED_COST_TRADER_RATE}%</span>
                 {firstYearDiscountActive() && <span className="text-xs text-gray-500"> (includes the 1% first-year discount)</span>}
+                <br />
+                <span className="text-xs text-gray-500">The actual rate used on each return is shown when you calculate that return.</span>
               </p>
             )}
           </div>
