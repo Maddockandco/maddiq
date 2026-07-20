@@ -50,6 +50,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [lineErrors, setLineErrors] = useState<Record<number, string>>({})
   const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null)
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0])
   const [expectedDate, setExpectedDate] = useState('')
@@ -159,9 +160,40 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
   async function handleSave() {
     setSaving(true)
     setError('')
+    setLineErrors({})
     if (!contactId) { setError('Select a customer'); setSaving(false); return }
-    const validLines = lines.filter((l) => l.description && parseFloat(l.unit_price) > 0)
-    if (validLines.length === 0) { setError('At least one line with a description and price is required'); setSaving(false); return }
+
+    // A line is "touched" if the person has started filling it in at all - an
+    // untouched blank line (e.g. a leftover extra row) is just ignored, but any
+    // line with something in it must be fully complete before saving
+    const touchedLines = lines
+      .map((l, i) => ({ line: l, index: i }))
+      .filter(({ line }) => line.description.trim() !== '' || line.unit_price !== '')
+
+    if (touchedLines.length === 0) {
+      setError('At least one line with a description and price is required')
+      setSaving(false)
+      return
+    }
+
+    const newLineErrors: Record<number, string> = {}
+    for (const { line, index } of touchedLines) {
+      const missing: string[] = []
+      if (!line.description.trim()) missing.push('description')
+      if (!(parseFloat(line.unit_price) > 0)) missing.push('unit price')
+      if (!line.income_account_id) missing.push('income account')
+      if (!line.vat_rate_id) missing.push('VAT rate')
+      if (missing.length > 0) newLineErrors[index] = `Missing: ${missing.join(', ')} - complete or remove this line`
+    }
+
+    if (Object.keys(newLineErrors).length > 0) {
+      setLineErrors(newLineErrors)
+      setError('Some lines are incomplete - fix or remove them below')
+      setSaving(false)
+      return
+    }
+
+    const validLines = touchedLines.map(({ line }) => line)
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user!.id).single()
@@ -329,7 +361,7 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
             {lines.map((line, index) => {
               const { net, vatAmount } = lineAmounts(line)
               return (
-                <div key={index}>
+                <div key={index} className={lineErrors[index] ? 'bg-red-50 rounded-lg p-2 -mx-2' : ''}>
                   <div className="grid grid-cols-12 gap-2 items-center">
                     <input type="text" value={line.description} onChange={(e) => updateLine(index, 'description', e.target.value)} placeholder="Item or service"
                       className="col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold" />
@@ -360,11 +392,14 @@ export default function SalesQuotes({ clientId }: { clientId: string }) {
                     />
                     <select value={line.vat_rate_id} onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
                       className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold">
-                      <option value="">No VAT</option>
+                      <option value="">Select VAT rate...</option>
                       {relevantVatRates().map((r) => <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>)}
                     </select>
                     <button onClick={() => removeLine(index)} disabled={lines.length <= 1} className="col-span-1 text-red-400 hover:text-red-600 text-xs disabled:opacity-30">✕</button>
                   </div>
+                  {lineErrors[index] && (
+                    <p className="text-xs text-red-600 pl-1 mt-1 font-medium">⚠ {lineErrors[index]}</p>
+                  )}
                   {(net > 0) && (
                     <p className="text-xs text-gray-400 pl-1 mt-0.5">Net £{net.toFixed(2)} + VAT £{vatAmount.toFixed(2)} = £{(net + vatAmount).toFixed(2)}</p>
                   )}
