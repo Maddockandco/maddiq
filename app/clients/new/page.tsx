@@ -6,6 +6,7 @@ import Link from 'next/link'
 import CompanyLookup from '@/components/clients/CompanyLookup'
 import { logActivity } from '@/lib/logActivity'
 import { detectIndustry, INDUSTRY_LABELS } from '@/lib/industryDetection'
+import { syncVatRegistrationToSettings } from '@/lib/syncVatRegistration'
 
 export default function NewClientPage() {
   const [name, setName] = useState('')
@@ -217,6 +218,14 @@ export default function NewClientPage() {
       .single()
 
     if (insertError) { setError(insertError.message); setLoading(false); return }
+
+    await syncVatRegistrationToSettings({
+      clientId: client.id,
+      firmId: firmUser.firm_id,
+      userId: user.id,
+      vatRegistered,
+      vatNumber: vatNumber || null,
+    })
 
     // Default team assignment: the creator, plus any practice owners/managers in the firm -
     // otherwise a brand new client would have nobody assigned and (once access gating is in
