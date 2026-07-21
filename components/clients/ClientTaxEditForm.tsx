@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import { syncVatRegistrationToSettings } from '@/lib/syncVatRegistration'
 
 export default function ClientEditForm({ clientId }: { clientId: string }) {
   const [name, setName] = useState('')
@@ -95,6 +96,21 @@ export default function ClientEditForm({ clientId }: { clientId: string }) {
       })
       .eq('id', clientId)
     if (updateError) { setError(updateError.message); setSaving(false); return }
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user.id).single()
+      if (firmUser) {
+        await syncVatRegistrationToSettings({
+          clientId,
+          firmId: firmUser.firm_id,
+          userId: user.id,
+          vatRegistered,
+          vatNumber: vatNumber || null,
+        })
+      }
+    }
+
     router.push(`/clients/${clientId}`)
   }
 
