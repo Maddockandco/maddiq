@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import VatReturn from '@/components/accounting/VatReturn'
 import VatSettings from '@/components/accounting/VatSettings'
+import VatErrorCorrections from '@/components/accounting/VatErrorCorrections'
 
 export default function VatWorkspace({ clientId }: { clientId: string }) {
-  const [tab, setTab] = useState<'returns' | 'setup'>('returns')
+  const [tab, setTab] = useState<'returns' | 'setup' | 'corrections'>('returns')
 
   return (
     <div className="space-y-6">
@@ -13,6 +14,7 @@ export default function VatWorkspace({ clientId }: { clientId: string }) {
         {([
           { key: 'returns', label: 'VAT Returns' },
           { key: 'setup', label: 'VAT Setup' },
+          { key: 'corrections', label: 'Error Corrections' },
         ] as const).map((t) => (
           <button
             key={t.key}
@@ -26,6 +28,7 @@ export default function VatWorkspace({ clientId }: { clientId: string }) {
 
       {tab === 'returns' && <VatReturn clientId={clientId} />}
       {tab === 'setup' && <VatSettings clientId={clientId} />}
+      {tab === 'corrections' && <VatErrorCorrections clientId={clientId} />}
     </div>
   )
 }
