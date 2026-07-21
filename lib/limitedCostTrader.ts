@@ -104,10 +104,11 @@ export async function calculateLimitedCostStatus(
 
   const periodDays = Math.round((new Date(periodEnd).getTime() - new Date(periodStart).getTime()) / 86400000) + 1
   const threshold = goodsSpendThreshold(turnoverIncVat, periodDays)
+  const roundedGoodsSpend = Math.round(qualifyingGoodsSpend * 100) / 100
 
   return {
-    isLimitedCostTrader: qualifyingGoodsSpend < threshold,
-    qualifyingGoodsSpend: Math.round(qualifyingGoodsSpend * 100) / 100,
+    isLimitedCostTrader: roundedGoodsSpend < threshold,
+    qualifyingGoodsSpend: roundedGoodsSpend,
     threshold,
     turnoverIncVat,
     periodDays,
