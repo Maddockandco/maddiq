@@ -13,12 +13,17 @@ const STAGGER_MONTHS: Record<number, number[]> = {
   3: [0, 3, 6, 9],  // Jan, Apr, Jul, Oct
 }
 
+function formatDate(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
 function lastDayOfMonth(year: number, month: number): string {
-  return new Date(year, month + 1, 0).toISOString().split('T')[0]
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  return formatDate(year, month, daysInMonth)
 }
 
 function firstDayOfMonth(year: number, month: number): string {
-  return new Date(year, month, 1).toISOString().split('T')[0]
+  return formatDate(year, month, 1)
 }
 
 export default function VatReturn({ clientId }: { clientId: string }) {
@@ -93,26 +98,46 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   function suggestNextPeriod(): { start: string; end: string } | null {
     if (!settings) return null
     const lastReturn = returns[0]
-    const anchorDate = lastReturn ? new Date(lastReturn.period_end) : settings.registration_date ? new Date(settings.registration_date) : null
-    if (!anchorDate) return null
+
+    if (!lastReturn) {
+      // First-ever return: HMRC requires the period to start on the actual
+      // registration date, not the 1st of that month - the first period is
+      // often a "long" or "short" stub running to the next normal
+      // quarter/month end, not a full clean period.
+      if (!settings.registration_date) return null
+      const regDate = new Date(settings.registration_date)
+
+      if (settings.filing_frequency === 'monthly') {
+        return { start: settings.registration_date, end: lastDayOfMonth(regDate.getFullYear(), regDate.getMonth()) }
+      }
+
+      if (settings.filing_frequency === 'quarterly' && settings.stagger_group) {
+        const staggerMonths = STAGGER_MONTHS[settings.stagger_group]
+        let endYear = regDate.getFullYear()
+        let endMonth = staggerMonths.find((m) => m >= regDate.getMonth())
+        if (endMonth === undefined) { endMonth = staggerMonths[0]; endYear += 1 }
+        return { start: settings.registration_date, end: lastDayOfMonth(endYear, endMonth) }
+      }
+
+      return null
+    }
+
+    // Subsequent returns always start the day after the prior period ended -
+    // i.e. the first day of the following month, contiguous with the last filing.
+    const priorEnd = new Date(lastReturn.period_end)
+    let nextMonth = priorEnd.getMonth() + 1
+    let nextYear = priorEnd.getFullYear()
+    if (nextMonth > 11) { nextMonth = 0; nextYear += 1 }
 
     if (settings.filing_frequency === 'monthly') {
-      const next = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + (lastReturn ? 1 : 0), 1)
-      return { start: firstDayOfMonth(next.getFullYear(), next.getMonth()), end: lastDayOfMonth(next.getFullYear(), next.getMonth()) }
+      return { start: firstDayOfMonth(nextYear, nextMonth), end: lastDayOfMonth(nextYear, nextMonth) }
     }
 
     if (settings.filing_frequency === 'quarterly' && settings.stagger_group) {
-      const staggerMonths = STAGGER_MONTHS[settings.stagger_group]
-      let year = anchorDate.getFullYear()
-      let monthIdx = staggerMonths.findIndex((m) => m >= anchorDate.getMonth())
-      if (lastReturn || monthIdx === -1) {
-        monthIdx += 1
-      }
-      if (monthIdx >= staggerMonths.length) { monthIdx = 0; year += 1 }
-      const endMonth = staggerMonths[monthIdx]
-      const startMonth = endMonth - 2 < 0 ? endMonth + 10 : endMonth - 2
-      const startYear = endMonth - 2 < 0 ? year - 1 : year
-      return { start: firstDayOfMonth(startYear, startMonth), end: lastDayOfMonth(year, endMonth) }
+      let endMonth = nextMonth + 2
+      let endYear = nextYear
+      if (endMonth > 11) { endMonth -= 12; endYear += 1 }
+      return { start: firstDayOfMonth(nextYear, nextMonth), end: lastDayOfMonth(endYear, endMonth) }
     }
 
     return null
