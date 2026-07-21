@@ -6,6 +6,7 @@ import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, getVatReturnDetail, VatReturnResult, VatReturnDetail } from '@/lib/vatReturn'
+import { evaluateCorrectionsForReturn, resolvePendingCorrections, CorrectionEvaluation } from '@/lib/vatErrorCorrection'
 
 const STAGGER_MONTHS: Record<number, number[]> = {
   1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
@@ -44,6 +45,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [box2, setBox2] = useState('0')
   const [box8, setBox8] = useState('0')
   const [box9, setBox9] = useState('0')
+  const [correctionEval, setCorrectionEval] = useState<CorrectionEvaluation | null>(null)
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -83,6 +85,8 @@ export default function VatReturn({ clientId }: { clientId: string }) {
       calc = await calculateVatReturn(clientId, periodStart, periodEnd)
     }
     setResult(calc)
+    const evaluation = await evaluateCorrectionsForReturn(clientId, calc.box6TotalSalesExVat)
+    setCorrectionEval(evaluation.netPosition.corrections.length > 0 ? evaluation : null)
     setCalculatingResult(false)
   }
 
@@ -148,6 +152,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setPeriodStart(suggested?.start || '')
     setPeriodEnd(suggested?.end || '')
     setResult(null)
+    setCorrectionEval(null)
     setBox2('0')
     setBox8('0')
     setBox9('0')
@@ -169,9 +174,15 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
 
+    const correctionsApplied = correctionEval?.withinThreshold ?? false
+    const box1Adj = correctionsApplied ? correctionEval!.box1Adjustment : 0
+    const box4Adj = correctionsApplied ? correctionEval!.box4Adjustment : 0
+
+    const box1Total = result.box1VatOnSales + box1Adj
+    const box4Total = result.box4VatReclaimed + box4Adj
     const box2Val = parseFloat(box2) || 0
-    const box3 = result.box1VatOnSales + box2Val
-    const box5 = box3 - result.box4VatReclaimed
+    const box3 = box1Total + box2Val
+    const box5 = box3 - box4Total
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
@@ -184,10 +195,10 @@ export default function VatReturn({ clientId }: { clientId: string }) {
         client_id: clientId,
         period_start: periodStart,
         period_end: periodEnd,
-        box1_vat_on_sales: result.box1VatOnSales,
+        box1_vat_on_sales: box1Total,
         box2_vat_on_eu_acquisitions: box2Val,
         box3_total_vat_due: box3,
-        box4_vat_reclaimed: result.box4VatReclaimed,
+        box4_vat_reclaimed: box4Total,
         box5_net_vat: box5,
         box6_total_sales_ex_vat: result.box6TotalSalesExVat,
         box7_total_purchases_ex_vat: result.box7TotalPurchasesExVat,
@@ -211,6 +222,10 @@ export default function VatReturn({ clientId }: { clientId: string }) {
       p_new_data: saved,
       p_description: `VAT Return for period ${periodStart} to ${periodEnd} — net ${box5 >= 0 ? 'payable' : 'reclaimable'} £${Math.abs(box5).toFixed(2)}`,
     })
+
+    if (correctionEval && correctionEval.netPosition.corrections.length > 0) {
+      await resolvePendingCorrections(clientId, saved.id, correctionEval)
+    }
 
     setShowConfirm(false)
     setCalculating(false)
@@ -239,7 +254,12 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
   const box2Val = parseFloat(box2) || 0
-  const netVat = result ? result.box1VatOnSales + box2Val - result.box4VatReclaimed : 0
+  const correctionsApplied = correctionEval?.withinThreshold ?? false
+  const box1Adj = correctionsApplied ? correctionEval!.box1Adjustment : 0
+  const box4Adj = correctionsApplied ? correctionEval!.box4Adjustment : 0
+  const box1Display = result ? result.box1VatOnSales + box1Adj : 0
+  const box4Display = result ? result.box4VatReclaimed + box4Adj : 0
+  const netVat = result ? box1Display + box2Val - box4Display : 0
 
   function formBox(number: number, label: string, value: string, options?: { editable?: boolean; onChange?: (v: string) => void; bold?: boolean }) {
     return (
@@ -346,6 +366,28 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                   </div>
                 )}
 
+                {correctionEval && (
+                  correctionEval.withinThreshold ? (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800 space-y-1">
+                      <p>
+                        {correctionEval.netPosition.corrections.length} pending error correction{correctionEval.netPosition.corrections.length !== 1 ? 's' : ''} folded into Box {box1Adj !== 0 ? '1' : ''}{box1Adj !== 0 && box4Adj !== 0 ? ' / ' : ''}{box4Adj !== 0 ? '4' : ''} above.
+                      </p>
+                      <p className="text-xs text-green-700">
+                        Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs disclosure threshold £{correctionEval.threshold.toFixed(2)} for this period — within limit, no separate HMRC notification required.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">
+                      <p className="font-semibold">
+                        Pending error corrections exceed the disclosure threshold — NOT included in this return.
+                      </p>
+                      <p className="text-xs">
+                        Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs threshold £{correctionEval.threshold.toFixed(2)} for this period. These must be reported to HMRC separately (form VAT652) rather than adjusted here — see the Error Corrections tab.
+                      </p>
+                    </div>
+                  )
+                )}
+
                 {calcTab === 'return' && (
                   <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
                     {result.reverseChargeLinesFound > 0 && (
@@ -355,10 +397,10 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                         </p>
                       </div>
                     )}
-                    {formBox(1, 'VAT due on sales and other outputs', result.box1VatOnSales.toFixed(2))}
+                    {formBox(1, 'VAT due on sales and other outputs', box1Display.toFixed(2))}
                     {formBox(2, 'VAT due on acquisitions from EU member states (NI only)', box2, { editable: true, onChange: setBox2 })}
-                    {formBox(3, 'Total VAT due (Box 1 + Box 2)', (result.box1VatOnSales + box2Val).toFixed(2), { bold: true })}
-                    {formBox(4, 'VAT reclaimed on purchases', result.box4VatReclaimed.toFixed(2))}
+                    {formBox(3, 'Total VAT due (Box 1 + Box 2)', (box1Display + box2Val).toFixed(2), { bold: true })}
+                    {formBox(4, 'VAT reclaimed on purchases', box4Display.toFixed(2))}
                     {formBox(5, `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(netVat).toFixed(2), { bold: true })}
                     {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', result.box6TotalSalesExVat.toFixed(2))}
                     {formBox(7, 'Total value of purchases, excluding VAT', result.box7TotalPurchasesExVat.toFixed(2))}
