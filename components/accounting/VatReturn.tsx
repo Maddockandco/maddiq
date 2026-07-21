@@ -51,6 +51,12 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [markingFiledId, setMarkingFiledId] = useState<string | null>(null)
+  const [editingReturnId, setEditingReturnId] = useState<string | null>(null)
+
+  const [viewingReturn, setViewingReturn] = useState<any | null>(null)
+  const [viewTab, setViewTab] = useState<'return' | 'details'>('return')
+  const [viewDetail, setViewDetail] = useState<VatReturnDetail | null>(null)
+  const [loadingViewDetail, setLoadingViewDetail] = useState(false)
 
   useEffect(() => { fetchAll() }, [clientId])
 
@@ -149,6 +155,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   function openCalculator() {
     const suggested = suggestNextPeriod()
+    setEditingReturnId(null)
     setPeriodStart(suggested?.start || '')
     setPeriodEnd(suggested?.end || '')
     setResult(null)
@@ -161,6 +168,41 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setCalcTab('return')
     setDetail(null)
     setCalculating(true)
+  }
+
+  function openEditReturn(r: any) {
+    setViewingReturn(null)
+    setEditingReturnId(r.id)
+    setResult(null)
+    setCorrectionEval(null)
+    setBox2(String(r.box2_vat_on_eu_acquisitions ?? 0))
+    setBox8(String(r.box8_eu_goods_supplied ?? 0))
+    setBox9(String(r.box9_eu_goods_acquired ?? 0))
+    setNotes(r.notes || '')
+    setError('')
+    setCalcTab('return')
+    setDetail(null)
+    setCalculating(true)
+    // periodStart/periodEnd set last so the useEffect fires the recalculation
+    // against CURRENT transaction data, not whatever was true when first saved
+    setPeriodStart(r.period_start)
+    setPeriodEnd(r.period_end)
+  }
+
+  async function openViewReturn(r: any) {
+    setCalculating(false)
+    setViewingReturn(r)
+    setViewTab('return')
+    setViewDetail(null)
+  }
+
+  async function handleViewDetailsTab() {
+    setViewTab('details')
+    if (viewDetail || !viewingReturn) return
+    setLoadingViewDetail(true)
+    const d = await getVatReturnDetail(clientId, viewingReturn.period_start, viewingReturn.period_end, settings?.scheme || 'standard')
+    setViewDetail(d)
+    setLoadingViewDetail(false)
   }
 
   function handleSaveClick() {
@@ -188,28 +230,51 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
     if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
 
-    const { data: saved, error: saveError } = await supabase
-      .from('vat_returns')
-      .insert({
-        firm_id: firmUser.firm_id,
-        client_id: clientId,
-        period_start: periodStart,
-        period_end: periodEnd,
-        box1_vat_on_sales: box1Total,
-        box2_vat_on_eu_acquisitions: box2Val,
-        box3_total_vat_due: box3,
-        box4_vat_reclaimed: box4Total,
-        box5_net_vat: box5,
-        box6_total_sales_ex_vat: result.box6TotalSalesExVat,
-        box7_total_purchases_ex_vat: result.box7TotalPurchasesExVat,
-        box8_eu_goods_supplied: parseFloat(box8) || 0,
-        box9_eu_goods_acquired: parseFloat(box9) || 0,
-        status: 'draft',
-        notes: notes || null,
-        created_by: user!.id,
-      })
-      .select()
-      .single()
+    const payload = {
+      firm_id: firmUser.firm_id,
+      client_id: clientId,
+      period_start: periodStart,
+      period_end: periodEnd,
+      box1_vat_on_sales: box1Total,
+      box2_vat_on_eu_acquisitions: box2Val,
+      box3_total_vat_due: box3,
+      box4_vat_reclaimed: box4Total,
+      box5_net_vat: box5,
+      box6_total_sales_ex_vat: result.box6TotalSalesExVat,
+      box7_total_purchases_ex_vat: result.box7TotalPurchasesExVat,
+      box8_eu_goods_supplied: parseFloat(box8) || 0,
+      box9_eu_goods_acquired: parseFloat(box9) || 0,
+      notes: notes || null,
+    }
+
+    let saved: any, saveError: any
+
+    if (editingReturnId) {
+      // Re-editing a draft: release any corrections that were tied to this
+      // return on a previous save, so they get freshly re-evaluated against
+      // the new calculation rather than double-counted or left stale.
+      await supabase
+        .from('vat_error_corrections')
+        .update({ status: 'pending', applied_to_return_id: null, applied_date: null, threshold_at_evaluation: null, net_position_at_evaluation: null })
+        .eq('applied_to_return_id', editingReturnId)
+
+      const { data, error: updateError } = await supabase
+        .from('vat_returns')
+        .update(payload)
+        .eq('id', editingReturnId)
+        .select()
+        .single()
+      saved = data
+      saveError = updateError
+    } else {
+      const { data, error: insertError } = await supabase
+        .from('vat_returns')
+        .insert({ ...payload, status: 'draft', created_by: user!.id })
+        .select()
+        .single()
+      saved = data
+      saveError = insertError
+    }
 
     if (saveError) { setError(saveError.message); setSaving(false); setShowConfirm(false); return }
 
@@ -217,7 +282,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
       p_client_id: clientId,
       p_entity_type: 'vat_return',
       p_entity_id: saved.id,
-      p_action: 'created',
+      p_action: editingReturnId ? 'updated' : 'created',
       p_old_data: null,
       p_new_data: saved,
       p_description: `VAT Return for period ${periodStart} to ${periodEnd} — net ${box5 >= 0 ? 'payable' : 'reclaimable'} £${Math.abs(box5).toFixed(2)}`,
@@ -229,6 +294,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
     setShowConfirm(false)
     setCalculating(false)
+    setEditingReturnId(null)
     setSaving(false)
     fetchAll()
   }
@@ -282,6 +348,110 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     )
   }
 
+  function renderTransactionDetail(d: VatReturnDetail | null, isLoading: boolean) {
+    if (isLoading) return <p className="text-xs text-gray-400">Loading underlying transactions...</p>
+    if (!d) return null
+    return (
+      <>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">
+              Sales — feeds Box 1 (VAT) and Box 6 ({settings?.scheme === 'flat_rate' ? 'gross' : 'net'} value)
+            </p>
+            <p className="text-xs text-gray-400">{d.salesTransactions.length} line(s)</p>
+          </div>
+          {d.box1IsCalculated && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+              Box 1 under Flat Rate is calculated as gross turnover × your rate — it isn't a sum of these lines' own VAT amounts, since that's not how this scheme works.
+            </p>
+          )}
+          {d.salesTransactions.length === 0 ? (
+            <p className="text-xs text-gray-400">No sales lines in this period</p>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Customer</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.salesTransactions.map((t, i) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{d.salesTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{d.salesTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Purchases — feeds Box 4 (VAT) and Box 7 (net value)</p>
+            <p className="text-xs text-gray-400">{d.purchaseTransactions.length} line(s)</p>
+          </div>
+          {settings?.scheme === 'flat_rate' && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+              Only capital purchases over £2,000 (including VAT) are shown — under Flat Rate, everything else isn't reclaimable.
+            </p>
+          )}
+          {d.purchaseTransactions.length === 0 ? (
+            <p className="text-xs text-gray-400">No purchase lines in this period</p>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Supplier</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.purchaseTransactions.map((t, i) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{d.purchaseTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{d.purchaseTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -309,7 +479,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="bg-brand-dark px-6 py-4 flex items-center justify-between">
             <div>
-              <p className="text-white/60 text-xs uppercase tracking-wider">VAT Return</p>
+              <p className="text-white/60 text-xs uppercase tracking-wider">{editingReturnId ? 'Editing Draft VAT Return' : 'VAT Return'}</p>
               <h3 className="text-white text-lg font-semibold">
                 {periodStart && periodEnd ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}` : 'New Period'}
               </h3>
@@ -411,107 +581,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
                 {calcTab === 'details' && (
                   <div className="space-y-6">
-                    {loadingDetail ? (
-                      <p className="text-xs text-gray-400">Loading underlying transactions...</p>
-                    ) : detail ? (
-                      <>
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">
-                              Sales — feeds Box 1 (VAT) and Box 6 ({settings?.scheme === 'flat_rate' ? 'gross' : 'net'} value)
-                            </p>
-                            <p className="text-xs text-gray-400">{detail.salesTransactions.length} line(s)</p>
-                          </div>
-                          {detail.box1IsCalculated && (
-                            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
-                              Box 1 under Flat Rate is calculated as gross turnover × your rate — it isn't a sum of these lines' own VAT amounts, since that's not how this scheme works.
-                            </p>
-                          )}
-                          {detail.salesTransactions.length === 0 ? (
-                            <p className="text-xs text-gray-400">No sales lines in this period</p>
-                          ) : (
-                            <div className="border border-gray-200 rounded-lg overflow-hidden">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="bg-gray-50">
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Customer</th>
-                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
-                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {detail.salesTransactions.map((t, i) => (
-                                    <tr key={i} className="border-t border-gray-100">
-                                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
-                                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
-                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
-                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                                <tfoot>
-                                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
-                                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
-                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.salesTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
-                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.salesTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
-                                  </tr>
-                                </tfoot>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider">Purchases — feeds Box 4 (VAT) and Box 7 (net value)</p>
-                            <p className="text-xs text-gray-400">{detail.purchaseTransactions.length} line(s)</p>
-                          </div>
-                          {settings?.scheme === 'flat_rate' && (
-                            <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
-                              Only capital purchases over £2,000 (including VAT) are shown — under Flat Rate, everything else isn't reclaimable.
-                            </p>
-                          )}
-                          {detail.purchaseTransactions.length === 0 ? (
-                            <p className="text-xs text-gray-400">No purchase lines in this period</p>
-                          ) : (
-                            <div className="border border-gray-200 rounded-lg overflow-hidden">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="bg-gray-50">
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
-                                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Supplier</th>
-                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
-                                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {detail.purchaseTransactions.map((t, i) => (
-                                    <tr key={i} className="border-t border-gray-100">
-                                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
-                                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
-                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
-                                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                                <tfoot>
-                                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
-                                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
-                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.purchaseTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
-                                    <td className="px-3 py-2 text-right text-brand-dark">£{detail.purchaseTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
-                                  </tr>
-                                </tfoot>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    ) : null}
+                    {renderTransactionDetail(detail, loadingDetail)}
                   </div>
                 )}
               </>
@@ -524,9 +594,9 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
             <div className="flex gap-3">
               <button onClick={handleSaveClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-                Save VAT Return
+                {editingReturnId ? 'Update Draft' : 'Save VAT Return'}
               </button>
-              <button onClick={() => setCalculating(false)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+              <button onClick={() => { setCalculating(false); setEditingReturnId(null) }} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
                 Cancel
               </button>
             </div>
@@ -534,11 +604,75 @@ export default function VatReturn({ clientId }: { clientId: string }) {
         </div>
       )}
 
+      {viewingReturn && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-brand-dark px-6 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-white/60 text-xs uppercase tracking-wider capitalize">{viewingReturn.status} VAT Return</p>
+              <h3 className="text-white text-lg font-semibold">
+                {new Date(viewingReturn.period_start).toLocaleDateString('en-GB')} – {new Date(viewingReturn.period_end).toLocaleDateString('en-GB')}
+              </h3>
+            </div>
+            <button onClick={() => setViewingReturn(null)} className="text-white/70 hover:text-white text-sm">✕ Close</button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              <button
+                onClick={() => setViewTab('return')}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+              >
+                View Return
+              </button>
+              <button
+                onClick={handleViewDetailsTab}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
+              >
+                View Details
+              </button>
+            </div>
+
+            {viewTab === 'return' && (
+              <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+                {formBox(1, 'VAT due on sales and other outputs', parseFloat(viewingReturn.box1_vat_on_sales).toFixed(2))}
+                {formBox(2, 'VAT due on acquisitions from EU member states (NI only)', parseFloat(viewingReturn.box2_vat_on_eu_acquisitions).toFixed(2))}
+                {formBox(3, 'Total VAT due (Box 1 + Box 2)', parseFloat(viewingReturn.box3_total_vat_due).toFixed(2), { bold: true })}
+                {formBox(4, 'VAT reclaimed on purchases', parseFloat(viewingReturn.box4_vat_reclaimed).toFixed(2))}
+                {formBox(5, `Net VAT ${parseFloat(viewingReturn.box5_net_vat) >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(parseFloat(viewingReturn.box5_net_vat)).toFixed(2), { bold: true })}
+                {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', parseFloat(viewingReturn.box6_total_sales_ex_vat).toFixed(2))}
+                {formBox(7, 'Total value of purchases, excluding VAT', parseFloat(viewingReturn.box7_total_purchases_ex_vat).toFixed(2))}
+                {formBox(8, 'Total value of goods supplied to EU (NI only)', parseFloat(viewingReturn.box8_eu_goods_supplied).toFixed(2))}
+                {formBox(9, 'Total value of goods acquired from EU (NI only)', parseFloat(viewingReturn.box9_eu_goods_acquired).toFixed(2))}
+              </div>
+            )}
+
+            {viewTab === 'details' && (
+              <div className="space-y-6">
+                {renderTransactionDetail(viewDetail, loadingViewDetail)}
+              </div>
+            )}
+
+            {viewingReturn.notes && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">Notes</p>
+                <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-3">{viewingReturn.notes}</p>
+              </div>
+            )}
+
+            {viewingReturn.status === 'draft' && can.manageEngagements && (
+              <button onClick={() => openEditReturn(viewingReturn)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
+                Edit Draft
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <ConfirmModal
         isOpen={showConfirm}
-        title="Save this VAT Return?"
+        title={editingReturnId ? 'Update this draft?' : 'Save this VAT Return?'}
         message={result ? `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}: £${Math.abs(netVat).toFixed(2)} for the period ${periodStart} to ${periodEnd}.` : ''}
-        confirmLabel="Save VAT Return"
+        confirmLabel={editingReturnId ? 'Update Draft' : 'Save VAT Return'}
         confirming={saving}
         onConfirm={handleSave}
         onCancel={() => setShowConfirm(false)}
@@ -564,7 +698,11 @@ export default function VatReturn({ clientId }: { clientId: string }) {
               </thead>
               <tbody>
                 {returns.map((r, i) => (
-                  <tr key={r.id} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                  <tr
+                    key={r.id}
+                    onClick={() => openViewReturn(r)}
+                    className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light/40 transition ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                  >
                     <td className="px-6 py-3 text-sm text-brand-dark">
                       {new Date(r.period_start).toLocaleDateString('en-GB')} – {new Date(r.period_end).toLocaleDateString('en-GB')}
                     </td>
@@ -577,15 +715,25 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                       </span>
                     </td>
                     <td className="px-6 py-3 text-right">
-                      {can.manageEngagements && r.status === 'draft' && (
-                        <button
-                          onClick={() => handleMarkFiled(r)}
-                          disabled={markingFiledId === r.id}
-                          className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
-                        >
-                          {markingFiledId === r.id ? 'Marking...' : 'Mark as Filed'}
-                        </button>
-                      )}
+                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                        {can.manageEngagements && r.status === 'draft' && (
+                          <button
+                            onClick={() => openEditReturn(r)}
+                            className="text-xs bg-white border border-gray-200 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 transition"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {can.manageEngagements && r.status === 'draft' && (
+                          <button
+                            onClick={() => handleMarkFiled(r)}
+                            disabled={markingFiledId === r.id}
+                            className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                          >
+                            {markingFiledId === r.id ? 'Marking...' : 'Mark as Filed'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
