@@ -7,6 +7,15 @@ import { detectIndustry } from '@/lib/industryDetection'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { FlatRateGoodsCategory, GOODS_CATEGORY_LABELS, GOODS_CATEGORY_OPTIONS } from '@/lib/limitedCostTrader'
 
+const GOODS_CATEGORY_SHORT_LABELS: Record<string, string> = {
+  qualifying_good: 'LCT: Qualifying good',
+  excluded_capital: 'LCT: Excluded (capital)',
+  excluded_food_drink: 'LCT: Excluded (food/drink)',
+  excluded_vehicle_fuel: 'LCT: Excluded (vehicle/fuel)',
+  excluded_digital: 'LCT: Excluded (digital)',
+  service: 'LCT: Service (excluded)',
+}
+
 const ACCOUNT_TYPE_GROUPS = [
   {
     group: 'Assets',
@@ -259,6 +268,7 @@ const INDUSTRY_TEMPLATES: Record<string, { label: string; description: string; v
 export default function ChartOfAccounts({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [seededTemplateKey, setSeededTemplateKey] = useState<string | null>(null)
+  const [vatScheme, setVatScheme] = useState<string | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [missingAccounts, setMissingAccounts] = useState<any[] | null>(null)
   const [applyingUpdates, setApplyingUpdates] = useState(false)
@@ -308,6 +318,13 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
       .eq('id', clientId)
       .single()
     if (clientData) setSeededTemplateKey(clientData.chart_of_accounts_template)
+
+    const { data: vatSettingsData } = await supabase
+      .from('vat_settings')
+      .select('scheme')
+      .eq('client_id', clientId)
+      .maybeSingle()
+    setVatScheme(vatSettingsData?.scheme || null)
 
     setLoading(false)
   }
@@ -375,6 +392,12 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
 
   function isExpenseType(type: string) {
     return TYPE_TO_CATEGORY[type] === 'expense'
+  }
+
+  function isDuplicateCode(candidateCode: string) {
+    const trimmed = candidateCode.trim().toLowerCase()
+    if (!trimmed) return false
+    return accounts.some((a) => a.id !== editingId && a.code.trim().toLowerCase() === trimmed)
   }
 
   async function handleSuggestGoodsCategory() {
@@ -454,6 +477,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
 
   function handleSaveClick() {
     if (!code || !name) { setError('Code and name are required'); return }
+    if (isDuplicateCode(code)) { setError(`Account code "${code}" is already in use — codes must be unique`); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); return }
     if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !isIntendedGroup && !vatRateId) {
       setError('A VAT rate is required for this account, since it can be posted to directly')
@@ -471,6 +495,7 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
     setSaving(true)
     setError('')
     if (!code || !name) { setError('Code and name are required'); setSaving(false); return }
+    if (isDuplicateCode(code)) { setError(`Account code "${code}" is already in use — codes must be unique`); setSaving(false); return }
     if (editingId && parentId === editingId) { setError('An account cannot be its own parent'); setSaving(false); return }
     if (isVatRelevantType(accountType) && isLeafAccount(editingId) && !isIntendedGroup && !vatRateId) {
       setError('A VAT rate is required for this account, since it can be posted to directly')
@@ -940,6 +965,9 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Code</label>
               <input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder="4000" className={inputClass} />
+              {isDuplicateCode(code) && (
+                <p className="text-xs text-red-600 mt-1">Code "{code}" is already used by another account</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
@@ -1104,6 +1132,11 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                             <span className="block text-xs font-normal text-gray-400">Group account</span>
                           )
                         )}
+                        {vatScheme === 'flat_rate' && isExpenseType(parent.account_type) && isLeafAccount(parent.id) && (
+                          <span className={`block text-xs font-normal ${parent.flat_rate_goods_category === 'qualifying_good' ? 'text-green-600' : 'text-gray-400'}`}>
+                            {GOODS_CATEGORY_SHORT_LABELS[parent.flat_rate_goods_category || 'service']}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-3">
                         <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${TYPE_STYLES[TYPE_TO_CATEGORY[parent.account_type] || parent.account_type] || TYPE_STYLES.expense}`}>
@@ -1151,6 +1184,11 @@ export default function ChartOfAccounts({ clientId }: { clientId: string }) {
                             ) : (
                               <span className="block text-xs font-normal text-gray-400">Group account</span>
                             )
+                          )}
+                          {vatScheme === 'flat_rate' && isExpenseType(child.account_type) && isLeafAccount(child.id) && (
+                            <span className={`block text-xs font-normal ${child.flat_rate_goods_category === 'qualifying_good' ? 'text-green-600' : 'text-gray-400'}`}>
+                              {GOODS_CATEGORY_SHORT_LABELS[child.flat_rate_goods_category || 'service']}
+                            </span>
                           )}
                         </td>
                         <td className="px-6 py-3">
