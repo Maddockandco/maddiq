@@ -3,46 +3,25 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
-import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, getVatReturnDetail, VatReturnResult, VatReturnDetail } from '@/lib/vatReturn'
-import { evaluateCorrectionsForReturn, resolvePendingCorrections, CorrectionEvaluation } from '@/lib/vatErrorCorrection'
+import { evaluateCorrectionsForReturn, CorrectionEvaluation } from '@/lib/vatErrorCorrection'
 import { collectClientFraudPreventionData } from '@/lib/hmrcFraudPreventionClient'
-
-const STAGGER_MONTHS: Record<number, number[]> = {
-  1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
-  2: [1, 4, 7, 10], // Feb, May, Aug, Nov
-  3: [0, 3, 6, 9],  // Jan, Apr, Jul, Oct
-}
-
-function formatDate(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-}
-
-function lastDayOfMonth(year: number, month: number): string {
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  return formatDate(year, month, daysInMonth)
-}
-
-function firstDayOfMonth(year: number, month: number): string {
-  return formatDate(year, month, 1)
-}
 
 export default function VatReturn({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const { can } = useRole()
 
-  const [returns, setReturns] = useState<any[]>([])
+  const [filedReturns, setFiledReturns] = useState<any[]>([])
   const [hmrcConnected, setHmrcConnected] = useState(false)
   const [obligations, setObligations] = useState<any[] | null>(null)
   const [loadingObligations, setLoadingObligations] = useState(false)
   const [obligationsError, setObligationsError] = useState('')
-  const [periodSource, setPeriodSource] = useState<'hmrc' | 'estimated' | null>(null)
   const [settings, setSettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [calculating, setCalculating] = useState(false)
-  const [periodStart, setPeriodStart] = useState('')
-  const [periodEnd, setPeriodEnd] = useState('')
+
+  // The obligation currently being prepared (live calculation, not yet submitted)
+  const [preparing, setPreparing] = useState<any | null>(null)
   const [result, setResult] = useState<VatReturnResult | null>(null)
   const [calculatingResult, setCalculatingResult] = useState(false)
   const [calcTab, setCalcTab] = useState<'return' | 'details'>('return')
@@ -51,14 +30,13 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [box2, setBox2] = useState('0')
   const [box8, setBox8] = useState('0')
   const [box9, setBox9] = useState('0')
-  const [correctionEval, setCorrectionEval] = useState<CorrectionEvaluation | null>(null)
   const [notes, setNotes] = useState('')
+  const [correctionEval, setCorrectionEval] = useState<CorrectionEvaluation | null>(null)
   const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [markingFiledId, setMarkingFiledId] = useState<string | null>(null)
-  const [editingReturnId, setEditingReturnId] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
+  // A previously filed return, opened read-only
   const [viewingReturn, setViewingReturn] = useState<any | null>(null)
   const [viewTab, setViewTab] = useState<'return' | 'details'>('return')
   const [viewDetail, setViewDetail] = useState<VatReturnDetail | null>(null)
@@ -73,17 +51,17 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   }, [hmrcConnected])
 
   useEffect(() => {
-    if (periodStart && periodEnd) fetchLiveCalculation()
-  }, [periodStart, periodEnd])
+    if (preparing) fetchLiveCalculation()
+  }, [preparing])
 
   async function fetchAll() {
     setLoading(true)
     const [returnsRes, settingsRes, connectionRes] = await Promise.all([
-      supabase.from('vat_returns').select('*').eq('client_id', clientId).order('period_end', { ascending: false }),
+      supabase.from('vat_returns').select('*').eq('client_id', clientId).eq('status', 'filed').order('period_end', { ascending: false }),
       supabase.from('vat_settings').select('*').eq('client_id', clientId).maybeSingle(),
       supabase.from('hmrc_connections').select('status').eq('client_id', clientId).eq('status', 'active').maybeSingle(),
     ])
-    setReturns(returnsRes.data || [])
+    setFiledReturns(returnsRes.data || [])
     setSettings(settingsRes.data || null)
     setHmrcConnected(!!connectionRes.data)
     setLoading(false)
@@ -111,19 +89,21 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   }
 
   async function fetchLiveCalculation() {
+    if (!preparing) return
     setCalculatingResult(true)
     setDetail(null)
+    setCalcTab('return')
     let calc: VatReturnResult
     if (settings?.scheme === 'cash_accounting') {
-      calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd)
+      calc = await calculateVatReturnCashBasis(clientId, preparing.start, preparing.end)
     } else if (settings?.scheme === 'flat_rate') {
-      calc = await calculateVatReturnFlatRate(clientId, periodStart, periodEnd, {
+      calc = await calculateVatReturnFlatRate(clientId, preparing.start, preparing.end, {
         sector: settings?.flat_rate_sector || null,
         registrationDate: settings?.registration_date || null,
         lctOverride: settings?.lct_override || 'auto',
       })
     } else {
-      calc = await calculateVatReturn(clientId, periodStart, periodEnd)
+      calc = await calculateVatReturn(clientId, preparing.start, preparing.end)
     }
     setResult(calc)
     const evaluation = await evaluateCorrectionsForReturn(clientId, calc.box6TotalSalesExVat)
@@ -133,74 +113,15 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   async function handleViewDetails() {
     setCalcTab('details')
-    if (detail) return // already fetched for this period - no need to refetch on every tab click
+    if (detail || !preparing) return
     setLoadingDetail(true)
-    const d = await getVatReturnDetail(clientId, periodStart, periodEnd, settings?.scheme || 'standard')
+    const d = await getVatReturnDetail(clientId, preparing.start, preparing.end, settings?.scheme || 'standard')
     setDetail(d)
     setLoadingDetail(false)
   }
 
-  function suggestNextPeriod(): { start: string; end: string } | null {
-    if (!settings) return null
-    const lastReturn = returns[0]
-
-    if (!lastReturn) {
-      // First-ever return: HMRC requires the period to start on the actual
-      // registration date, not the 1st of that month - the first period is
-      // often a "long" or "short" stub running to the next normal
-      // quarter/month end, not a full clean period.
-      if (!settings.registration_date) return null
-      const regDate = new Date(settings.registration_date)
-
-      if (settings.filing_frequency === 'monthly') {
-        return { start: settings.registration_date, end: lastDayOfMonth(regDate.getFullYear(), regDate.getMonth()) }
-      }
-
-      if (settings.filing_frequency === 'quarterly' && settings.stagger_group) {
-        const staggerMonths = STAGGER_MONTHS[settings.stagger_group]
-        let endYear = regDate.getFullYear()
-        let endMonth = staggerMonths.find((m) => m >= regDate.getMonth())
-        if (endMonth === undefined) { endMonth = staggerMonths[0]; endYear += 1 }
-        return { start: settings.registration_date, end: lastDayOfMonth(endYear, endMonth) }
-      }
-
-      return null
-    }
-
-    // Subsequent returns always start the day after the prior period ended -
-    // i.e. the first day of the following month, contiguous with the last filing.
-    const priorEnd = new Date(lastReturn.period_end)
-    let nextMonth = priorEnd.getMonth() + 1
-    let nextYear = priorEnd.getFullYear()
-    if (nextMonth > 11) { nextMonth = 0; nextYear += 1 }
-
-    if (settings.filing_frequency === 'monthly') {
-      return { start: firstDayOfMonth(nextYear, nextMonth), end: lastDayOfMonth(nextYear, nextMonth) }
-    }
-
-    if (settings.filing_frequency === 'quarterly' && settings.stagger_group) {
-      let endMonth = nextMonth + 2
-      let endYear = nextYear
-      if (endMonth > 11) { endMonth -= 12; endYear += 1 }
-      return { start: firstDayOfMonth(nextYear, nextMonth), end: lastDayOfMonth(endYear, endMonth) }
-    }
-
-    return null
-  }
-
-  function getHmrcSuggestedPeriod(): { start: string; end: string } | null {
-    if (!hmrcConnected || !obligations || obligations.length === 0) return null
-    const sorted = [...obligations].sort((a, b) => new Date(a.due).getTime() - new Date(b.due).getTime())
-    return { start: sorted[0].start, end: sorted[0].end }
-  }
-
-  function openCalculator() {
-    const hmrcSuggested = getHmrcSuggestedPeriod()
-    const suggested = hmrcSuggested || suggestNextPeriod()
-    setEditingReturnId(null)
-    setPeriodStart(suggested?.start || '')
-    setPeriodEnd(suggested?.end || '')
-    setPeriodSource(hmrcSuggested ? 'hmrc' : 'estimated')
+  function openPrepare(obligation: any) {
+    setPreparing(obligation)
     setResult(null)
     setCorrectionEval(null)
     setBox2('0')
@@ -208,33 +129,9 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setBox9('0')
     setNotes('')
     setError('')
-    setCalcTab('return')
-    setDetail(null)
-    setCalculating(true)
-  }
-
-  function openEditReturn(r: any) {
-    setViewingReturn(null)
-    setEditingReturnId(r.id)
-    setResult(null)
-    setCorrectionEval(null)
-    setPeriodSource(null)
-    setBox2(String(r.box2_vat_on_eu_acquisitions ?? 0))
-    setBox8(String(r.box8_eu_goods_supplied ?? 0))
-    setBox9(String(r.box9_eu_goods_acquired ?? 0))
-    setNotes(r.notes || '')
-    setError('')
-    setCalcTab('return')
-    setDetail(null)
-    setCalculating(true)
-    // periodStart/periodEnd set last so the useEffect fires the recalculation
-    // against CURRENT transaction data, not whatever was true when first saved
-    setPeriodStart(r.period_start)
-    setPeriodEnd(r.period_end)
   }
 
   async function openViewReturn(r: any) {
-    setCalculating(false)
     setViewingReturn(r)
     setViewTab('return')
     setViewDetail(null)
@@ -244,122 +141,44 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setViewTab('details')
     if (viewDetail || !viewingReturn) return
     setLoadingViewDetail(true)
-    const d = await getVatReturnDetail(clientId, viewingReturn.period_start, viewingReturn.period_end, settings?.scheme || 'standard')
+    const d = await getVatReturnDetail(clientId, viewingReturn.period_start, viewingReturn.period_end, viewingReturn.scheme_at_filing || 'standard')
     setViewDetail(d)
     setLoadingViewDetail(false)
   }
 
-  function handleSaveClick() {
-    if (!periodStart || !periodEnd) { setError('Enter the VAT period dates'); return }
-    if (!result) { setError('Waiting for the calculation to finish'); return }
-    setShowConfirm(true)
-  }
-
-  async function handleSave() {
-    if (!result) return
-    setSaving(true)
+  async function handleSubmitToHmrc() {
+    if (!preparing || !result) return
+    setSubmitting(true)
     setError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const fraudPreventionData = await collectClientFraudPreventionData()
+      const res = await fetch('/api/hmrc/submit-return', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          clientId,
+          periodStart: preparing.start,
+          periodEnd: preparing.end,
+          obligationPeriodKey: preparing.periodKey,
+          fraudPreventionData,
+          notes: notes || null,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Submission failed')
 
-    const correctionsApplied = correctionEval?.withinThreshold ?? false
-    const box1Adj = correctionsApplied ? correctionEval!.box1Adjustment : 0
-    const box4Adj = correctionsApplied ? correctionEval!.box4Adjustment : 0
-
-    const box1Total = result.box1VatOnSales + box1Adj
-    const box4Total = result.box4VatReclaimed + box4Adj
-    const box2Val = parseFloat(box2) || 0
-    const box3 = box1Total + box2Val
-    const box5 = box3 - box4Total
-
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: firmUser } = await supabase.from('firm_users').select('firm_id, id').eq('user_id', user!.id).single()
-    if (!firmUser) { setError('Could not find your firm'); setSaving(false); setShowConfirm(false); return }
-
-    const payload = {
-      firm_id: firmUser.firm_id,
-      client_id: clientId,
-      period_start: periodStart,
-      period_end: periodEnd,
-      box1_vat_on_sales: box1Total,
-      box2_vat_on_eu_acquisitions: box2Val,
-      box3_total_vat_due: box3,
-      box4_vat_reclaimed: box4Total,
-      box5_net_vat: box5,
-      box6_total_sales_ex_vat: result.box6TotalSalesExVat,
-      box7_total_purchases_ex_vat: result.box7TotalPurchasesExVat,
-      box8_eu_goods_supplied: parseFloat(box8) || 0,
-      box9_eu_goods_acquired: parseFloat(box9) || 0,
-      notes: notes || null,
+      setShowSubmitConfirm(false)
+      setPreparing(null)
+      setResult(null)
+      await fetchAll()
+      await handleFetchObligations()
+    } catch (err: any) {
+      setError(err.message)
+      setShowSubmitConfirm(false)
+    } finally {
+      setSubmitting(false)
     }
-
-    let saved: any, saveError: any
-
-    if (editingReturnId) {
-      // Re-editing a draft: release any corrections that were tied to this
-      // return on a previous save, so they get freshly re-evaluated against
-      // the new calculation rather than double-counted or left stale.
-      await supabase
-        .from('vat_error_corrections')
-        .update({ status: 'pending', applied_to_return_id: null, applied_date: null, threshold_at_evaluation: null, net_position_at_evaluation: null })
-        .eq('applied_to_return_id', editingReturnId)
-
-      const { data, error: updateError } = await supabase
-        .from('vat_returns')
-        .update(payload)
-        .eq('id', editingReturnId)
-        .select()
-        .single()
-      saved = data
-      saveError = updateError
-    } else {
-      const { data, error: insertError } = await supabase
-        .from('vat_returns')
-        .insert({ ...payload, status: 'draft', created_by: user!.id })
-        .select()
-        .single()
-      saved = data
-      saveError = insertError
-    }
-
-    if (saveError) { setError(saveError.message); setSaving(false); setShowConfirm(false); return }
-
-    await supabase.rpc('log_accounting_audit', {
-      p_client_id: clientId,
-      p_entity_type: 'vat_return',
-      p_entity_id: saved.id,
-      p_action: editingReturnId ? 'updated' : 'created',
-      p_old_data: null,
-      p_new_data: saved,
-      p_description: `VAT Return for period ${periodStart} to ${periodEnd} — net ${box5 >= 0 ? 'payable' : 'reclaimable'} £${Math.abs(box5).toFixed(2)}`,
-    })
-
-    if (correctionEval && correctionEval.netPosition.corrections.length > 0) {
-      await resolvePendingCorrections(clientId, saved.id, correctionEval)
-    }
-
-    setShowConfirm(false)
-    setCalculating(false)
-    setEditingReturnId(null)
-    setSaving(false)
-    fetchAll()
-  }
-
-  async function handleMarkFiled(vatReturn: any) {
-    setMarkingFiledId(vatReturn.id)
-    const filedDate = new Date().toISOString().split('T')[0]
-    await supabase.from('vat_returns').update({ status: 'filed', filed_date: filedDate }).eq('id', vatReturn.id)
-
-    await supabase.rpc('log_accounting_audit', {
-      p_client_id: clientId,
-      p_entity_type: 'vat_return',
-      p_entity_id: vatReturn.id,
-      p_action: 'filed',
-      p_old_data: { status: 'draft' },
-      p_new_data: { status: 'filed', filed_date: filedDate },
-      p_description: `Marked VAT Return as filed for period ${vatReturn.period_start} to ${vatReturn.period_end}`,
-    })
-
-    setMarkingFiledId(null)
-    fetchAll()
   }
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
@@ -370,6 +189,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const box1Display = result ? result.box1VatOnSales + box1Adj : 0
   const box4Display = result ? result.box4VatReclaimed + box4Adj : 0
   const netVat = result ? box1Display + box2Val - box4Display : 0
+  const canSubmit = !!result && (!correctionEval || correctionEval.withinThreshold)
 
   function formBox(number: number, label: string, value: string, options?: { editable?: boolean; onChange?: (v: string) => void; bold?: boolean }) {
     return (
@@ -496,91 +316,89 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     )
   }
 
+  if (loading) return <p className="text-sm text-gray-400">Loading...</p>
+
+  if (!hmrcConnected) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-2">
+        <p className="text-sm font-semibold text-brand-dark">Not connected to HMRC</p>
+        <p className="text-sm text-gray-400">Connect this client to HMRC in VAT Setup to see obligations and file returns.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {hmrcConnected && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-brand-dark">HMRC Obligations</p>
-              <p className="text-xs text-gray-400 mt-0.5">What HMRC's own records say is due for this client</p>
-            </div>
-            <button
-              onClick={handleFetchObligations}
-              disabled={loadingObligations}
-              className="bg-white border border-gray-200 text-brand-dark font-semibold px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition disabled:opacity-50"
-            >
-              {loadingObligations ? 'Fetching...' : 'Refresh from HMRC'}
-            </button>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-brand-dark">HMRC Obligations</p>
+            <p className="text-xs text-gray-400 mt-0.5">What HMRC's own records say is due for this client</p>
           </div>
-
-          {obligationsError && (
-            <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mt-3">{obligationsError}</div>
-          )}
-
-          {obligations && (
-            obligations.length === 0 ? (
-              <p className="text-sm text-gray-400 mt-3">No open obligations — HMRC shows this client up to date.</p>
-            ) : (
-              <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Period</th>
-                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Due Date</th>
-                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {obligations.map((o, i) => (
-                      <tr key={i} className="border-t border-gray-100">
-                        <td className="px-4 py-2 text-brand-dark">
-                          {new Date(o.start).toLocaleDateString('en-GB')} – {new Date(o.end).toLocaleDateString('en-GB')}
-                        </td>
-                        <td className="px-4 py-2 text-brand-dark">{new Date(o.due).toLocaleDateString('en-GB')}</td>
-                        <td className="px-4 py-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${o.status === 'O' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                            {o.status === 'O' ? 'Open' : 'Fulfilled'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">VAT Returns</h3>
-        {can.manageEngagements && !calculating && (
-          <button onClick={openCalculator} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-            + New VAT Return
+          <button
+            onClick={handleFetchObligations}
+            disabled={loadingObligations}
+            className="bg-white border border-gray-200 text-brand-dark font-semibold px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition disabled:opacity-50"
+          >
+            {loadingObligations ? 'Fetching...' : 'Refresh from HMRC'}
           </button>
+        </div>
+
+        {obligationsError && (
+          <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mt-3">{obligationsError}</div>
+        )}
+
+        {obligations && (
+          obligations.length === 0 ? (
+            <p className="text-sm text-gray-400 mt-3">No open obligations — HMRC shows this client up to date.</p>
+          ) : (
+            <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Period</th>
+                    <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Due Date</th>
+                    <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {obligations.map((o, i) => (
+                    <tr
+                      key={i}
+                      onClick={() => o.status === 'O' && can.manageEngagements && openPrepare(o)}
+                      className={`border-t border-gray-100 ${o.status === 'O' ? 'cursor-pointer hover:bg-brand-light/40' : ''}`}
+                    >
+                      <td className="px-4 py-2 text-brand-dark">
+                        {new Date(o.start).toLocaleDateString('en-GB')} – {new Date(o.end).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-4 py-2 text-brand-dark">{new Date(o.due).toLocaleDateString('en-GB')}</td>
+                      <td className="px-4 py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${o.status === 'O' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                          {o.status === 'O' ? 'Open' : 'Fulfilled'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {o.status === 'O' && can.manageEngagements && (
+                          <span className="text-xs text-brand-dark font-semibold">Prepare return →</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 
-      {!settings && !loading && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <p className="text-sm text-amber-700">No VAT Setup found for this client yet — set up their VAT scheme and filing frequency first so periods can be suggested automatically.</p>
-        </div>
-      )}
-
-      <div className="bg-amber-50 rounded-xl p-4">
-        <p className="text-xs text-amber-700">
-          Calculated on a standard (accrual) VAT accounting basis, using invoice/bill dates. Boxes 2, 8, and 9 relate to Northern Ireland EU goods movements and are left for manual entry. Reverse charge lines are flagged for manual review, not automated. Not yet connected to HMRC for filing — that's a separate, upcoming piece.
-        </p>
-      </div>
-
-      {calculating && (
+      {preparing && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="bg-brand-dark px-6 py-4 flex items-center justify-between">
             <div>
-              <p className="text-white/60 text-xs uppercase tracking-wider">{editingReturnId ? 'Editing Draft VAT Return' : 'VAT Return'}</p>
+              <p className="text-white/60 text-xs uppercase tracking-wider">Preparing VAT Return</p>
               <h3 className="text-white text-lg font-semibold">
-                {periodStart && periodEnd ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}` : 'New Period'}
+                {new Date(preparing.start).toLocaleDateString('en-GB')} – {new Date(preparing.end).toLocaleDateString('en-GB')}
               </h3>
             </div>
             <span className="text-xs px-3 py-1.5 rounded-full font-medium bg-white/10 text-white capitalize">
@@ -591,85 +409,61 @@ export default function VatReturn({ clientId }: { clientId: string }) {
           <div className="p-6 space-y-4">
             {error && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Period Start</label>
-                <DatePicker value={periodStart} onChange={setPeriodStart} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Period End</label>
-                <DatePicker value={periodEnd} onChange={setPeriodEnd} />
-              </div>
-            </div>
-            {periodSource === 'hmrc' && (
-              <p className="text-xs text-green-600">Period pulled directly from HMRC's own obligations for this client.</p>
-            )}
-            {periodSource === 'estimated' && (
-              <p className="text-xs text-gray-400">Estimated period — connect to HMRC in VAT Setup for the actual obligation dates.</p>
-            )}
+            <p className="text-xs text-gray-400">
+              Period fixed by HMRC's obligation — due {new Date(preparing.due).toLocaleDateString('en-GB')}.
+            </p>
 
             {calculatingResult && <p className="text-xs text-gray-400">Calculating from invoices and bills for this period...</p>}
 
-            {result && !calculatingResult && (
+            {settings?.scheme === 'flat_rate' && result && 'appliedPercentage' in result && (
+              <div className="bg-brand-light rounded-xl p-4 text-sm text-brand-dark space-y-1">
+                <p>
+                  Rate applied this period: <span className="font-bold">{(result as any).appliedPercentage}%</span>
+                  {' — '}
+                  {(result as any).isLimitedCostTrader ? 'Limited Cost Trader rate (automatic)' : 'sector rate (automatic)'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Qualifying goods spend this period: £{(result as any).lctDetail.qualifyingGoodsSpend.toFixed(2)} vs threshold £{(result as any).lctDetail.threshold.toFixed(2)}
+                </p>
+              </div>
+            )}
+
+            {correctionEval && (
+              correctionEval.withinThreshold ? (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800 space-y-1">
+                  <p>
+                    {correctionEval.netPosition.corrections.length} pending error correction{correctionEval.netPosition.corrections.length !== 1 ? 's' : ''} will be folded into Box {box1Adj !== 0 ? '1' : ''}{box1Adj !== 0 && box4Adj !== 0 ? ' / ' : ''}{box4Adj !== 0 ? '4' : ''} on submission.
+                  </p>
+                  <p className="text-xs text-green-700">
+                    Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs disclosure threshold £{correctionEval.threshold.toFixed(2)} for this period — within limit.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">
+                  <p className="font-semibold">Pending error corrections exceed the disclosure threshold — cannot submit yet.</p>
+                  <p className="text-xs">
+                    Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs threshold £{correctionEval.threshold.toFixed(2)}. Resolve or cancel them in Error Corrections, or report separately via VAT652, before submitting this return.
+                  </p>
+                </div>
+              )
+            )}
+
+            {result && (
               <>
                 <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                  <button
-                    onClick={() => setCalcTab('return')}
-                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
-                  >
-                    View Return
+                  <button onClick={() => setCalcTab('return')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                    Return
                   </button>
-                  <button
-                    onClick={handleViewDetails}
-                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
-                  >
-                    View Details
+                  <button onClick={handleViewDetails} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${calcTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
+                    Transaction Detail
                   </button>
                 </div>
-
-                {settings?.scheme === 'flat_rate' && 'appliedPercentage' in result && (
-                  <div className="bg-brand-light rounded-xl p-4 text-sm text-brand-dark space-y-1">
-                    <p>
-                      Rate applied this period: <span className="font-bold">{(result as any).appliedPercentage}%</span>
-                      {' — '}
-                      {(result as any).isLimitedCostTrader ? 'Limited Cost Trader rate (automatic)' : 'sector rate (automatic)'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Qualifying goods spend this period: £{(result as any).lctDetail.qualifyingGoodsSpend.toFixed(2)} vs threshold £{(result as any).lctDetail.threshold.toFixed(2)}
-                      {settings?.lct_override && settings.lct_override !== 'auto' && ' — manually overridden in VAT Setup'}
-                    </p>
-                  </div>
-                )}
-
-                {correctionEval && (
-                  correctionEval.withinThreshold ? (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800 space-y-1">
-                      <p>
-                        {correctionEval.netPosition.corrections.length} pending error correction{correctionEval.netPosition.corrections.length !== 1 ? 's' : ''} folded into Box {box1Adj !== 0 ? '1' : ''}{box1Adj !== 0 && box4Adj !== 0 ? ' / ' : ''}{box4Adj !== 0 ? '4' : ''} above.
-                      </p>
-                      <p className="text-xs text-green-700">
-                        Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs disclosure threshold £{correctionEval.threshold.toFixed(2)} for this period — within limit, no separate HMRC notification required.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">
-                      <p className="font-semibold">
-                        Pending error corrections exceed the disclosure threshold — NOT included in this return.
-                      </p>
-                      <p className="text-xs">
-                        Net £{correctionEval.netPosition.netAmountAbs.toFixed(2)} vs threshold £{correctionEval.threshold.toFixed(2)} for this period. These must be reported to HMRC separately (form VAT652) rather than adjusted here — see the Error Corrections tab.
-                      </p>
-                    </div>
-                  )
-                )}
 
                 {calcTab === 'return' && (
                   <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
                     {result.reverseChargeLinesFound > 0 && (
-                      <div className="bg-amber-100 px-5 py-2.5">
-                        <p className="text-xs text-amber-800">
-                          ⚠ {result.reverseChargeLinesFound} line(s) this period use a reverse charge VAT code — review manually before filing.
-                        </p>
+                      <div className="bg-amber-50 px-5 py-3 text-xs text-amber-700">
+                        {result.reverseChargeLinesFound} reverse charge line(s) found in this period — review manually, not yet automated.
                       </div>
                     )}
                     {formBox(1, 'VAT due on sales and other outputs', box1Display.toFixed(2))}
@@ -693,15 +487,19 @@ export default function VatReturn({ clientId }: { clientId: string }) {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Notes (internal only, not sent to HMRC)</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
             </div>
 
             <div className="flex gap-3">
-              <button onClick={handleSaveClick} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-                {editingReturnId ? 'Update Draft' : 'Save VAT Return'}
+              <button
+                onClick={() => setShowSubmitConfirm(true)}
+                disabled={!canSubmit}
+                className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition disabled:opacity-40"
+              >
+                Submit to HMRC
               </button>
-              <button onClick={() => { setCalculating(false); setEditingReturnId(null) }} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
+              <button onClick={() => setPreparing(null)} className="bg-gray-100 text-gray-600 font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition">
                 Cancel
               </button>
             </div>
@@ -713,7 +511,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="bg-brand-dark px-6 py-4 flex items-center justify-between">
             <div>
-              <p className="text-white/60 text-xs uppercase tracking-wider capitalize">{viewingReturn.status} VAT Return</p>
+              <p className="text-white/60 text-xs uppercase tracking-wider">Filed VAT Return</p>
               <h3 className="text-white text-lg font-semibold">
                 {new Date(viewingReturn.period_start).toLocaleDateString('en-GB')} – {new Date(viewingReturn.period_end).toLocaleDateString('en-GB')}
               </h3>
@@ -722,17 +520,18 @@ export default function VatReturn({ clientId }: { clientId: string }) {
           </div>
 
           <div className="p-6 space-y-4">
+            {viewingReturn.hmrc_form_bundle_number && (
+              <p className="text-xs text-gray-400">
+                HMRC bundle reference: <span className="font-mono text-brand-dark">{viewingReturn.hmrc_form_bundle_number}</span>
+                {' · '}Processed {new Date(viewingReturn.hmrc_processing_date).toLocaleString('en-GB')}
+              </p>
+            )}
+
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-              <button
-                onClick={() => setViewTab('return')}
-                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={() => setViewTab('return')} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'return' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
                 View Return
               </button>
-              <button
-                onClick={handleViewDetailsTab}
-                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={handleViewDetailsTab} className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewTab === 'details' ? 'bg-white text-brand-dark shadow-sm' : 'text-gray-500'}`}>
                 View Details
               </button>
             </div>
@@ -744,7 +543,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                 {formBox(3, 'Total VAT due (Box 1 + Box 2)', parseFloat(viewingReturn.box3_total_vat_due).toFixed(2), { bold: true })}
                 {formBox(4, 'VAT reclaimed on purchases', parseFloat(viewingReturn.box4_vat_reclaimed).toFixed(2))}
                 {formBox(5, `Net VAT ${parseFloat(viewingReturn.box5_net_vat) >= 0 ? 'to pay' : 'to reclaim'}`, Math.abs(parseFloat(viewingReturn.box5_net_vat)).toFixed(2), { bold: true })}
-                {formBox(6, settings?.scheme === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', parseFloat(viewingReturn.box6_total_sales_ex_vat).toFixed(2))}
+                {formBox(6, viewingReturn.scheme_at_filing === 'flat_rate' ? 'Total sales, INCLUDING VAT (Flat Rate uses gross turnover here)' : 'Total value of sales, excluding VAT', parseFloat(viewingReturn.box6_total_sales_ex_vat).toFixed(2))}
                 {formBox(7, 'Total value of purchases, excluding VAT', parseFloat(viewingReturn.box7_total_purchases_ex_vat).toFixed(2))}
                 {formBox(8, 'Total value of goods supplied to EU (NI only)', parseFloat(viewingReturn.box8_eu_goods_supplied).toFixed(2))}
                 {formBox(9, 'Total value of goods acquired from EU (NI only)', parseFloat(viewingReturn.box9_eu_goods_acquired).toFixed(2))}
@@ -763,90 +562,60 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                 <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-3">{viewingReturn.notes}</p>
               </div>
             )}
-
-            {viewingReturn.status === 'draft' && can.manageEngagements && (
-              <button onClick={() => openEditReturn(viewingReturn)} className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition">
-                Edit Draft
-              </button>
-            )}
           </div>
         </div>
       )}
 
       <ConfirmModal
-        isOpen={showConfirm}
-        title={editingReturnId ? 'Update this draft?' : 'Save this VAT Return?'}
-        message={result ? `Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}: £${Math.abs(netVat).toFixed(2)} for the period ${periodStart} to ${periodEnd}.` : ''}
-        confirmLabel={editingReturnId ? 'Update Draft' : 'Save VAT Return'}
-        confirming={saving}
-        onConfirm={handleSave}
-        onCancel={() => setShowConfirm(false)}
+        isOpen={showSubmitConfirm}
+        title="Submit this VAT Return to HMRC?"
+        message={result ? `This is a real, final submission to HMRC's sandbox service. Net VAT ${netVat >= 0 ? 'to pay' : 'to reclaim'}: £${Math.abs(netVat).toFixed(2)} for ${preparing ? new Date(preparing.start).toLocaleDateString('en-GB') : ''} to ${preparing ? new Date(preparing.end).toLocaleDateString('en-GB') : ''}. Once accepted, this cannot be edited — only corrected in a future return.` : ''}
+        confirmLabel={submitting ? 'Submitting...' : 'Submit to HMRC'}
+        confirming={submitting}
+        danger
+        onConfirm={handleSubmitToHmrc}
+        onCancel={() => setShowSubmitConfirm(false)}
       />
 
-      {loading ? (
-        <p className="text-sm text-gray-400">Loading...</p>
-      ) : returns.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-          <p className="text-sm text-gray-400">No VAT Returns yet</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-brand-dark">
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Period</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Box 5 (Net VAT)</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {returns.map((r, i) => (
-                  <tr
-                    key={r.id}
-                    onClick={() => openViewReturn(r)}
-                    className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light/40 transition ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                  >
-                    <td className="px-6 py-3 text-sm text-brand-dark">
-                      {new Date(r.period_start).toLocaleDateString('en-GB')} – {new Date(r.period_end).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="px-6 py-3 text-sm font-semibold text-brand-dark">
-                      £{Math.abs(parseFloat(r.box5_net_vat)).toFixed(2)} {parseFloat(r.box5_net_vat) >= 0 ? 'to pay' : 'to reclaim'}
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium capitalize ${r.status === 'filed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
-                        {can.manageEngagements && r.status === 'draft' && (
-                          <button
-                            onClick={() => openEditReturn(r)}
-                            className="text-xs bg-white border border-gray-200 text-brand-dark font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 transition"
-                          >
-                            Edit
-                          </button>
-                        )}
-                        {can.manageEngagements && r.status === 'draft' && (
-                          <button
-                            onClick={() => handleMarkFiled(r)}
-                            disabled={markingFiledId === r.id}
-                            className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
-                          >
-                            {markingFiledId === r.id ? 'Marking...' : 'Mark as Filed'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div>
+        <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider mb-3">Filed Returns</h3>
+        {filedReturns.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+            <p className="text-sm text-gray-400">No VAT Returns filed yet</p>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-brand-dark">
+                    <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Period</th>
+                    <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Box 5 (Net VAT)</th>
+                    <th className="text-left px-6 py-3 text-xs font-semibold text-white uppercase tracking-wider">Filed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filedReturns.map((r, i) => (
+                    <tr
+                      key={r.id}
+                      onClick={() => openViewReturn(r)}
+                      className={`border-b border-gray-100 cursor-pointer hover:bg-brand-light/40 transition ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                    >
+                      <td className="px-6 py-3 text-sm text-brand-dark">
+                        {new Date(r.period_start).toLocaleDateString('en-GB')} – {new Date(r.period_end).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-6 py-3 text-sm font-semibold text-brand-dark">
+                        £{Math.abs(parseFloat(r.box5_net_vat)).toFixed(2)} {parseFloat(r.box5_net_vat) >= 0 ? 'to pay' : 'to reclaim'}
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-500">{new Date(r.filed_date).toLocaleDateString('en-GB')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
