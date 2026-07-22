@@ -61,18 +61,18 @@ export async function POST(req: NextRequest) {
     // Recalculate live, right at submission time - never trust a stale figure
     let calc: VatReturnResult & { appliedPercentage?: number }
     if (settings.scheme === 'cash_accounting') {
-      calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd)
+      calc = await calculateVatReturnCashBasis(clientId, periodStart, periodEnd, supabase)
     } else if (settings.scheme === 'flat_rate') {
       calc = await calculateVatReturnFlatRate(clientId, periodStart, periodEnd, {
         sector: settings.flat_rate_sector || null,
         registrationDate: settings.registration_date || null,
         lctOverride: settings.lct_override || 'auto',
-      })
+      }, supabase)
     } else {
-      calc = await calculateVatReturn(clientId, periodStart, periodEnd)
+      calc = await calculateVatReturn(clientId, periodStart, periodEnd, supabase)
     }
 
-    const evaluation = await evaluateCorrectionsForReturn(clientId, calc.box6TotalSalesExVat)
+    const evaluation = await evaluateCorrectionsForReturn(clientId, calc.box6TotalSalesExVat, supabase)
     const correctionsApplied = evaluation.netPosition.corrections.length > 0 && evaluation.withinThreshold
     const box1Total = calc.box1VatOnSales + (correctionsApplied ? evaluation.box1Adjustment : 0)
     const box4Total = calc.box4VatReclaimed + (correctionsApplied ? evaluation.box4Adjustment : 0)
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (correctionsApplied) {
-      await resolvePendingCorrections(clientId, saved.id, evaluation)
+      await resolvePendingCorrections(clientId, saved.id, evaluation, supabase)
     }
 
     await supabase.rpc('log_accounting_audit', {
