@@ -37,6 +37,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [obligations, setObligations] = useState<any[] | null>(null)
   const [loadingObligations, setLoadingObligations] = useState(false)
   const [obligationsError, setObligationsError] = useState('')
+  const [periodSource, setPeriodSource] = useState<'hmrc' | 'estimated' | null>(null)
   const [settings, setSettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [calculating, setCalculating] = useState(false)
@@ -64,6 +65,12 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const [loadingViewDetail, setLoadingViewDetail] = useState(false)
 
   useEffect(() => { fetchAll() }, [clientId])
+
+  useEffect(() => {
+    if (hmrcConnected && obligations === null && !loadingObligations) {
+      handleFetchObligations()
+    }
+  }, [hmrcConnected])
 
   useEffect(() => {
     if (periodStart && periodEnd) fetchLiveCalculation()
@@ -181,11 +188,19 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     return null
   }
 
+  function getHmrcSuggestedPeriod(): { start: string; end: string } | null {
+    if (!hmrcConnected || !obligations || obligations.length === 0) return null
+    const sorted = [...obligations].sort((a, b) => new Date(a.due).getTime() - new Date(b.due).getTime())
+    return { start: sorted[0].start, end: sorted[0].end }
+  }
+
   function openCalculator() {
-    const suggested = suggestNextPeriod()
+    const hmrcSuggested = getHmrcSuggestedPeriod()
+    const suggested = hmrcSuggested || suggestNextPeriod()
     setEditingReturnId(null)
     setPeriodStart(suggested?.start || '')
     setPeriodEnd(suggested?.end || '')
+    setPeriodSource(hmrcSuggested ? 'hmrc' : 'estimated')
     setResult(null)
     setCorrectionEval(null)
     setBox2('0')
@@ -203,6 +218,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
     setEditingReturnId(r.id)
     setResult(null)
     setCorrectionEval(null)
+    setPeriodSource(null)
     setBox2(String(r.box2_vat_on_eu_acquisitions ?? 0))
     setBox8(String(r.box8_eu_goods_supplied ?? 0))
     setBox9(String(r.box9_eu_goods_acquired ?? 0))
@@ -494,7 +510,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
               disabled={loadingObligations}
               className="bg-white border border-gray-200 text-brand-dark font-semibold px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition disabled:opacity-50"
             >
-              {loadingObligations ? 'Fetching...' : 'Fetch from HMRC'}
+              {loadingObligations ? 'Fetching...' : 'Refresh from HMRC'}
             </button>
           </div>
 
@@ -585,6 +601,12 @@ export default function VatReturn({ clientId }: { clientId: string }) {
                 <DatePicker value={periodEnd} onChange={setPeriodEnd} />
               </div>
             </div>
+            {periodSource === 'hmrc' && (
+              <p className="text-xs text-green-600">Period pulled directly from HMRC's own obligations for this client.</p>
+            )}
+            {periodSource === 'estimated' && (
+              <p className="text-xs text-gray-400">Estimated period — connect to HMRC in VAT Setup for the actual obligation dates.</p>
+            )}
 
             {calculatingResult && <p className="text-xs text-gray-400">Calculating from invoices and bills for this period...</p>}
 
