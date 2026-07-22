@@ -522,7 +522,7 @@ export default function VatReturn({ clientId }: { clientId: string }) {
           <div className="p-6 space-y-4">
             {viewingReturn.hmrc_form_bundle_number && (
               <p className="text-xs text-gray-400">
-                HMRC bundle reference: <span className="font-mono text-brand-dark">{viewingReturn.hmrc_form_bundle_number}</span>
+                Submission reference: <span className="font-mono text-brand-dark">{viewingReturn.hmrc_form_bundle_number}</span>
                 {' · '}Processed {new Date(viewingReturn.hmrc_processing_date).toLocaleString('en-GB')}
               </p>
             )}
