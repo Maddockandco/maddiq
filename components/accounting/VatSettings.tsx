@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
@@ -21,12 +22,18 @@ const LCT_OVERRIDE_OPTIONS: { value: string; label: string }[] = [
 export default function VatSettings({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const { can } = useRole()
+  const searchParams = useSearchParams()
 
   const [settings, setSettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+
+  const [hmrcConnection, setHmrcConnection] = useState<any>(null)
+  const [connectingHmrc, setConnectingHmrc] = useState(false)
+  const [hmrcError, setHmrcError] = useState(searchParams.get('hmrc_connect_error'))
+  const [hmrcJustConnected, setHmrcJustConnected] = useState(searchParams.get('hmrc_connected') === '1')
 
   const [vrn, setVrn] = useState('')
   const [registrationDate, setRegistrationDate] = useState('')
@@ -36,7 +43,31 @@ export default function VatSettings({ clientId }: { clientId: string }) {
   const [flatRateSector, setFlatRateSector] = useState('')
   const [lctOverride, setLctOverride] = useState('auto')
 
-  useEffect(() => { fetchSettings() }, [clientId])
+  useEffect(() => { fetchSettings(); fetchHmrcConnection() }, [clientId])
+
+  async function fetchHmrcConnection() {
+    const { data } = await supabase.from('hmrc_connections').select('*').eq('client_id', clientId).maybeSingle()
+    setHmrcConnection(data)
+  }
+
+  async function handleConnectHmrc() {
+    setConnectingHmrc(true)
+    setHmrcError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/hmrc/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ clientId }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Could not start HMRC connection')
+      window.location.href = body.url
+    } catch (err: any) {
+      setHmrcError(err.message)
+      setConnectingHmrc(false)
+    }
+  }
 
   async function fetchSettings() {
     setLoading(true)
@@ -118,6 +149,36 @@ export default function VatSettings({ clientId }: { clientId: string }) {
             <label className="block text-xs font-medium text-gray-500 mb-1">VAT Registration Date</label>
             <DatePicker value={registrationDate} onChange={setRegistrationDate} />
           </div>
+        </div>
+
+        {hmrcJustConnected && (
+          <div className="bg-green-50 text-green-700 text-sm rounded-lg px-4 py-3">Connected to HMRC (sandbox) successfully.</div>
+        )}
+        {hmrcError && (
+          <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">HMRC connection failed: {hmrcError}</div>
+        )}
+
+        <div className="border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-brand-dark">HMRC Making Tax Digital</p>
+            {hmrcConnection?.status === 'active' ? (
+              <p className="text-xs text-green-600 mt-0.5">
+                Connected — VRN {hmrcConnection.vrn}, connected {new Date(hmrcConnection.connected_at).toLocaleDateString('en-GB')}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-0.5">Not connected — required before returns can be submitted through HMRC's API</p>
+            )}
+          </div>
+          {can.manageEngagements && hmrcConnection?.status !== 'active' && (
+            <button
+              onClick={handleConnectHmrc}
+              disabled={connectingHmrc || !settings?.vat_registration_number}
+              className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-40"
+              title={!settings?.vat_registration_number ? 'Save a VAT Registration Number below first' : undefined}
+            >
+              {connectingHmrc ? 'Redirecting to HMRC...' : 'Connect to HMRC'}
+            </button>
+          )}
         </div>
 
         <div>
