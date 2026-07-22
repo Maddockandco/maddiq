@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import { FLAT_RATE_SECTORS, LIMITED_COST_TRADER_RATE } from '@/lib/flatRateSectors'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 const STAGGER_LABELS: Record<number, string> = {
   1: 'Stagger 1 — Mar / Jun / Sep / Dec quarter ends',
@@ -32,6 +33,8 @@ export default function VatSettings({ clientId }: { clientId: string }) {
 
   const [hmrcConnection, setHmrcConnection] = useState<any>(null)
   const [connectingHmrc, setConnectingHmrc] = useState(false)
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [hmrcError, setHmrcError] = useState(searchParams.get('hmrc_connect_error'))
   const [hmrcJustConnected, setHmrcJustConnected] = useState(searchParams.get('hmrc_connected') === '1')
 
@@ -67,6 +70,14 @@ export default function VatSettings({ clientId }: { clientId: string }) {
       setHmrcError(err.message)
       setConnectingHmrc(false)
     }
+  }
+
+  async function handleDisconnectHmrc() {
+    setDisconnecting(true)
+    await supabase.from('hmrc_connections').delete().eq('client_id', clientId)
+    setHmrcConnection(null)
+    setShowDisconnectConfirm(false)
+    setDisconnecting(false)
   }
 
   async function fetchSettings() {
@@ -179,6 +190,14 @@ export default function VatSettings({ clientId }: { clientId: string }) {
               {connectingHmrc ? 'Redirecting to HMRC...' : 'Connect to HMRC'}
             </button>
           )}
+          {can.manageEngagements && hmrcConnection?.status === 'active' && (
+            <button
+              onClick={() => setShowDisconnectConfirm(true)}
+              className="bg-white border border-gray-200 text-red-600 font-semibold px-4 py-2 rounded-lg text-sm hover:bg-red-50 transition"
+            >
+              Disconnect
+            </button>
+          )}
         </div>
 
         <div>
@@ -268,6 +287,17 @@ export default function VatSettings({ clientId }: { clientId: string }) {
           </button>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showDisconnectConfirm}
+        title="Disconnect from HMRC?"
+        message="This clears the stored connection for this client. You'll need to reconnect (and re-authorise) before you can fetch obligations or submit returns again."
+        confirmLabel={disconnecting ? 'Disconnecting...' : 'Disconnect'}
+        confirming={disconnecting}
+        danger
+        onConfirm={handleDisconnectHmrc}
+        onCancel={() => setShowDisconnectConfirm(false)}
+      />
     </div>
   )
 }
