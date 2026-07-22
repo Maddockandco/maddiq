@@ -195,16 +195,6 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
       return
     }
 
-    await supabase.rpc('log_accounting_audit', {
-      p_client_id: clientId,
-      p_entity_type: 'sales_invoice',
-      p_entity_id: invoiceId,
-      p_action: 'payment_recorded',
-      p_old_data: null,
-      p_new_data: { amount: amt, payment_method: paymentMethod, receipt_date: paymentDate, reference: paymentReference || null },
-      p_description: `Payment of £${amt.toFixed(2)} recorded (${paymentMethod.replace(/_/g, ' ')}${paymentReference ? `, ref ${paymentReference}` : ''})`,
-    })
-
     setShowPaymentForm(false)
     setPaymentSaving(false)
     fetchData()
@@ -270,16 +260,6 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
       setRemoving(false)
       return
     }
-
-    await supabase.rpc('log_accounting_audit', {
-      p_client_id: clientId,
-      p_entity_type: 'sales_invoice',
-      p_entity_id: invoiceId,
-      p_action: 'payment_voided',
-      p_old_data: { amount: removingPayment.amount_allocated },
-      p_new_data: null,
-      p_description: `Payment of £${parseFloat(removingPayment.amount_allocated).toFixed(2)} removed — reason: ${removeReason.trim()}`,
-    })
 
     setRemovingPayment(null)
     setRemoving(false)
