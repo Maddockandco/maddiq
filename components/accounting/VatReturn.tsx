@@ -47,9 +47,10 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
   useEffect(() => { fetchAll() }, [clientId])
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const name = (user?.user_metadata?.full_name as string) || user?.email || 'Unknown user'
-      setUserDisplayName(name)
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data: firmUser } = await supabase.from('firm_users').select('full_name').eq('user_id', user.id).single()
+      setUserDisplayName(firmUser?.full_name || user.email || 'Unknown user')
     })
   }, [])
 
