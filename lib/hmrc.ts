@@ -221,3 +221,54 @@ export async function hmrcApiRequest<T = any>(
   }
   return data
 }
+
+// Field names and rounding rules confirmed directly against HMRC's own
+// Developer Hub docs: Box 1-5 allow 2 decimal places, Box 6-9 must be whole
+// pounds (no pence), and netVatDue is always submitted as a positive number
+// regardless of whether it's payable or reclaimable.
+// https://developer.service.hmrc.gov.uk/api-documentation/docs/api/service/vat-api/1.0/oas/page
+export interface VatSubmissionPayload {
+  periodKey: string
+  vatDueSales: number
+  vatDueAcquisitions: number
+  totalVatDue: number
+  vatReclaimedCurrPeriod: number
+  netVatDue: number
+  totalValueSalesExVAT: number
+  totalValuePurchasesExVAT: number
+  totalValueGoodsSuppliedExVAT: number
+  totalAcquisitionsExVAT: number
+  finalised: true
+}
+
+export interface VatSubmissionResponse {
+  processingDate: string
+  paymentIndicator?: string
+  formBundleNumber: string
+  chargeRefNumber?: string
+}
+
+export async function submitVatReturn(
+  vrn: string,
+  accessToken: string,
+  fraudHeaders: Record<string, string>,
+  payload: VatSubmissionPayload
+): Promise<VatSubmissionResponse> {
+  const res = await fetch(`${API_BASE}/organisations/vat/${vrn}/returns`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.hmrc.1.0+json',
+      ...fraudHeaders,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const data = await res.json().catch(() => null)
+  if (!res.ok) {
+    const message = data?.message || (data?.errors ? JSON.stringify(data.errors) : null) || data?.code || `HMRC submission failed (${res.status})`
+    throw new Error(message)
+  }
+  return data
+}
