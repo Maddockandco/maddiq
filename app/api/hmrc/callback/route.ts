@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { exchangeCodeForTokens, encryptToken } from '@/lib/hmrc'
+import { exchangeCodeForTokens, encryptToken, debugCredentialFingerprint } from '@/lib/hmrc'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${appUrl}${returnPath}&hmrc_connected=1`)
   } catch (err: any) {
     await supabase.from('hmrc_auth_requests').delete().eq('id', state)
-    return NextResponse.redirect(`${appUrl}${returnPath}&hmrc_connect_error=${encodeURIComponent(err.message)}`)
+    const fingerprint = encodeURIComponent(debugCredentialFingerprint())
+    return NextResponse.redirect(`${appUrl}${returnPath}&hmrc_connect_error=${encodeURIComponent(err.message)}&debug=${fingerprint}`)
   }
 }
