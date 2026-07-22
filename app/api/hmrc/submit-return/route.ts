@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const { data: firmUser } = await supabase.from('firm_users').select('firm_id').eq('user_id', user.id).single()
+  const { data: firmUser } = await supabase.from('firm_users').select('firm_id, full_name').eq('user_id', user.id).single()
   if (!firmUser) {
     return NextResponse.json({ error: 'Could not find your firm' }, { status: 400 })
   }
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
         obligation_period_key: obligationPeriodKey,
         notes: notes || null,
         declaration_confirmed_by: user.id,
-        declaration_confirmed_by_name: (user.user_metadata?.full_name as string) || user.email || 'Unknown user',
+        declaration_confirmed_by_name: firmUser.full_name || user.email || 'Unknown user',
         declaration_text: declarationText,
         created_by: user.id,
       })
