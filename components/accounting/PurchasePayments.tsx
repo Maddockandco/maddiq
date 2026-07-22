@@ -147,6 +147,19 @@ export default function PurchasePayments({ clientId }: { clientId: string }) {
 
     setCreating(false)
     resetForm()
+
+    for (const alloc of allocationsPayload) {
+      await supabase.rpc('log_accounting_audit', {
+        p_client_id: clientId,
+        p_entity_type: 'purchase_bill',
+        p_entity_id: alloc.bill_id,
+        p_action: 'payment_recorded',
+        p_old_data: null,
+        p_new_data: { amount: alloc.amount, payment_method: paymentMethod, payment_date: paymentDate, reference: reference || null },
+        p_description: `Payment of £${alloc.amount.toFixed(2)} recorded (${paymentMethod.replace(/_/g, ' ')}${reference ? `, ref ${reference}` : ''})`,
+      })
+    }
+
     fetchData()
     setSaving(false)
   }
@@ -166,6 +179,11 @@ export default function PurchasePayments({ clientId }: { clientId: string }) {
     setVoiding(true)
     setVoidError('')
 
+    const { data: affectedAllocations } = await supabase
+      .from('purchase_payment_allocations')
+      .select('bill_id, amount_allocated')
+      .eq('payment_id', voidingId)
+
     const { error: voidErr } = await supabase.rpc('void_purchase_payment', {
       p_payment_id: voidingId,
       p_reason: voidReason.trim(),
@@ -175,6 +193,18 @@ export default function PurchasePayments({ clientId }: { clientId: string }) {
       setVoidError(voidErr.message)
       setVoiding(false)
       return
+    }
+
+    for (const alloc of affectedAllocations || []) {
+      await supabase.rpc('log_accounting_audit', {
+        p_client_id: clientId,
+        p_entity_type: 'purchase_bill',
+        p_entity_id: alloc.bill_id,
+        p_action: 'payment_voided',
+        p_old_data: { amount: alloc.amount_allocated },
+        p_new_data: null,
+        p_description: `Payment of £${parseFloat(alloc.amount_allocated).toFixed(2)} voided — reason: ${voidReason.trim()}`,
+      })
     }
 
     setVoidingId(null)
