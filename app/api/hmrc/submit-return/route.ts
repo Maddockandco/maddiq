@@ -6,16 +6,17 @@ import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlat
 import { evaluateCorrectionsForReturn, resolvePendingCorrections } from '@/lib/vatErrorCorrection'
 
 export async function POST(req: NextRequest) {
-  const { clientId, periodStart, periodEnd, obligationPeriodKey, fraudPreventionData, notes } = (await req.json()) as {
+  const { clientId, periodStart, periodEnd, obligationPeriodKey, fraudPreventionData, notes, declarationText } = (await req.json()) as {
     clientId: string
     periodStart: string
     periodEnd: string
     obligationPeriodKey: string
     fraudPreventionData: ClientFraudPreventionData
     notes?: string | null
+    declarationText?: string
   }
 
-  if (!clientId || !periodStart || !periodEnd || !obligationPeriodKey || !fraudPreventionData) {
+  if (!clientId || !periodStart || !periodEnd || !obligationPeriodKey || !fraudPreventionData || !declarationText) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -137,6 +138,9 @@ export async function POST(req: NextRequest) {
         hmrc_processing_date: hmrcResponse.processingDate,
         obligation_period_key: obligationPeriodKey,
         notes: notes || null,
+        declaration_confirmed_by: user.id,
+        declaration_confirmed_by_name: (user.user_metadata?.full_name as string) || user.email || 'Unknown user',
+        declaration_text: declarationText,
         created_by: user.id,
       })
       .select()
