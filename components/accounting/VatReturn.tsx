@@ -7,6 +7,7 @@ import DatePicker from '@/components/ui/DatePicker'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlatRate, getVatReturnDetail, VatReturnResult, VatReturnDetail } from '@/lib/vatReturn'
 import { evaluateCorrectionsForReturn, resolvePendingCorrections, CorrectionEvaluation } from '@/lib/vatErrorCorrection'
+import { collectClientFraudPreventionData } from '@/lib/hmrcFraudPreventionClient'
 
 const STAGGER_MONTHS: Record<number, number[]> = {
   1: [2, 5, 8, 11], // Mar, Jun, Sep, Dec (0-indexed)
@@ -32,6 +33,10 @@ export default function VatReturn({ clientId }: { clientId: string }) {
   const { can } = useRole()
 
   const [returns, setReturns] = useState<any[]>([])
+  const [hmrcConnected, setHmrcConnected] = useState(false)
+  const [obligations, setObligations] = useState<any[] | null>(null)
+  const [loadingObligations, setLoadingObligations] = useState(false)
+  const [obligationsError, setObligationsError] = useState('')
   const [settings, setSettings] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [calculating, setCalculating] = useState(false)
@@ -66,13 +71,36 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   async function fetchAll() {
     setLoading(true)
-    const [returnsRes, settingsRes] = await Promise.all([
+    const [returnsRes, settingsRes, connectionRes] = await Promise.all([
       supabase.from('vat_returns').select('*').eq('client_id', clientId).order('period_end', { ascending: false }),
       supabase.from('vat_settings').select('*').eq('client_id', clientId).maybeSingle(),
+      supabase.from('hmrc_connections').select('status').eq('client_id', clientId).eq('status', 'active').maybeSingle(),
     ])
     setReturns(returnsRes.data || [])
     setSettings(settingsRes.data || null)
+    setHmrcConnected(!!connectionRes.data)
     setLoading(false)
+  }
+
+  async function handleFetchObligations() {
+    setLoadingObligations(true)
+    setObligationsError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const fraudPreventionData = await collectClientFraudPreventionData()
+      const res = await fetch('/api/hmrc/obligations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ clientId, fraudPreventionData }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Could not fetch obligations')
+      setObligations(body.obligations)
+    } catch (err: any) {
+      setObligationsError(err.message)
+    } finally {
+      setLoadingObligations(false)
+    }
   }
 
   async function fetchLiveCalculation() {
@@ -454,6 +482,61 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
+      {hmrcConnected && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-brand-dark">HMRC Obligations</p>
+              <p className="text-xs text-gray-400 mt-0.5">What HMRC's own records say is due for this client</p>
+            </div>
+            <button
+              onClick={handleFetchObligations}
+              disabled={loadingObligations}
+              className="bg-white border border-gray-200 text-brand-dark font-semibold px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition disabled:opacity-50"
+            >
+              {loadingObligations ? 'Fetching...' : 'Fetch from HMRC'}
+            </button>
+          </div>
+
+          {obligationsError && (
+            <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3 mt-3">{obligationsError}</div>
+          )}
+
+          {obligations && (
+            obligations.length === 0 ? (
+              <p className="text-sm text-gray-400 mt-3">No open obligations — HMRC shows this client up to date.</p>
+            ) : (
+              <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Period</th>
+                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Due Date</th>
+                      <th className="text-left px-4 py-2 font-semibold text-gray-500 text-xs">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {obligations.map((o, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-4 py-2 text-brand-dark">
+                          {new Date(o.start).toLocaleDateString('en-GB')} – {new Date(o.end).toLocaleDateString('en-GB')}
+                        </td>
+                        <td className="px-4 py-2 text-brand-dark">{new Date(o.due).toLocaleDateString('en-GB')}</td>
+                        <td className="px-4 py-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${o.status === 'O' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                            {o.status === 'O' ? 'Open' : 'Fulfilled'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-brand-dark uppercase tracking-wider">VAT Returns</h3>
         {can.manageEngagements && !calculating && (
