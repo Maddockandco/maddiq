@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import TransactionAuditTrail from '@/components/accounting/TransactionAuditTrail'
+import ConfirmModal from '@/components/ui/ConfirmModal'
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -39,6 +40,14 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
   const [paymentBankAccountId, setPaymentBankAccountId] = useState('')
   const [paymentSaving, setPaymentSaving] = useState(false)
   const [paymentError, setPaymentError] = useState('')
+
+  // Remove payment
+  const [removingPayment, setRemovingPayment] = useState<any | null>(null)
+  const [removeReason, setRemoveReason] = useState('')
+  const [removeError, setRemoveError] = useState('')
+  const [removing, setRemoving] = useState(false)
+  const [otherBillsCount, setOtherBillsCount] = useState(0)
+  const [removeBlocked, setRemoveBlocked] = useState(false)
 
   const { can } = useRole()
   const router = useRouter()
@@ -160,8 +169,94 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
       return
     }
 
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'purchase_bill',
+      p_entity_id: billId,
+      p_action: 'payment_recorded',
+      p_old_data: null,
+      p_new_data: { amount: amt, payment_method: paymentMethod, payment_date: paymentDate, reference: paymentReference || null },
+      p_description: `Payment of £${amt.toFixed(2)} recorded (${paymentMethod.replace(/_/g, ' ')}${paymentReference ? `, ref ${paymentReference}` : ''})`,
+    })
+
     setShowPaymentForm(false)
     setPaymentSaving(false)
+    fetchData()
+  }
+
+  async function openRemovePayment(p: any) {
+    setRemoveError('')
+    setRemoveReason('')
+    setOtherBillsCount(0)
+    setRemoveBlocked(false)
+
+    const paymentDate = p.purchase_payments?.payment_date
+    const paymentId = p.purchase_payments?.id
+
+    // Cash Accounting is the only scheme where a payment's date directly
+    // drives a filed VAT return's figures - Standard/Flat Rate use bill
+    // dates instead, so removing a payment never touches those.
+    const { data: settings } = await supabase.from('vat_settings').select('scheme').eq('client_id', clientId).maybeSingle()
+    if (settings?.scheme === 'cash_accounting' && paymentDate) {
+      const { data: filedReturn } = await supabase
+        .from('vat_returns')
+        .select('id, period_start, period_end')
+        .eq('client_id', clientId)
+        .eq('status', 'filed')
+        .lte('period_start', paymentDate)
+        .gte('period_end', paymentDate)
+        .maybeSingle()
+
+      if (filedReturn) {
+        setRemoveError(`This payment (${new Date(paymentDate).toLocaleDateString('en-GB')}) falls inside a VAT period already filed with HMRC (${new Date(filedReturn.period_start).toLocaleDateString('en-GB')} – ${new Date(filedReturn.period_end).toLocaleDateString('en-GB')}). Removing it would silently change a filed return's figures - log a correction in Error Corrections instead.`)
+        setRemoveBlocked(true)
+        setRemovingPayment(p)
+        return
+      }
+    }
+
+    if (paymentId) {
+      const { count } = await supabase
+        .from('purchase_payment_allocations')
+        .select('id', { count: 'exact', head: true })
+        .eq('payment_id', paymentId)
+        .neq('bill_id', billId)
+      setOtherBillsCount(count || 0)
+    }
+
+    setRemovingPayment(p)
+  }
+
+  async function handleRemovePayment() {
+    if (!removingPayment || !removeReason.trim()) {
+      setRemoveError('A reason is required')
+      return
+    }
+    setRemoving(true)
+
+    const { error: voidErr } = await supabase.rpc('void_purchase_payment', {
+      p_payment_id: removingPayment.purchase_payments.id,
+      p_reason: removeReason.trim(),
+    })
+
+    if (voidErr) {
+      setRemoveError(voidErr.message)
+      setRemoving(false)
+      return
+    }
+
+    await supabase.rpc('log_accounting_audit', {
+      p_client_id: clientId,
+      p_entity_type: 'purchase_bill',
+      p_entity_id: billId,
+      p_action: 'payment_voided',
+      p_old_data: { amount: removingPayment.amount_allocated },
+      p_new_data: null,
+      p_description: `Payment of £${parseFloat(removingPayment.amount_allocated).toFixed(2)} removed — reason: ${removeReason.trim()}`,
+    })
+
+    setRemovingPayment(null)
+    setRemoving(false)
     fetchData()
   }
 
@@ -407,7 +502,14 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
                     {p.purchase_payments?.reference && ` · ${p.purchase_payments.reference}`}
                   </p>
                 </div>
-                <p className="text-sm font-semibold text-brand-dark">£{parseFloat(p.amount_allocated).toFixed(2)}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-semibold text-brand-dark">£{parseFloat(p.amount_allocated).toFixed(2)}</p>
+                  {!p.purchase_payments?.voided && can.manageEngagements && (
+                    <button onClick={() => openRemovePayment(p)} className="text-xs text-red-500 font-medium hover:underline">
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -417,6 +519,27 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
           <TransactionAuditTrail entityType="purchase_bill" entityId={billId} />
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={!!removingPayment}
+        title={removeBlocked ? "Can't remove this payment" : 'Remove this payment?'}
+        message={
+          removeBlocked
+            ? removeError
+            : `This reverses the payment and reopens the bill for that amount.${otherBillsCount > 0 ? ` This payment also covers ${otherBillsCount} other bill(s) — removing it will reverse the payment from all of them, not just this one.` : ''}`
+        }
+        confirmLabel={removeBlocked ? 'OK' : removing ? 'Removing...' : 'Remove Payment'}
+        confirming={removing}
+        danger={!removeBlocked}
+        requireInput={!removeBlocked}
+        inputLabel="Reason for removing"
+        inputValue={removeReason}
+        onInputChange={setRemoveReason}
+        inputPlaceholder="e.g. Payment recorded against the wrong bill"
+        inputError={!removeBlocked ? removeError : undefined}
+        onConfirm={removeBlocked ? () => setRemovingPayment(null) : handleRemovePayment}
+        onCancel={() => setRemovingPayment(null)}
+      />
     </div>
   )
 }
