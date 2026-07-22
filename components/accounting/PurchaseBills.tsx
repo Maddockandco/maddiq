@@ -7,6 +7,7 @@ import DatePicker from '@/components/ui/DatePicker'
 import AddContactModal from '@/components/accounting/AddContactModal'
 import AddAccountModal from '@/components/accounting/AddAccountModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import ActionDropdown from '@/components/ui/ActionDropdown'
 type LineDraft = {
   description: string
   quantity: string
@@ -207,7 +208,13 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setReplacesBillId(voidedBill.id)
     setCreating(true)
   }
-  async function handleCreate() {
+  async function runApprovalStep(billId: string, approve: boolean): Promise<string> {
+    if (!approve) return ''
+    const { error: postErr } = await supabase.rpc('post_purchase_bill', { p_bill_id: billId })
+    return postErr ? postErr.message : ''
+  }
+
+  async function handleCreate(approve: boolean = false) {
     setSaving(true)
     setError('')
     setLineErrors({})
@@ -327,6 +334,15 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
         newData: after,
         description: `Edited draft bill "${billNumber || editingBillId}" — now £${total.toFixed(2)} total`,
       })
+
+      const approvalError = await runApprovalStep(editingBillId, approve)
+      if (approvalError) {
+        setError(`Saved as draft, but: ${approvalError}`)
+        setSaving(false)
+        fetchData()
+        return
+      }
+
       setCreating(false)
       resetForm()
       fetchData()
@@ -362,6 +378,15 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
       newData: bill,
       description: `Created draft bill "${billNumber || bill.id}" for £${total.toFixed(2)}`,
     })
+
+    const approvalError = await runApprovalStep(bill.id, approve)
+    if (approvalError) {
+      setError(`Saved as draft, but: ${approvalError}`)
+      setSaving(false)
+      fetchData()
+      return
+    }
+
     setCreating(false)
     resetForm()
     fetchData()
@@ -690,10 +715,12 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
             <div><span className="text-gray-500">Total: </span><span className="font-semibold text-brand-dark">£{total.toFixed(2)}</span></div>
           </div>
           <div className="flex gap-3">
-            <button onClick={handleCreate} disabled={saving}
-              className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : editingBillId ? 'Save Changes' : 'Save as draft'}
-            </button>
+            <ActionDropdown
+              loading={saving}
+              loadingLabel="Saving..."
+              primary={{ key: 'save_draft', label: editingBillId ? 'Save Changes' : 'Save as Draft', onClick: () => handleCreate(false) }}
+              options={[{ key: 'approve', label: 'Approve', onClick: () => handleCreate(true) }]}
+            />
             <button onClick={() => { setCreating(false); resetForm() }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
               Cancel
@@ -763,7 +790,7 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
                           disabled={postingId === bill.id}
                           className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
                         >
-                          {postingId === bill.id ? 'Finalising...' : 'Finalise'}
+                          {postingId === bill.id ? 'Approving...' : 'Approve'}
                         </button>
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && parseFloat(bill.amount_paid) === 0 && (
