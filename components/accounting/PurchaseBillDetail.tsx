@@ -308,7 +308,7 @@ export default function PurchaseBillDetail({ clientId, billId }: { clientId: str
             {can.manageEngagements && bill.status === 'draft' && (
               <button onClick={handlePost} disabled={posting}
                 className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-                {posting ? 'Finalising...' : 'Finalise'}
+                {posting ? 'Approving...' : 'Approve'}
               </button>
             )}
             {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(bill.status) && (
