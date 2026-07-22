@@ -8,7 +8,7 @@ import { calculateVatReturn, calculateVatReturnCashBasis, calculateVatReturnFlat
 import { evaluateCorrectionsForReturn, CorrectionEvaluation } from '@/lib/vatErrorCorrection'
 import { collectClientFraudPreventionData } from '@/lib/hmrcFraudPreventionClient'
 
-export default function VatReturn({ clientId }: { clientId: string }) {
+export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: string; onSwitchToSetup?: () => void }) {
   const supabase = createClient()
   const { can } = useRole()
 
@@ -320,9 +320,17 @@ export default function VatReturn({ clientId }: { clientId: string }) {
 
   if (!hmrcConnected) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-2">
+      <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center space-y-3">
         <p className="text-sm font-semibold text-brand-dark">Not connected to HMRC</p>
-        <p className="text-sm text-gray-400">Connect this client to HMRC in VAT Setup to see obligations and file returns.</p>
+        <p className="text-sm text-gray-400">Connect this client to HMRC to see obligations and file returns.</p>
+        {onSwitchToSetup && (
+          <button
+            onClick={onSwitchToSetup}
+            className="bg-brand-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-opacity-90 transition"
+          >
+            Connect to HMRC
+          </button>
+        )}
       </div>
     )
   }
