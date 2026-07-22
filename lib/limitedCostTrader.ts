@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { annualCostThreshold } from '@/lib/flatRateSectors'
 
 // HMRC's Limited Cost Trader test (Flat Rate Scheme) is not a simple physical
@@ -70,9 +71,10 @@ export async function calculateLimitedCostStatus(
   clientId: string,
   periodStart: string,
   periodEnd: string,
-  turnoverIncVat: number
+  turnoverIncVat: number,
+  db?: SupabaseClient
 ): Promise<LimitedCostTraderResult> {
-  const supabase = createClient()
+  const supabase = db || createClient()
 
   const { data } = await supabase
     .from('purchase_bill_lines')
