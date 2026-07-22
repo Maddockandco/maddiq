@@ -80,6 +80,10 @@ async function hmrcTokenRequest(body: Record<string, string>): Promise<TokenResp
 }
 
 export async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
+  console.log('[HMRC DEBUG] client_id:', CLIENT_ID)
+  console.log('[HMRC DEBUG] client_secret fingerprint:', `len=${CLIENT_SECRET.length} last4=${CLIENT_SECRET.slice(-4)}`)
+  console.log('[HMRC DEBUG] redirect_uri:', REDIRECT_URI)
+  console.log('[HMRC DEBUG] api_base:', API_BASE)
   return hmrcTokenRequest({
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
