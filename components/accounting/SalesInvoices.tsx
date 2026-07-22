@@ -7,6 +7,7 @@ import DatePicker from '@/components/ui/DatePicker'
 import AddContactModal from '@/components/accounting/AddContactModal'
 import AddAccountModal from '@/components/accounting/AddAccountModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import ActionDropdown from '@/components/ui/ActionDropdown'
 type LineDraft = {
   description: string
   quantity: string
@@ -188,7 +189,23 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setReplacesInvoiceId(voidedInvoice.id)
     setCreating(true)
   }
-  async function handleCreate() {
+  async function runApprovalStep(invoiceId: string, approveAfter: 'none' | 'approve' | 'approve_and_email'): Promise<string> {
+    if (approveAfter === 'none') return ''
+    const { error: postErr } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
+    if (postErr) return postErr.message
+    if (approveAfter === 'approve_and_email') {
+      const res = await fetch('/api/sales-invoices/send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      })
+      const body = await res.json()
+      if (!res.ok) return body.error || 'Approved, but the email could not be sent'
+    }
+    return ''
+  }
+
+  async function handleCreate(approveAfter: 'none' | 'approve' | 'approve_and_email' = 'none') {
     setSaving(true)
     setError('')
     setLineErrors({})
@@ -279,6 +296,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         newData: after,
         description: `Edited draft invoice "${invoiceNumber}" — now £${total.toFixed(2)} total`,
       })
+
+      const approvalError = await runApprovalStep(editingInvoiceId, approveAfter)
+      if (approvalError) {
+        setError(`Saved as draft, but: ${approvalError}`)
+        setSaving(false)
+        fetchData()
+        return
+      }
+
       setCreating(false)
       resetForm()
       fetchData()
@@ -313,6 +339,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       newData: invoice,
       description: `Created draft invoice "${invoiceNumber}" for £${total.toFixed(2)}`,
     })
+
+    const approvalError = await runApprovalStep(invoice.id, approveAfter)
+    if (approvalError) {
+      setError(`Saved as draft, but: ${approvalError}`)
+      setSaving(false)
+      fetchData()
+      return
+    }
+
     setCreating(false)
     resetForm()
     fetchData()
@@ -325,6 +360,31 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     if (postErr) {
       setPostError((prev) => ({ ...prev, [invoiceId]: postErr.message }))
       setPostingId(null)
+      return
+    }
+    setPostingId(null)
+    fetchData()
+  }
+
+  async function handleApproveAndEmail(invoiceId: string) {
+    setPostingId(invoiceId)
+    setPostError((prev) => ({ ...prev, [invoiceId]: '' }))
+    const { error: postErr } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
+    if (postErr) {
+      setPostError((prev) => ({ ...prev, [invoiceId]: postErr.message }))
+      setPostingId(null)
+      return
+    }
+    const res = await fetch('/api/sales-invoices/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ invoiceId }),
+    })
+    const body = await res.json()
+    if (!res.ok) {
+      setPostError((prev) => ({ ...prev, [invoiceId]: body.error || 'Approved, but the email could not be sent' }))
+      setPostingId(null)
+      fetchData()
       return
     }
     setPostingId(null)
@@ -547,10 +607,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
             <div><span className="text-gray-500">Total: </span><span className="font-semibold text-brand-dark">£{total.toFixed(2)}</span></div>
           </div>
           <div className="flex gap-3">
-            <button onClick={handleCreate} disabled={saving}
-              className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-              {saving ? 'Saving...' : editingInvoiceId ? 'Save Changes' : 'Save as draft'}
-            </button>
+            <ActionDropdown
+              loading={saving}
+              loadingLabel="Saving..."
+              primary={{ key: 'save_draft', label: editingInvoiceId ? 'Save Changes' : 'Save as Draft', onClick: () => handleCreate('none') }}
+              options={[
+                { key: 'approve', label: 'Approve', onClick: () => handleCreate('approve') },
+                { key: 'approve_email', label: 'Approve and Email', onClick: () => handleCreate('approve_and_email') },
+              ]}
+            />
             <button onClick={() => { setCreating(false); resetForm() }}
               className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition">
               Cancel
@@ -615,13 +680,12 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                         </button>
                       )}
                       {can.manageEngagements && inv.status === 'draft' && (
-                        <button
-                          onClick={() => handlePost(inv.id)}
-                          disabled={postingId === inv.id}
-                          className="text-xs bg-brand-dark text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
-                        >
-                          {postingId === inv.id ? 'Finalising...' : 'Finalise'}
-                        </button>
+                        <ActionDropdown
+                          loading={postingId === inv.id}
+                          loadingLabel="Approving..."
+                          primary={{ key: 'approve', label: 'Approve', onClick: () => handlePost(inv.id) }}
+                          options={[{ key: 'approve_email', label: 'Approve and Email', onClick: () => handleApproveAndEmail(inv.id) }]}
+                        />
                       )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
                         <button
