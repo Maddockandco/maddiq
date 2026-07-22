@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface VatErrorCorrection {
   id: string
@@ -40,8 +41,8 @@ export interface NetPositionResult {
 // under-declaration can offset an over-declaration) - this is how HMRC
 // actually requires errors to be combined when testing against the
 // threshold, rather than testing each one in isolation.
-export async function getNetPendingPosition(clientId: string): Promise<NetPositionResult> {
-  const supabase = createClient()
+export async function getNetPendingPosition(clientId: string, db?: SupabaseClient): Promise<NetPositionResult> {
+  const supabase = db || createClient()
   const { data } = await supabase
     .from('vat_error_corrections')
     .select('*')
@@ -71,8 +72,8 @@ export interface CorrectionEvaluation {
 // right now (its Box 6 sets the threshold). This does not write anything -
 // callers decide whether to actually mark corrections as applied/requiring
 // disclosure once the return is genuinely saved, not on every live preview.
-export async function evaluateCorrectionsForReturn(clientId: string, box6ForThisPeriod: number): Promise<CorrectionEvaluation> {
-  const netPosition = await getNetPendingPosition(clientId)
+export async function evaluateCorrectionsForReturn(clientId: string, box6ForThisPeriod: number, db?: SupabaseClient): Promise<CorrectionEvaluation> {
+  const netPosition = await getNetPendingPosition(clientId, db)
   const threshold = disclosureThreshold(box6ForThisPeriod)
   const withinThreshold = netPosition.corrections.length === 0 || netPosition.netAmountAbs <= threshold
 
@@ -98,9 +99,10 @@ export async function evaluateCorrectionsForReturn(clientId: string, box6ForThis
 export async function resolvePendingCorrections(
   clientId: string,
   appliedToReturnId: string,
-  evaluation: CorrectionEvaluation
+  evaluation: CorrectionEvaluation,
+  db?: SupabaseClient
 ): Promise<void> {
-  const supabase = createClient()
+  const supabase = db || createClient()
   const ids = evaluation.netPosition.corrections.map((c) => c.id)
   if (ids.length === 0) return
 
