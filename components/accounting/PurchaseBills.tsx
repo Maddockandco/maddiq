@@ -108,9 +108,11 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     setLines([...lines, { ...EMPTY_LINE }])
   }
   function updateLine(index: number, field: keyof LineDraft, value: any) {
-    const updated = [...lines]
-    updated[index] = { ...updated[index], [field]: value }
-    setLines(updated)
+    setLines((prev) => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
   }
   function relevantVatRates() {
     const universal = ['no_vat']
@@ -824,4 +826,3 @@ export default function PurchaseBills({ clientId }: { clientId: string }) {
     </div>
   )
 }
-    
