@@ -22,6 +22,8 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
 
   // The obligation currently being prepared (live calculation, not yet submitted)
   const [preparing, setPreparing] = useState<any | null>(null)
+  const [userDisplayName, setUserDisplayName] = useState('')
+  const [declarationConfirmed, setDeclarationConfirmed] = useState(false)
   const [result, setResult] = useState<VatReturnResult | null>(null)
   const [calculatingResult, setCalculatingResult] = useState(false)
   const [calcTab, setCalcTab] = useState<'return' | 'details'>('return')
@@ -43,6 +45,13 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
   const [loadingViewDetail, setLoadingViewDetail] = useState(false)
 
   useEffect(() => { fetchAll() }, [clientId])
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const name = (user?.user_metadata?.full_name as string) || user?.email || 'Unknown user'
+      setUserDisplayName(name)
+    })
+  }, [])
 
   useEffect(() => {
     if (hmrcConnected && obligations === null && !loadingObligations) {
@@ -129,6 +138,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
     setBox9('0')
     setNotes('')
     setError('')
+    setDeclarationConfirmed(false)
   }
 
   async function openViewReturn(r: any) {
@@ -147,7 +157,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
   }
 
   async function handleSubmitToHmrc() {
-    if (!preparing || !result) return
+    if (!preparing || !result || !declarationConfirmed) return
     setSubmitting(true)
     setError('')
     try {
@@ -163,6 +173,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
           obligationPeriodKey: preparing.periodKey,
           fraudPreventionData,
           notes: notes || null,
+          declarationText,
         }),
       })
       const body = await res.json()
@@ -189,7 +200,8 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
   const box1Display = result ? result.box1VatOnSales + box1Adj : 0
   const box4Display = result ? result.box4VatReclaimed + box4Adj : 0
   const netVat = result ? box1Display + box2Val - box4Display : 0
-  const canSubmit = !!result && (!correctionEval || correctionEval.withinThreshold)
+  const canSubmit = !!result && (!correctionEval || correctionEval.withinThreshold) && declarationConfirmed
+  const declarationText = `I, ${userDisplayName || 'the submitting user'}, confirm that my client has received a copy of the information contained in this return and approved the information as being correct and complete to the best of their knowledge and belief.`
 
   function formBox(number: number, label: string, value: string, options?: { editable?: boolean; onChange?: (v: string) => void; bold?: boolean }) {
     return (
@@ -499,6 +511,20 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
             </div>
 
+            {result && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={declarationConfirmed}
+                    onChange={(e) => setDeclarationConfirmed(e.target.checked)}
+                    className="mt-0.5 flex-shrink-0"
+                  />
+                  <span className="text-sm text-brand-dark">{declarationText}</span>
+                </label>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => setShowSubmitConfirm(true)}
@@ -532,6 +558,11 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
               <p className="text-xs text-gray-400">
                 Submission reference: <span className="font-mono text-brand-dark">{viewingReturn.hmrc_form_bundle_number}</span>
                 {' · '}Processed {new Date(viewingReturn.hmrc_processing_date).toLocaleString('en-GB')}
+              </p>
+            )}
+            {viewingReturn.declaration_confirmed_by_name && (
+              <p className="text-xs text-gray-400">
+                Declaration confirmed by <span className="font-medium text-brand-dark">{viewingReturn.declaration_confirmed_by_name}</span>
               </p>
             )}
 
