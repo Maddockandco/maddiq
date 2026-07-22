@@ -31,7 +31,7 @@ export default function VatWorkspace({ clientId }: { clientId: string }) {
         ))}
       </div>
 
-      {tab === 'returns' && <VatReturn clientId={clientId} />}
+      {tab === 'returns' && <VatReturn clientId={clientId} onSwitchToSetup={() => setTab('setup')} />}
       {tab === 'setup' && <VatSettings clientId={clientId} />}
       {tab === 'corrections' && <VatErrorCorrections clientId={clientId} />}
     </div>
