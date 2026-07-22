@@ -7,6 +7,7 @@ import { useRole } from '@/hooks/useRole'
 import DatePicker from '@/components/ui/DatePicker'
 import TransactionAuditTrail from '@/components/accounting/TransactionAuditTrail'
 import ConfirmModal from '@/components/ui/ConfirmModal'
+import ActionDropdown from '@/components/ui/ActionDropdown'
 
 const STATUS_STYLES: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -110,6 +111,31 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
     if (error) {
       setPostError(error.message)
       setPosting(false)
+      return
+    }
+    setPosting(false)
+    fetchData()
+  }
+
+  async function handleApproveAndEmail() {
+    setPosting(true)
+    setPostError('')
+    const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: invoiceId })
+    if (error) {
+      setPostError(error.message)
+      setPosting(false)
+      return
+    }
+    const res = await fetch('/api/sales-invoices/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ invoiceId }),
+    })
+    const body = await res.json()
+    if (!res.ok) {
+      setPostError(body.error || 'Approved, but the email could not be sent')
+      setPosting(false)
+      fetchData()
       return
     }
     setPosting(false)
@@ -306,10 +332,12 @@ export default function SalesInvoiceDetail({ clientId, invoiceId }: { clientId: 
           </div>
           <div className="flex gap-2">
             {can.manageEngagements && invoice.status === 'draft' && (
-              <button onClick={handlePost} disabled={posting}
-                className="bg-brand-dark text-white font-semibold px-4 py-2 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50">
-                {posting ? 'Finalising...' : 'Finalise'}
-              </button>
+              <ActionDropdown
+                loading={posting}
+                loadingLabel="Approving..."
+                primary={{ key: 'approve', label: 'Approve', onClick: handlePost }}
+                options={[{ key: 'approve_email', label: 'Approve and Email', onClick: handleApproveAndEmail }]}
+              />
             )}
             {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(invoice.status) && (
               <button onClick={openPaymentForm}
