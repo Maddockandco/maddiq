@@ -39,6 +39,17 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const [vatRates, setVatRates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [postingId, setPostingId] = useState<string | null>(null)
+  const [bankAccounts, setBankAccounts] = useState<any[]>([])
+
+  // Quick pay modal
+  const [payingInvoice, setPayingInvoice] = useState<any | null>(null)
+  const [quickPayAmount, setQuickPayAmount] = useState('')
+  const [quickPayDate, setQuickPayDate] = useState(new Date().toISOString().split('T')[0])
+  const [quickPayMethod, setQuickPayMethod] = useState('bank_transfer')
+  const [quickPayReference, setQuickPayReference] = useState('')
+  const [quickPayBankAccountId, setQuickPayBankAccountId] = useState('')
+  const [quickPaySaving, setQuickPaySaving] = useState(false)
+  const [quickPayError, setQuickPayError] = useState('')
   const [postError, setPostError] = useState<Record<string, string>>({})
   const [voidingId, setVoidingId] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
@@ -61,16 +72,18 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
   const supabase = createClient()
   useEffect(() => { fetchData() }, [clientId])
   async function fetchData() {
-    const [invoicesRes, contactsRes, accountsRes, vatRes, projectsRes] = await Promise.all([
+    const [invoicesRes, contactsRes, accountsRes, vatRes, projectsRes, banksRes] = await Promise.all([
       supabase.from('sales_invoices').select('*, contacts(name)').eq('client_id', clientId).order('invoice_date', { ascending: false }),
       supabase.from('contacts').select('*').eq('client_id', clientId).eq('is_customer', true).eq('is_active', true).order('name'),
       supabase.from('chart_of_accounts').select('id, code, name, account_type, parent_id, default_vat_rate_id').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('projects').select('id, name').eq('client_id', clientId).eq('status', 'active').order('name'),
+      supabase.from('chart_of_accounts').select('id, code, name').eq('client_id', clientId).eq('is_active', true).eq('account_type', 'bank').order('code'),
     ])
     if (invoicesRes.data) setInvoices(invoicesRes.data)
     if (contactsRes.data) setContacts(contactsRes.data)
     if (projectsRes.data) setProjects(projectsRes.data)
+    if (banksRes.data) setBankAccounts(banksRes.data)
     if (accountsRes.data) {
       const parentIds = new Set(accountsRes.data.map((a) => a.parent_id).filter(Boolean))
       setAccounts(accountsRes.data.filter((a) => ['sales', 'revenue', 'other_income'].includes(a.account_type) && !parentIds.has(a.id)))
@@ -390,6 +403,47 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setPostingId(null)
     fetchData()
   }
+
+  function openQuickPay(inv: any) {
+    setQuickPayError('')
+    setQuickPayDate(new Date().toISOString().split('T')[0])
+    setQuickPayMethod('bank_transfer')
+    setQuickPayReference('')
+    setQuickPayBankAccountId('')
+    setQuickPayAmount((parseFloat(inv.total) - parseFloat(inv.amount_paid)).toFixed(2))
+    setPayingInvoice(inv)
+  }
+
+  async function handleQuickPay() {
+    if (!payingInvoice) return
+    setQuickPaySaving(true)
+    setQuickPayError('')
+
+    const amt = parseFloat(quickPayAmount) || 0
+    if (amt <= 0) { setQuickPayError('Enter a payment amount'); setQuickPaySaving(false); return }
+    if (!quickPayBankAccountId) { setQuickPayError('Select a bank account'); setQuickPaySaving(false); return }
+
+    const { error } = await supabase.rpc('record_sales_receipt', {
+      p_client_id: clientId,
+      p_contact_id: payingInvoice.contact_id,
+      p_receipt_date: quickPayDate,
+      p_payment_method: quickPayMethod,
+      p_reference: quickPayReference || null,
+      p_bank_account_id: quickPayBankAccountId,
+      p_allocations: [{ invoice_id: payingInvoice.id, amount: amt }],
+    })
+
+    if (error) {
+      setQuickPayError(error.message)
+      setQuickPaySaving(false)
+      return
+    }
+
+    setPayingInvoice(null)
+    setQuickPaySaving(false)
+    fetchData()
+  }
+
   function openVoid(invoiceId: string) {
     setVoidReason('')
     setVoidError('')
@@ -687,6 +741,15 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
                           options={[{ key: 'approve_email', label: 'Approve and Email', onClick: () => handleApproveAndEmail(inv.id) }]}
                         />
                       )}
+                      {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && (
+                        <button
+                          onClick={() => openQuickPay(inv)}
+                          title="Record a payment"
+                          className="text-xs bg-green-50 text-green-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-green-100 transition"
+                        >
+                          💷 Pay
+                        </button>
+                      )}
                       {can.manageEngagements && ['awaiting_payment', 'partially_paid'].includes(inv.status) && parseFloat(inv.amount_paid) === 0 && (
                         <button
                           onClick={() => openVoid(inv.id)}
@@ -744,6 +807,79 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
         onConfirm={handleVoid}
         onCancel={() => setVoidingId(null)}
       />
+
+      {payingInvoice && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="text-base font-semibold text-brand-dark">
+              Record payment — {payingInvoice.invoice_number}
+            </h3>
+            {quickPayError && <div className="bg-red-50 text-red-600 text-sm rounded-lg px-4 py-3">{quickPayError}</div>}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
+              <input
+                type="number"
+                value={quickPayAmount}
+                onChange={(e) => setQuickPayAmount(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+              <DatePicker value={quickPayDate} onChange={setQuickPayDate} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Payment Method</label>
+              <select
+                value={quickPayMethod}
+                onChange={(e) => setQuickPayMethod(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              >
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="card">Card</option>
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Bank Account</label>
+              <select
+                value={quickPayBankAccountId}
+                onChange={(e) => setQuickPayBankAccountId(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              >
+                <option value="">Select account...</option>
+                {bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reference (optional)</label>
+              <input
+                type="text"
+                value={quickPayReference}
+                onChange={(e) => setQuickPayReference(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleQuickPay}
+                disabled={quickPaySaving}
+                className="flex-1 bg-brand-dark text-white font-semibold py-2.5 rounded-lg text-sm hover:bg-opacity-90 transition disabled:opacity-50"
+              >
+                {quickPaySaving ? 'Recording...' : 'Record Payment'}
+              </button>
+              <button
+                onClick={() => setPayingInvoice(null)}
+                className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-lg text-sm hover:bg-gray-200 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
