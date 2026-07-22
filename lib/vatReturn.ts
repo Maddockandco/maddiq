@@ -14,6 +14,14 @@ import { calculateLimitedCostStatus, LimitedCostTraderResult } from '@/lib/limit
 // effect zero on Box 5, but affecting the Box 6/7 breakdown. Flag any reverse-charge
 // transactions in the period for manual review before filing.
 
+export type VatReturnLineRef = {
+  sourceTable: 'sales_invoice_lines' | 'purchase_bill_lines'
+  sourceLineId: string
+  boxType: 'box1' | 'box4'
+  netAmount: number
+  vatAmount: number
+}
+
 export type VatReturnResult = {
   box1VatOnSales: number
   box3TotalVatDue: number
@@ -22,6 +30,12 @@ export type VatReturnResult = {
   box6TotalSalesExVat: number
   box7TotalPurchasesExVat: number
   reverseChargeLinesFound: number
+  // Only populated for Standard and Flat Rate schemes - Cash Accounting
+  // calculates proportionally off payment allocations, not whole lines, so
+  // it can't be snapshotted at this same granularity (see note on
+  // calculateVatReturnCashBasis). Automatic post-filing correction detection
+  // is a known gap for Cash Accounting clients until that's built separately.
+  lineRefs?: VatReturnLineRef[]
 }
 
 export type VatTransactionDetail = {
@@ -45,7 +59,7 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
   const [salesRes, purchaseRes] = await Promise.all([
     supabase
       .from('sales_invoice_lines')
-      .select('vat_amount, line_total, vat_rate_id, vat_rates(code), sales_invoices!inner(invoice_date, client_id, status)')
+      .select('id, vat_amount, line_total, vat_rate_id, vat_rates(code), sales_invoices!inner(invoice_date, client_id, status)')
       .eq('sales_invoices.client_id', clientId)
       .neq('sales_invoices.status', 'draft')
       .neq('sales_invoices.status', 'cancelled')
@@ -53,7 +67,7 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
       .lte('sales_invoices.invoice_date', periodEnd),
     supabase
       .from('purchase_bill_lines')
-      .select('vat_amount, line_total, vat_rate_id, vat_rates(code), purchase_bills!inner(bill_date, client_id, status)')
+      .select('id, vat_amount, line_total, vat_rate_id, vat_rates(code), purchase_bills!inner(bill_date, client_id, status)')
       .eq('purchase_bills.client_id', clientId)
       .neq('purchase_bills.status', 'draft')
       .neq('purchase_bills.status', 'cancelled')
@@ -63,17 +77,24 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
 
   let box1 = 0, box6 = 0
   let reverseChargeCount = 0
+  const lineRefs: VatReturnLineRef[] = []
   for (const l of salesRes.data || []) {
-    box1 += parseFloat((l as any).vat_amount) || 0
-    box6 += parseFloat((l as any).line_total) || 0
+    const vat = parseFloat((l as any).vat_amount) || 0
+    const net = parseFloat((l as any).line_total) || 0
+    box1 += vat
+    box6 += net
     if ((l as any).vat_rates?.code?.includes('reverse_charge')) reverseChargeCount++
+    lineRefs.push({ sourceTable: 'sales_invoice_lines', sourceLineId: (l as any).id, boxType: 'box1', netAmount: net, vatAmount: vat })
   }
 
   let box4 = 0, box7 = 0
   for (const l of purchaseRes.data || []) {
-    box4 += parseFloat((l as any).vat_amount) || 0
-    box7 += parseFloat((l as any).line_total) || 0
+    const vat = parseFloat((l as any).vat_amount) || 0
+    const net = parseFloat((l as any).line_total) || 0
+    box4 += vat
+    box7 += net
     if ((l as any).vat_rates?.code?.includes('reverse_charge')) reverseChargeCount++
+    lineRefs.push({ sourceTable: 'purchase_bill_lines', sourceLineId: (l as any).id, boxType: 'box4', netAmount: net, vatAmount: vat })
   }
 
   const box3 = box1
@@ -87,6 +108,7 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
     box6TotalSalesExVat: Math.round(box6 * 100) / 100,
     box7TotalPurchasesExVat: Math.round(box7 * 100) / 100,
     reverseChargeLinesFound: reverseChargeCount,
+    lineRefs,
   }
 }
 
@@ -95,6 +117,12 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
 // half its VAT counts in this period's return - the rest counts whenever the remaining
 // balance is actually settled. This uses the receipt/payment allocation tables, since
 // that's the only place that records which specific invoice/bill a payment applies to.
+//
+// Known gap: doesn't populate lineRefs, so automatic post-filing correction detection
+// (see vat_return_line_snapshots) doesn't cover Cash Accounting clients yet - the
+// actual unit that drives each box here is a payment ALLOCATION, not a whole invoice/
+// bill line, which needs its own snapshot granularity. Manual correction logging via
+// the Error Corrections tab still works fine for these clients in the meantime.
 export async function calculateVatReturnCashBasis(clientId: string, periodStart: string, periodEnd: string): Promise<VatReturnResult> {
   const supabase = createClient()
 
@@ -198,7 +226,7 @@ export async function calculateVatReturnFlatRate(
   const [salesRes, capitalPurchasesRes] = await Promise.all([
     supabase
       .from('sales_invoice_lines')
-      .select('vat_amount, line_total, sales_invoices!inner(invoice_date, client_id, status)')
+      .select('id, vat_amount, line_total, sales_invoices!inner(invoice_date, client_id, status)')
       .eq('sales_invoices.client_id', clientId)
       .neq('sales_invoices.status', 'draft')
       .neq('sales_invoices.status', 'cancelled')
@@ -206,7 +234,7 @@ export async function calculateVatReturnFlatRate(
       .lte('sales_invoices.invoice_date', periodEnd),
     supabase
       .from('purchase_bill_lines')
-      .select('vat_amount, line_total, expense_account_id, chart_of_accounts(account_type), purchase_bills!inner(bill_date, client_id, status)')
+      .select('id, vat_amount, line_total, expense_account_id, chart_of_accounts(account_type), purchase_bills!inner(bill_date, client_id, status)')
       .eq('purchase_bills.client_id', clientId)
       .neq('purchase_bills.status', 'draft')
       .neq('purchase_bills.status', 'cancelled')
@@ -215,9 +243,17 @@ export async function calculateVatReturnFlatRate(
   ])
 
   let netSales = 0, vatOnSales = 0
+  const lineRefs: VatReturnLineRef[] = []
   for (const l of salesRes.data || []) {
-    netSales += parseFloat((l as any).line_total) || 0
-    vatOnSales += parseFloat((l as any).vat_amount) || 0
+    const net = parseFloat((l as any).line_total) || 0
+    const vat = parseFloat((l as any).vat_amount) || 0
+    netSales += net
+    vatOnSales += vat
+    // Box 1 under Flat Rate is derived from aggregate turnover x rate, not a
+    // per-line VAT sum - but each sales line still contributes to that
+    // turnover, so it's still the right thing to snapshot for later
+    // change-detection (the trigger applies the rate% to the delta itself).
+    lineRefs.push({ sourceTable: 'sales_invoice_lines', sourceLineId: (l as any).id, boxType: 'box1', netAmount: net, vatAmount: vat })
   }
   const grossTurnover = netSales + vatOnSales
 
@@ -227,7 +263,10 @@ export async function calculateVatReturnFlatRate(
     if (accountType !== 'fixed_asset') continue
     const net = parseFloat((l as any).line_total) || 0
     const vat = parseFloat((l as any).vat_amount) || 0
-    if (net + vat >= 2000) box4 += vat
+    if (net + vat >= 2000) {
+      box4 += vat
+      lineRefs.push({ sourceTable: 'purchase_bill_lines', sourceLineId: (l as any).id, boxType: 'box4', netAmount: net, vatAmount: vat })
+    }
   }
 
   const lctDetail = await calculateLimitedCostStatus(clientId, periodStart, periodEnd, grossTurnover)
@@ -256,6 +295,7 @@ export async function calculateVatReturnFlatRate(
     appliedPercentage,
     isLimitedCostTrader,
     lctDetail,
+    lineRefs,
   }
 }
 
