@@ -1,6 +1,15 @@
 import { createClient } from '@/lib/supabase/client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { FLAT_RATE_SECTORS, LIMITED_COST_TRADER_RATE } from '@/lib/flatRateSectors'
 import { calculateLimitedCostStatus, LimitedCostTraderResult } from '@/lib/limitedCostTrader'
+
+// Every calculation function below accepts an optional `db` client, defaulting
+// to the browser client if not passed. This exists specifically because the
+// default browser client silently returns EMPTY results (not an error) when
+// called from a server context with no user session attached - RLS blocks an
+// unauthenticated read rather than throwing. Server routes (e.g. HMRC
+// submission) MUST pass their own properly-authenticated client through here,
+// or every box silently computes as £0 with no error to catch it.
 
 // UK VAT Return, structured around the real 9 boxes, computed on a standard (accrual)
 // VAT accounting basis - i.e. by invoice/bill date (tax point), not payment date.
@@ -53,8 +62,8 @@ export type VatReturnDetail = {
   box1IsCalculated?: boolean
 }
 
-export async function calculateVatReturn(clientId: string, periodStart: string, periodEnd: string): Promise<VatReturnResult> {
-  const supabase = createClient()
+export async function calculateVatReturn(clientId: string, periodStart: string, periodEnd: string, db?: SupabaseClient): Promise<VatReturnResult> {
+  const supabase = db || createClient()
 
   const [salesRes, purchaseRes] = await Promise.all([
     supabase
@@ -123,8 +132,8 @@ export async function calculateVatReturn(clientId: string, periodStart: string, 
 // actual unit that drives each box here is a payment ALLOCATION, not a whole invoice/
 // bill line, which needs its own snapshot granularity. Manual correction logging via
 // the Error Corrections tab still works fine for these clients in the meantime.
-export async function calculateVatReturnCashBasis(clientId: string, periodStart: string, periodEnd: string): Promise<VatReturnResult> {
-  const supabase = createClient()
+export async function calculateVatReturnCashBasis(clientId: string, periodStart: string, periodEnd: string, db?: SupabaseClient): Promise<VatReturnResult> {
+  const supabase = db || createClient()
 
   const [salesAllocRes, purchaseAllocRes] = await Promise.all([
     supabase
@@ -212,7 +221,8 @@ export async function calculateVatReturnFlatRate(
   clientId: string,
   periodStart: string,
   periodEnd: string,
-  flatRateSettings: FlatRateSettings
+  flatRateSettings: FlatRateSettings,
+  db?: SupabaseClient
 ): Promise<
   VatReturnResult & {
     grossTurnover: number
@@ -221,7 +231,7 @@ export async function calculateVatReturnFlatRate(
     lctDetail: LimitedCostTraderResult
   }
 > {
-  const supabase = createClient()
+  const supabase = db || createClient()
 
   const [salesRes, capitalPurchasesRes] = await Promise.all([
     supabase
@@ -269,7 +279,7 @@ export async function calculateVatReturnFlatRate(
     }
   }
 
-  const lctDetail = await calculateLimitedCostStatus(clientId, periodStart, periodEnd, grossTurnover)
+  const lctDetail = await calculateLimitedCostStatus(clientId, periodStart, periodEnd, grossTurnover, supabase)
   const override = flatRateSettings.lctOverride || 'auto'
   const isLimitedCostTrader =
     override === 'force_limited_cost' ? true : override === 'force_standard' ? false : lctDetail.isLimitedCostTrader
@@ -303,9 +313,10 @@ export async function getVatReturnDetail(
   clientId: string,
   periodStart: string,
   periodEnd: string,
-  scheme: 'standard' | 'cash_accounting' | 'flat_rate' | 'annual_accounting' = 'standard'
+  scheme: 'standard' | 'cash_accounting' | 'flat_rate' | 'annual_accounting' = 'standard',
+  db?: SupabaseClient
 ): Promise<VatReturnDetail> {
-  const supabase = createClient()
+  const supabase = db || createClient()
 
   if (scheme === 'cash_accounting') {
     const [salesAllocRes, purchaseAllocRes] = await Promise.all([
