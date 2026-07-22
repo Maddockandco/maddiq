@@ -79,11 +79,11 @@ async function hmrcTokenRequest(body: Record<string, string>): Promise<TokenResp
   return data
 }
 
+export function debugCredentialFingerprint(): string {
+  return `cid_len=${CLIENT_ID.length}_cid_last4=${CLIENT_ID.slice(-4)}_secret_len=${CLIENT_SECRET.length}_secret_last4=${CLIENT_SECRET.slice(-4)}_redirect=${REDIRECT_URI}_base=${API_BASE}`
+}
+
 export async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
-  console.log('[HMRC DEBUG] client_id:', CLIENT_ID)
-  console.log('[HMRC DEBUG] client_secret fingerprint:', `len=${CLIENT_SECRET.length} last4=${CLIENT_SECRET.slice(-4)}`)
-  console.log('[HMRC DEBUG] redirect_uri:', REDIRECT_URI)
-  console.log('[HMRC DEBUG] api_base:', API_BASE)
   return hmrcTokenRequest({
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
