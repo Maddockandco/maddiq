@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import NicaiWidget from '@/components/ui/NicaiWidget'
 export default function AccountingLayout({
   children,
   params,
@@ -186,11 +187,12 @@ export default function AccountingLayout({
             Reports
           </Link>
           <Link href={`${basePath}/advisor`} className={tabClass(pathname === `${basePath}/advisor`)}>
-            ✨ AI Advisor
+            ✨ Nicai
           </Link>
         </nav>
       </div>
       <div className="p-8">{children}</div>
+      {!pathname.endsWith('/advisor') && <NicaiWidget clientId={clientId} />}
     </div>
   )
 }
