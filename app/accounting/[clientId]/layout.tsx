@@ -185,6 +185,9 @@ export default function AccountingLayout({
           <Link href={`${basePath}/reports`} className={tabClass(pathname === `${basePath}/reports`)}>
             Reports
           </Link>
+          <Link href={`${basePath}/advisor`} className={tabClass(pathname === `${basePath}/advisor`)}>
+            ✨ AI Advisor
+          </Link>
         </nav>
       </div>
       <div className="p-8">{children}</div>
