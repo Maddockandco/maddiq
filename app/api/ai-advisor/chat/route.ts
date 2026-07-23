@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { buildClientFinancialContext, getApprovedIndustryKnowledge, buildSystemPrompt, extractGeneralizableInsight, ADVISOR_TOOLS, executeSearchPurchaseLines, executeSearchSalesLines } from '@/lib/aiAdvisor'
+import { buildClientFinancialContext, getApprovedIndustryKnowledge, buildSystemPrompt, extractGeneralizableInsight, ADVISOR_TOOLS, executeSearchPurchaseLines, executeSearchSalesLines, executeSearchPurchaseBills, executeSearchSalesInvoices } from '@/lib/aiAdvisor'
 import { detectIndustry } from '@/lib/industryDetection'
 
 export async function POST(req: NextRequest) {
@@ -111,6 +111,10 @@ export async function POST(req: NextRequest) {
           result = await executeSearchPurchaseLines(clientId, block.input.keyword, block.input.months_back, supabase)
         } else if (block.name === 'search_sales_lines') {
           result = await executeSearchSalesLines(clientId, block.input.keyword, block.input.months_back, supabase)
+        } else if (block.name === 'search_purchase_bills') {
+          result = await executeSearchPurchaseBills(clientId, block.input.query, block.input.months_back, supabase)
+        } else if (block.name === 'search_sales_invoices') {
+          result = await executeSearchSalesInvoices(clientId, block.input.query, block.input.months_back, supabase)
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
       }
