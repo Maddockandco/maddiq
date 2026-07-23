@@ -6,7 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 export default function AcceptInvitePage() {
   const [token, setToken] = useState('')
   const [invite, setInvite] = useState<any>(null)
-  const [fullName, setFullName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -37,7 +38,7 @@ export default function AcceptInvitePage() {
     setSaving(true)
     setError('')
 
-    if (!fullName || !password) {
+    if (!firstName || !lastName || !password) {
       setError('Please fill in all fields')
       setSaving(false)
       return
@@ -64,7 +65,9 @@ export default function AcceptInvitePage() {
         .insert({
           firm_id: invite.firm_id,
           user_id: data.user.id,
-          full_name: fullName,
+          full_name: `${firstName} ${lastName}`.trim(),
+          first_name: firstName,
+          last_name: lastName,
           role: invite.role,
           is_active: true,
         })
@@ -137,15 +140,27 @@ export default function AcceptInvitePage() {
         )}
 
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Your full name</label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Jane Smith"
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">First name</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Jane"
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Last name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Smith"
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-brand-dark mb-1">Create a password</label>
