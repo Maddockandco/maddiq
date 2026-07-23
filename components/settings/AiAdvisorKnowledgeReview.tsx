@@ -41,9 +41,9 @@ export default function AiAdvisorKnowledgeReview() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-brand-dark mb-1">AI Advisor — Knowledge Review</h2>
+        <h2 className="text-lg font-semibold text-brand-dark mb-1">Nicai — Knowledge Review</h2>
         <p className="text-sm text-gray-500 mb-4">
-          The AI advisor accumulates industry-level insights from real conversations, but nothing feeds back into future
+          Nicai accumulates industry-level insights from real conversations, but nothing feeds back into future
           advice until it's approved here. This is real institutional memory, not model retraining — every entry stays
           human-reviewed.
         </p>
