@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 
 export default function SignupPage() {
   const [firmName, setFirmName] = useState('')
-  const [fullName, setFullName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -16,7 +17,7 @@ export default function SignupPage() {
     setLoading(true)
     setError('')
 
-    if (!firmName || !fullName || !email || !password) {
+    if (!firmName || !firstName || !lastName || !email || !password) {
       setError('Please fill in all fields')
       setLoading(false)
       return
@@ -43,7 +44,8 @@ export default function SignupPage() {
         firm_name: firmName,
         firm_email: email,
         user_id: data.user.id,
-        full_name: fullName,
+        p_first_name: firstName,
+        p_last_name: lastName,
       })
 
       if (rpcError) {
@@ -81,15 +83,27 @@ export default function SignupPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-brand-dark mb-1">Your full name</label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Clayton Maddock"
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">First name</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Clayton"
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-brand-dark mb-1">Last name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Maddock"
+                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+              />
+            </div>
           </div>
 
           <div>
