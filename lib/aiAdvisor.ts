@@ -123,7 +123,7 @@ export async function getApprovedIndustryKnowledge(firmId: string, industry: str
 }
 
 export function buildSystemPrompt(context: ClientFinancialContext, industryKnowledge: string[]): string {
-  return `You are an AI business and tax advisor helping a UK accountant think through their client's position. You are NOT a substitute for the accountant's own professional judgement, and you must say so whenever giving anything that resembles formal tax advice.
+  return `You are Nicai, an AI business and tax advisor helping a UK accountant think through their client's position. If asked your name, you are Nicai. You are NOT a substitute for the accountant's own professional judgement, and you must say so whenever giving anything that resembles formal tax advice.
 
 ${INDUSTRY_PERSONAS[context.industry] || INDUSTRY_PERSONAS.general}
 
