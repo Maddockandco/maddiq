@@ -141,7 +141,7 @@ ${industryKnowledge.length > 0 ? `Accumulated knowledge for this industry, from 
 
 Rules:
 - Only reason from the data given above, or from what you actually retrieve using your search tools. If something material is missing to answer well, use the search tools before guessing - and if it's still not determinable, say so explicitly rather than assuming a typical figure.
-- You have tools to search this client's actual purchase and sales data: search_purchase_lines/search_sales_lines for individual line items by keyword, and search_purchase_bills/search_sales_invoices for a specific whole document by supplier/customer name or reference (use these for "what's the total of X invoice" type questions). Use whichever fits the question - never guess an answer about specific items or invoices from the totals above, since those are aggregates with no item or document-level detail.
+- You have tools to search this client's actual purchase and sales data: search_purchase_lines/search_sales_lines for individual line items by keyword, and search_purchase_bills/search_sales_invoices for a specific whole document by supplier/customer name or reference (use these for "what's the total of X invoice" type questions). Use whichever fits the question - never guess an answer about specific items or invoices from the totals above, since those are aggregates with no item or document-level detail. These tools include bills/invoices still sitting as drafts (not yet approved) - if a result you're using has status "draft", say so explicitly rather than presenting it as final.
 - Be concrete and specific where the data supports it - cite the actual numbers given or retrieved.
 - Flag genuine tax-saving opportunities or risks when they're relevant, even if not directly asked.
 - Never state something as settled HMRC policy unless you are confident - flag genuine uncertainty and suggest the accountant verify against current HMRC guidance.
@@ -241,11 +241,14 @@ export async function executeSearchPurchaseLines(clientId: string, keyword: stri
   since.setMonth(since.getMonth() - (monthsBack || 12))
   const sinceStr = since.toISOString().slice(0, 10)
 
+  // Only cancelled/void bills are excluded - they never happened or were
+  // reversed. Drafts DO still show here, since an accountant should be able
+  // to ask Nicai about a bill that just hasn't been approved yet.
   const { data } = await db
     .from('purchase_bill_lines')
     .select('description, quantity, unit_price, line_total, purchase_bills!inner(bill_date, bill_number, client_id, status, contacts(name))')
     .eq('purchase_bills.client_id', clientId)
-    .not('purchase_bills.status', 'in', '(draft,cancelled,void)')
+    .not('purchase_bills.status', 'in', '(cancelled,void)')
     .gte('purchase_bills.bill_date', sinceStr)
     .ilike('description', `%${keyword}%`)
     .limit(100)
@@ -254,6 +257,7 @@ export async function executeSearchPurchaseLines(clientId: string, keyword: stri
     date: l.purchase_bills.bill_date,
     supplier: l.purchase_bills.contacts?.name || null,
     reference: l.purchase_bills.bill_number,
+    status: l.purchase_bills.status,
     description: l.description,
     quantity: l.quantity,
     unit_price: l.unit_price,
@@ -270,7 +274,7 @@ export async function executeSearchSalesLines(clientId: string, keyword: string,
     .from('sales_invoice_lines')
     .select('description, quantity, unit_price, line_total, sales_invoices!inner(invoice_date, invoice_number, client_id, status, contacts(name))')
     .eq('sales_invoices.client_id', clientId)
-    .not('sales_invoices.status', 'in', '(draft,cancelled,void)')
+    .not('sales_invoices.status', 'in', '(cancelled,void)')
     .gte('sales_invoices.invoice_date', sinceStr)
     .ilike('description', `%${keyword}%`)
     .limit(100)
@@ -279,6 +283,7 @@ export async function executeSearchSalesLines(clientId: string, keyword: string,
     date: l.sales_invoices.invoice_date,
     customer: l.sales_invoices.contacts?.name || null,
     reference: l.sales_invoices.invoice_number,
+    status: l.sales_invoices.status,
     description: l.description,
     quantity: l.quantity,
     unit_price: l.unit_price,
@@ -303,7 +308,7 @@ export async function executeSearchPurchaseBills(clientId: string, query: string
     .from('purchase_bills')
     .select('id, bill_number, bill_date, total, status, contacts(name)')
     .eq('client_id', clientId)
-    .not('status', 'in', '(draft,cancelled,void)')
+    .not('status', 'in', '(cancelled,void)')
     .gte('bill_date', sinceStr)
 
   billsQuery = contactIds.length > 0
@@ -339,7 +344,7 @@ export async function executeSearchSalesInvoices(clientId: string, query: string
     .from('sales_invoices')
     .select('id, invoice_number, invoice_date, total, status, contacts(name)')
     .eq('client_id', clientId)
-    .not('status', 'in', '(draft,cancelled,void)')
+    .not('status', 'in', '(cancelled,void)')
     .gte('invoice_date', sinceStr)
 
   invoicesQuery = contactIds.length > 0
