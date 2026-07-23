@@ -7,6 +7,7 @@ import TeamList from '@/components/settings/TeamList'
 import InviteTeamMember from '@/components/settings/InviteTeamMember'
 import EngagementLetterTemplates from '@/components/settings/EngagementLetterTemplates'
 import ClauseLibrary from '@/components/settings/ClauseLibrary'
+import AiAdvisorKnowledgeReview from '@/components/settings/AiAdvisorKnowledgeReview'
 import { useRole } from '@/hooks/useRole'
 
 export default function SettingsPage() {
@@ -30,6 +31,7 @@ export default function SettingsPage() {
     { id: 'branding', label: 'Branding', show: can.manageSettings },
     { id: 'letters', label: 'Engagement Letters', show: can.manageSettings },
     { id: 'clauses', label: 'Clause Library', show: can.manageSettings },
+    { id: 'ai_advisor', label: 'AI Advisor', show: can.manageSettings },
     { id: 'team', label: 'Team', show: can.manageTeam },
   ].filter((t) => t.show)
 
@@ -82,6 +84,10 @@ export default function SettingsPage() {
           <p className="text-sm text-gray-500 mb-4">Manage governing-body clause text and checklist requirements for engagement letters</p>
           <ClauseLibrary />
         </div>
+      )}
+
+      {activeTab === 'ai_advisor' && can.manageSettings && (
+        <AiAdvisorKnowledgeReview />
       )}
 
       {activeTab === 'team' && can.manageTeam && (
