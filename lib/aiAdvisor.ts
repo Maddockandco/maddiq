@@ -141,7 +141,7 @@ ${industryKnowledge.length > 0 ? `Accumulated knowledge for this industry, from 
 
 Rules:
 - Only reason from the data given above, or from what you actually retrieve using your search tools. If something material is missing to answer well, use the search tools before guessing - and if it's still not determinable, say so explicitly rather than assuming a typical figure.
-- You have tools to search this client's actual purchase and sales line items by keyword. Use them whenever asked about specific products, ingredients, or items - never guess an answer about specific items from the totals above, since those are aggregates with no item-level detail.
+- You have tools to search this client's actual purchase and sales data: search_purchase_lines/search_sales_lines for individual line items by keyword, and search_purchase_bills/search_sales_invoices for a specific whole document by supplier/customer name or reference (use these for "what's the total of X invoice" type questions). Use whichever fits the question - never guess an answer about specific items or invoices from the totals above, since those are aggregates with no item or document-level detail.
 - Be concrete and specific where the data supports it - cite the actual numbers given or retrieved.
 - Flag genuine tax-saving opportunities or risks when they're relevant, even if not directly asked.
 - Never state something as settled HMRC policy unless you are confident - flag genuine uncertainty and suggest the accountant verify against current HMRC guidance.
@@ -208,6 +208,32 @@ export const ADVISOR_TOOLS = [
       required: ['keyword'],
     },
   },
+  {
+    name: 'search_purchase_bills',
+    description:
+      'Search for a specific purchase bill (invoice from a supplier) by supplier name or bill number, returning its total, status, date, and all line items. Use this for questions about a specific bill AS A WHOLE - e.g. "what was the total on the Booker invoice" - rather than search_purchase_lines, which only searches individual line descriptions and cannot answer whole-document questions.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Supplier name or bill number to search for' },
+        months_back: { type: 'number', description: 'How many months back to search, default 12' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'search_sales_invoices',
+    description:
+      'Search for a specific sales invoice by customer name or invoice number, returning its total, status, date, and all line items. Use this for questions about a specific invoice AS A WHOLE, rather than search_sales_lines, which only searches individual line descriptions.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Customer name or invoice number to search for' },
+        months_back: { type: 'number', description: 'How many months back to search, default 12' },
+      },
+      required: ['query'],
+    },
+  },
 ]
 
 export async function executeSearchPurchaseLines(clientId: string, keyword: string, monthsBack: number | undefined, db: SupabaseClient) {
@@ -258,4 +284,81 @@ export async function executeSearchSalesLines(clientId: string, keyword: string,
     unit_price: l.unit_price,
     line_total: l.line_total,
   }))
+}
+
+// Whole-document lookup by supplier/customer name or bill/invoice number -
+// for questions about a specific invoice as a whole (its total, its VAT,
+// what's on it), as opposed to search_purchase_lines/search_sales_lines
+// which only search individual line descriptions and can't answer "what's
+// the total of the X invoice".
+export async function executeSearchPurchaseBills(clientId: string, query: string, monthsBack: number | undefined, db: SupabaseClient) {
+  const since = new Date()
+  since.setMonth(since.getMonth() - (monthsBack || 12))
+  const sinceStr = since.toISOString().slice(0, 10)
+
+  const { data: matchingContacts } = await db.from('contacts').select('id').eq('client_id', clientId).ilike('name', `%${query}%`)
+  const contactIds = (matchingContacts || []).map((c: any) => c.id)
+
+  let billsQuery = db
+    .from('purchase_bills')
+    .select('id, bill_number, bill_date, total, status, contacts(name)')
+    .eq('client_id', clientId)
+    .not('status', 'in', '(draft,cancelled,void)')
+    .gte('bill_date', sinceStr)
+
+  billsQuery = contactIds.length > 0
+    ? billsQuery.or(`bill_number.ilike.%${query}%,contact_id.in.(${contactIds.join(',')})`)
+    : billsQuery.ilike('bill_number', `%${query}%`)
+
+  const { data: bills } = await billsQuery.limit(10)
+
+  const results = []
+  for (const bill of bills || []) {
+    const { data: lines } = await db.from('purchase_bill_lines').select('description, quantity, unit_price, line_total').eq('bill_id', bill.id)
+    results.push({
+      billNumber: bill.bill_number,
+      supplier: (bill as any).contacts?.name || null,
+      date: bill.bill_date,
+      status: bill.status,
+      total: bill.total,
+      lines: lines || [],
+    })
+  }
+  return results
+}
+
+export async function executeSearchSalesInvoices(clientId: string, query: string, monthsBack: number | undefined, db: SupabaseClient) {
+  const since = new Date()
+  since.setMonth(since.getMonth() - (monthsBack || 12))
+  const sinceStr = since.toISOString().slice(0, 10)
+
+  const { data: matchingContacts } = await db.from('contacts').select('id').eq('client_id', clientId).ilike('name', `%${query}%`)
+  const contactIds = (matchingContacts || []).map((c: any) => c.id)
+
+  let invoicesQuery = db
+    .from('sales_invoices')
+    .select('id, invoice_number, invoice_date, total, status, contacts(name)')
+    .eq('client_id', clientId)
+    .not('status', 'in', '(draft,cancelled,void)')
+    .gte('invoice_date', sinceStr)
+
+  invoicesQuery = contactIds.length > 0
+    ? invoicesQuery.or(`invoice_number.ilike.%${query}%,contact_id.in.(${contactIds.join(',')})`)
+    : invoicesQuery.ilike('invoice_number', `%${query}%`)
+
+  const { data: invoices } = await invoicesQuery.limit(10)
+
+  const results = []
+  for (const inv of invoices || []) {
+    const { data: lines } = await db.from('sales_invoice_lines').select('description, quantity, unit_price, line_total').eq('invoice_id', inv.id)
+    results.push({
+      invoiceNumber: inv.invoice_number,
+      customer: (inv as any).contacts?.name || null,
+      date: inv.invoice_date,
+      status: inv.status,
+      total: inv.total,
+      lines: lines || [],
+    })
+  }
+  return results
 }
