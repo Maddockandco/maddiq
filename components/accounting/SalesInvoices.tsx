@@ -180,11 +180,8 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setCreating(true)
   }
   async function suggestNextInvoiceNumber() {
-    const { count } = await supabase
-      .from('sales_invoices')
-      .select('id', { count: 'exact', head: true })
-      .eq('client_id', clientId)
-    setInvoiceNumberInput(`INV-${String((count || 0) + 1).padStart(4, '0')}`)
+    const { data, error } = await supabase.rpc('get_next_sales_invoice_number', { p_client_id: clientId })
+    if (!error && data) setInvoiceNumberInput(data)
   }
   function handleContactChange(id: string) {
     setContactId(id)
@@ -297,7 +294,11 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
           notes: notes || null,
         })
         .eq('id', editingInvoiceId)
-      if (updateError) { setError(updateError.message); setSaving(false); return }
+      if (updateError) {
+        setError(updateError.code === '23505' ? `Invoice number "${invoiceNumber}" is already in use for this client — please choose a different one.` : updateError.message)
+        setSaving(false)
+        return
+      }
       await supabase.from('sales_invoice_lines').delete().eq('invoice_id', editingInvoiceId)
       const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesPayload(editingInvoiceId))
       if (linesError) { setError(linesError.message); setSaving(false); return }
@@ -343,7 +344,11 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
       })
       .select()
       .single()
-    if (invoiceError) { setError(invoiceError.message); setSaving(false); return }
+    if (invoiceError) {
+      setError(invoiceError.code === '23505' ? `Invoice number "${invoiceNumber}" is already in use for this client — please choose a different one.` : invoiceError.message)
+      setSaving(false)
+      return
+    }
     const { error: linesError } = await supabase.from('sales_invoice_lines').insert(linesPayload(invoice.id))
     if (linesError) { setError(linesError.message); setSaving(false); return }
     await logAudit({
