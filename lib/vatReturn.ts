@@ -54,6 +54,10 @@ export type VatTransactionDetail = {
   netAmount: number
   vatAmount: number
   note?: string
+  rateName?: string
+  wasRevised?: boolean
+  originalNetAmount?: number
+  originalVatAmount?: number
 }
 
 export type VatReturnDetail = {
@@ -314,7 +318,8 @@ export async function getVatReturnDetail(
   periodStart: string,
   periodEnd: string,
   scheme: 'standard' | 'cash_accounting' | 'flat_rate' | 'annual_accounting' = 'standard',
-  db?: SupabaseClient
+  db?: SupabaseClient,
+  vatReturnId?: string
 ): Promise<VatReturnDetail> {
   const supabase = db || createClient()
 
@@ -365,10 +370,10 @@ export async function getVatReturnDetail(
     return { salesTransactions, purchaseTransactions }
   }
 
-  const [salesRes, purchaseRes] = await Promise.all([
+  const [salesRes, purchaseRes, snapshotsRes] = await Promise.all([
     supabase
       .from('sales_invoice_lines')
-      .select('vat_amount, line_total, description, sales_invoices!inner(invoice_date, invoice_number, client_id, status, contacts(name))')
+      .select('id, vat_amount, line_total, description, vat_rates(name), sales_invoices!inner(invoice_date, invoice_number, client_id, status, contacts(name))')
       .eq('sales_invoices.client_id', clientId)
       .neq('sales_invoices.status', 'draft')
       .neq('sales_invoices.status', 'cancelled')
@@ -376,13 +381,29 @@ export async function getVatReturnDetail(
       .lte('sales_invoices.invoice_date', periodEnd),
     supabase
       .from('purchase_bill_lines')
-      .select('vat_amount, line_total, description, expense_account_id, chart_of_accounts(account_type), purchase_bills!inner(bill_date, bill_number, client_id, status, contacts(name))')
+      .select('id, vat_amount, line_total, description, expense_account_id, vat_rates(name), chart_of_accounts(account_type), purchase_bills!inner(bill_date, bill_number, client_id, status, contacts(name))')
       .eq('purchase_bills.client_id', clientId)
       .neq('purchase_bills.status', 'draft')
       .neq('purchase_bills.status', 'cancelled')
       .gte('purchase_bills.bill_date', periodStart)
       .lte('purchase_bills.bill_date', periodEnd),
+    vatReturnId
+      ? supabase.from('vat_return_line_snapshots').select('*').eq('vat_return_id', vatReturnId)
+      : Promise.resolve({ data: [] as any[] }),
   ])
+
+  const snapshotByLineId = new Map<string, any>()
+  for (const s of (snapshotsRes as any).data || []) {
+    snapshotByLineId.set(s.source_line_id, s)
+  }
+
+  function revisionFields(lineId: string, currentNet: number, currentVat: number) {
+    const snap = snapshotByLineId.get(lineId)
+    if (!snap) return {}
+    const wasRevised = Math.abs(parseFloat(snap.net_amount) - currentNet) > 0.005 || Math.abs(parseFloat(snap.vat_amount) - currentVat) > 0.005
+    if (!wasRevised) return {}
+    return { wasRevised: true, originalNetAmount: parseFloat(snap.net_amount), originalVatAmount: parseFloat(snap.vat_amount) }
+  }
 
   const salesTransactions: VatTransactionDetail[] = (salesRes.data || []).map((l: any) => ({
     date: l.sales_invoices.invoice_date,
@@ -391,6 +412,8 @@ export async function getVatReturnDetail(
     netAmount: parseFloat(l.line_total) || 0,
     vatAmount: parseFloat(l.vat_amount) || 0,
     note: l.description,
+    rateName: l.vat_rates?.name || 'No rate set',
+    ...revisionFields(l.id, parseFloat(l.line_total) || 0, parseFloat(l.vat_amount) || 0),
   }))
 
   let purchaseTransactions: VatTransactionDetail[] = (purchaseRes.data || []).map((l: any) => ({
@@ -400,6 +423,8 @@ export async function getVatReturnDetail(
     netAmount: parseFloat(l.line_total) || 0,
     vatAmount: parseFloat(l.vat_amount) || 0,
     note: l.description,
+    rateName: l.vat_rates?.name || 'No rate set',
+    ...revisionFields(l.id, parseFloat(l.line_total) || 0, parseFloat(l.vat_amount) || 0),
   }))
 
   if (scheme === 'flat_rate') {
@@ -416,6 +441,8 @@ export async function getVatReturnDetail(
         netAmount: parseFloat(l.line_total) || 0,
         vatAmount: parseFloat(l.vat_amount) || 0,
         note: `${l.description} (capital purchase over £2,000)`,
+        rateName: l.vat_rates?.name || 'No rate set',
+        ...revisionFields(l.id, parseFloat(l.line_total) || 0, parseFloat(l.vat_amount) || 0),
       }))
     return { salesTransactions, purchaseTransactions, box1IsCalculated: true }
   }
