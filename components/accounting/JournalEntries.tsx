@@ -11,6 +11,8 @@ type LineDraft = {
   debit: string
   credit: string
   description: string
+  vat_rate_id: string
+  amount_type: 'exclusive' | 'inclusive'
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -34,14 +36,16 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   const [reference, setReference] = useState('')
   const [description, setDescription] = useState('')
   const [lines, setLines] = useState<LineDraft[]>([
-    { account_id: '', debit: '', credit: '', description: '' },
-    { account_id: '', debit: '', credit: '', description: '' },
+    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
+    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedLines, setExpandedLines] = useState<any[]>([])
+  const [vatRates, setVatRates] = useState<any[]>([])
+  const [vatAccountId, setVatAccountId] = useState<string | null>(null)
   const { can } = useRole()
   const supabase = createClient()
 
@@ -66,6 +70,13 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .eq('client_id', clientId)
       .eq('is_active', true)
       .order('code', { ascending: true })
+
+    const [vatRatesResult, settingsResult] = await Promise.all([
+      supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('accounting_settings').select('vat_account_id').eq('client_id', clientId).maybeSingle(),
+    ])
+    setVatRates(vatRatesResult.data || [])
+    setVatAccountId(settingsResult.data?.vat_account_id || null)
 
     if (entriesResult.data) setEntries(entriesResult.data)
     if (accountsResult.data) {
@@ -97,7 +108,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   }
 
   function addLine() {
-    setLines([...lines, { account_id: '', debit: '', credit: '', description: '' }])
+    setLines([...lines, { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' }])
   }
 
   function updateLine(index: number, field: keyof LineDraft, value: string) {
@@ -110,12 +121,50 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     setLines(lines.filter((_, i) => i !== index))
   }
 
+  // For a line with a VAT rate selected, works out the net/VAT split and the
+  // EFFECTIVE total it contributes to the entry's balance - which differs
+  // from the raw typed amount when "Exclusive" is chosen, since VAT gets
+  // added on top rather than carved out of what was typed.
+  function computeLineSplit(line: LineDraft) {
+    const rate = vatRates.find((r) => r.id === line.vat_rate_id)
+    const debitAmount = parseFloat(line.debit) || 0
+    const creditAmount = parseFloat(line.credit) || 0
+    const side: 'debit' | 'credit' | null = debitAmount > 0 ? 'debit' : creditAmount > 0 ? 'credit' : null
+
+    if (!rate || !side) {
+      return { netAmount: debitAmount || creditAmount, vatAmount: 0, effectiveDebit: debitAmount, effectiveCredit: creditAmount, side, ratePercent: 0 }
+    }
+
+    const ratePercent = parseFloat(rate.rate)
+    const typedAmount = side === 'debit' ? debitAmount : creditAmount
+    let netAmount: number, vatAmount: number
+
+    if (line.amount_type === 'inclusive') {
+      netAmount = Math.round((typedAmount / (1 + ratePercent / 100)) * 100) / 100
+      vatAmount = Math.round((typedAmount - netAmount) * 100) / 100
+    } else {
+      netAmount = typedAmount
+      vatAmount = Math.round((typedAmount * (ratePercent / 100)) * 100) / 100
+    }
+
+    const total = netAmount + vatAmount
+    return {
+      netAmount,
+      vatAmount,
+      effectiveDebit: side === 'debit' ? total : 0,
+      effectiveCredit: side === 'credit' ? total : 0,
+      side,
+      ratePercent,
+    }
+  }
+
   function calculateBalance() {
     let totalDebit = 0
     let totalCredit = 0
     lines.forEach((l) => {
-      totalDebit += parseFloat(l.debit) || 0
-      totalCredit += parseFloat(l.credit) || 0
+      const split = computeLineSplit(l)
+      totalDebit += split.effectiveDebit
+      totalCredit += split.effectiveCredit
     })
     return { totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0 }
   }
@@ -176,14 +225,38 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
 
     if (entryError) { setError(entryError.message); setSaving(false); setShowConfirm(false); return }
 
-    const linesToInsert = validLines.map((l, i) => ({
-      journal_entry_id: entry.id,
-      account_id: l.account_id,
-      debit: parseFloat(l.debit) || 0,
-      credit: parseFloat(l.credit) || 0,
-      description: l.description || null,
-      sort_order: i,
-    }))
+    const linesToInsert: any[] = []
+    let sortOrder = 0
+    for (const l of validLines) {
+      const split = computeLineSplit(l)
+      if (split.vatAmount > 0 && vatAccountId) {
+        linesToInsert.push({
+          journal_entry_id: entry.id,
+          account_id: l.account_id,
+          debit: split.side === 'debit' ? split.netAmount : 0,
+          credit: split.side === 'credit' ? split.netAmount : 0,
+          description: l.description || null,
+          sort_order: sortOrder++,
+        })
+        linesToInsert.push({
+          journal_entry_id: entry.id,
+          account_id: vatAccountId,
+          debit: split.side === 'debit' ? split.vatAmount : 0,
+          credit: split.side === 'credit' ? split.vatAmount : 0,
+          description: `VAT ${split.ratePercent}% on: ${l.description || 'journal line'}`,
+          sort_order: sortOrder++,
+        })
+      } else {
+        linesToInsert.push({
+          journal_entry_id: entry.id,
+          account_id: l.account_id,
+          debit: parseFloat(l.debit) || 0,
+          credit: parseFloat(l.credit) || 0,
+          description: l.description || null,
+          sort_order: sortOrder++,
+        })
+      }
+    }
 
     const { data: insertedLines, error: linesError } = await supabase
       .from('journal_lines')
@@ -206,8 +279,8 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     setReference('')
     setDescription('')
     setLines([
-      { account_id: '', debit: '', credit: '', description: '' },
-      { account_id: '', debit: '', credit: '', description: '' },
+      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
+      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
     ])
     fetchData()
     setSaving(false)
@@ -284,55 +357,96 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
             </div>
           </div>
 
+          {!vatAccountId && (
+            <div className="bg-amber-50 text-amber-700 text-xs rounded-lg px-4 py-3">
+              No VAT control account is set in Accounting Settings — VAT selection on journal lines is disabled until one is configured there.
+            </div>
+          )}
+
+          <div className="bg-blue-50 text-blue-700 text-xs rounded-lg px-4 py-3">
+            VAT selected here correctly updates your VAT Control account balance in the ledger, but does <strong>not</strong> appear on a VAT Return —
+            returns are calculated only from actual sales invoices and purchase bills. If this needs to affect a return, log it in Error Corrections instead.
+          </div>
+
           <div className="space-y-2">
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 px-1">
-              <div className="col-span-4">Account</div>
-              <div className="col-span-3">Line description</div>
+              <div className="col-span-3">Account</div>
+              <div className="col-span-2">Line description</div>
               <div className="col-span-2">Debit (£)</div>
               <div className="col-span-2">Credit (£)</div>
+              <div className="col-span-2">VAT</div>
               <div className="col-span-1"></div>
             </div>
-            {lines.map((line, index) => (
-              <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                <select
-                  value={line.account_id}
-                  onChange={(e) => updateLine(index, 'account_id', e.target.value)}
-                  className="col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                >
-                  <option value="">Select account</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={line.description}
-                  onChange={(e) => updateLine(index, 'description', e.target.value)}
-                  className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                />
-                <input
-                  type="number"
-                  value={line.debit}
-                  onChange={(e) => updateLine(index, 'debit', e.target.value)}
-                  placeholder="0.00"
-                  className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                />
-                <input
-                  type="number"
-                  value={line.credit}
-                  onChange={(e) => updateLine(index, 'credit', e.target.value)}
-                  placeholder="0.00"
-                  className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
-                />
-                <button
-                  onClick={() => removeLine(index)}
-                  disabled={lines.length <= 2}
-                  className="col-span-1 text-red-400 hover:text-red-600 text-xs disabled:opacity-30"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+            {lines.map((line, index) => {
+              const split = computeLineSplit(line)
+              return (
+                <div key={index} className="space-y-1">
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <select
+                      value={line.account_id}
+                      onChange={(e) => updateLine(index, 'account_id', e.target.value)}
+                      className="col-span-3 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    >
+                      <option value="">Select account</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={line.description}
+                      onChange={(e) => updateLine(index, 'description', e.target.value)}
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <input
+                      type="number"
+                      value={line.debit}
+                      onChange={(e) => updateLine(index, 'debit', e.target.value)}
+                      placeholder="0.00"
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <input
+                      type="number"
+                      value={line.credit}
+                      onChange={(e) => updateLine(index, 'credit', e.target.value)}
+                      placeholder="0.00"
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                    />
+                    <select
+                      value={line.vat_rate_id}
+                      onChange={(e) => updateLine(index, 'vat_rate_id', e.target.value)}
+                      disabled={!vatAccountId}
+                      className="col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-gold disabled:opacity-40"
+                    >
+                      <option value="">No VAT</option>
+                      {vatRates.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                    <button
+                      onClick={() => removeLine(index)}
+                      disabled={lines.length <= 2}
+                      className="col-span-1 text-red-400 hover:text-red-600 text-xs disabled:opacity-30"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {line.vat_rate_id && split.side && (
+                    <div className="col-span-12 flex items-center gap-3 pl-1">
+                      <label className="flex items-center gap-1 text-xs text-gray-500">
+                        <input type="radio" checked={line.amount_type === 'exclusive'} onChange={() => updateLine(index, 'amount_type', 'exclusive')} />
+                        Amount is exclusive of VAT
+                      </label>
+                      <label className="flex items-center gap-1 text-xs text-gray-500">
+                        <input type="radio" checked={line.amount_type === 'inclusive'} onChange={() => updateLine(index, 'amount_type', 'inclusive')} />
+                        Amount is inclusive of VAT
+                      </label>
+                      <span className="text-xs text-gray-400">
+                        → Net £{split.netAmount.toFixed(2)} + VAT £{split.vatAmount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
           <button onClick={addLine} className="text-xs text-brand-dark font-medium hover:underline">
