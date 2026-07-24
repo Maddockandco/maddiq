@@ -164,10 +164,10 @@ export default function AccountingLayout({
   }
   return (
     <div className="min-h-screen bg-brand-light">
-      <div className="bg-brand-dark px-8 pt-6 pb-0">
+      <div className="bg-brand-dark px-4 md:px-8 pt-6 pb-0">
         <p className="text-white/50 text-xs uppercase tracking-wider mb-1">Accounting</p>
         <h1 className="text-white text-xl font-semibold mb-4">{clientName || 'Loading client...'}</h1>
-        <nav className="flex items-center gap-2">
+        <nav className="flex items-center gap-2 overflow-x-auto pb-1 -mb-px [&>*]:flex-shrink-0 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap">
           <Link href={basePath} className={tabClass(pathname === basePath)}>
             Dashboard
           </Link>
@@ -192,7 +192,7 @@ export default function AccountingLayout({
           </Link>
         </nav>
       </div>
-      <div className="p-8">{children}</div>
+      <div className="p-4 md:p-8">{children}</div>
       {!pathname.endsWith('/advisor') && <NicaiWidget clientId={clientId} />}
     </div>
   )
