@@ -9,7 +9,7 @@ import TradeDebtors from '@/components/accounting/TradeDebtors'
 import TradePayables from '@/components/accounting/TradePayables'
 import VisualDashboard from '@/components/accounting/VisualDashboard'
 
-type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet' | 'trade_debtors' | 'trade_payables' | 'dashboard'
+type ReportType = 'trial_balance' | 'profit_loss' | 'balance_sheet' | 'general_ledger' | 'trade_debtors' | 'trade_payables' | 'dashboard'
 type Basis = 'accruals' | 'cash'
 
 const GRANULAR_TO_CATEGORY: Record<string, string> = {
@@ -65,6 +65,7 @@ const REPORT_LABELS: Record<ReportType, string> = {
   trial_balance: 'Trial Balance',
   profit_loss: 'Profit & Loss',
   balance_sheet: 'Balance Sheet',
+  general_ledger: 'General Ledger',
   trade_debtors: 'Trade Debtors',
   trade_payables: 'Trade Payables',
   dashboard: 'Dashboard',
@@ -75,6 +76,10 @@ export default function Reports({ clientId }: { clientId: string }) {
   const [clientName, setClientName] = useState('')
   const [yearEndDate, setYearEndDate] = useState<string | null>(null)
   const [bsCtEstimate, setBsCtEstimate] = useState<any>(null)
+  const [glAccountId, setGlAccountId] = useState('')
+  const [glData, setGlData] = useState<any[]>([])
+  const [glLoading, setGlLoading] = useState(false)
+  const [glAccountOptions, setGlAccountOptions] = useState<any[]>([])
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
   const [basis, setBasis] = useState<Basis>('accruals')
   const [asOfDate, setAsOfDate] = useState(today())
@@ -121,6 +126,73 @@ export default function Reports({ clientId }: { clientId: string }) {
   useEffect(() => {
     if (reportType === 'balance_sheet') fetchBsCtEstimate()
   }, [clientId, reportType, asOfDate, yearEndDate])
+
+  useEffect(() => {
+    if (reportType === 'general_ledger') fetchGeneralLedger()
+  }, [clientId, reportType, periodStart, periodEnd, glAccountId])
+
+  async function fetchGeneralLedger() {
+    setGlLoading(true)
+
+    if (glAccountOptions.length === 0) {
+      const { data: accs } = await supabase.from('chart_of_accounts').select('id, code, name').eq('client_id', clientId).eq('is_active', true).order('code')
+      setGlAccountOptions(accs || [])
+    }
+
+    // Opening balance = everything posted before periodStart, for whichever
+    // account(s) are in scope
+    let openingQuery = supabase
+      .from('journal_lines')
+      .select('debit, credit, account_id, chart_of_accounts(code, name), journal_entries!inner(entry_date, client_id)')
+      .eq('journal_entries.client_id', clientId)
+      .lt('journal_entries.entry_date', periodStart)
+    if (glAccountId) openingQuery = openingQuery.eq('account_id', glAccountId)
+
+    let activityQuery = supabase
+      .from('journal_lines')
+      .select('debit, credit, account_id, description, chart_of_accounts(code, name), journal_entries!inner(entry_date, reference, description, source, client_id)')
+      .eq('journal_entries.client_id', clientId)
+      .gte('journal_entries.entry_date', periodStart)
+      .lte('journal_entries.entry_date', periodEnd)
+      .order('entry_date', { foreignTable: 'journal_entries', ascending: true })
+    if (glAccountId) activityQuery = activityQuery.eq('account_id', glAccountId)
+
+    const [openingRes, activityRes] = await Promise.all([openingQuery, activityQuery])
+
+    const openingByAccount = new Map<string, { code: string; name: string; balance: number }>()
+    for (const l of openingRes.data || []) {
+      const acc = (l as any).chart_of_accounts
+      const key = (l as any).account_id
+      const existing = openingByAccount.get(key) || { code: acc?.code || '', name: acc?.name || '', balance: 0 }
+      existing.balance += (parseFloat((l as any).debit) || 0) - (parseFloat((l as any).credit) || 0)
+      openingByAccount.set(key, existing)
+    }
+
+    const byAccount = new Map<string, any>()
+    for (const l of activityRes.data || []) {
+      const acc = (l as any).chart_of_accounts
+      const key = (l as any).account_id
+      if (!byAccount.has(key)) {
+        const opening = openingByAccount.get(key)?.balance || 0
+        byAccount.set(key, { code: acc?.code || '', name: acc?.name || '', opening, transactions: [], runningBalance: opening })
+      }
+      const bucket = byAccount.get(key)
+      const debit = parseFloat((l as any).debit) || 0
+      const credit = parseFloat((l as any).credit) || 0
+      bucket.runningBalance += debit - credit
+      bucket.transactions.push({
+        date: (l as any).journal_entries.entry_date,
+        reference: (l as any).journal_entries.reference,
+        description: (l as any).description || (l as any).journal_entries.description,
+        debit,
+        credit,
+        balance: bucket.runningBalance,
+      })
+    }
+
+    setGlData(Array.from(byAccount.values()).sort((a, b) => a.code.localeCompare(b.code)))
+    setGlLoading(false)
+  }
 
   async function fetchBsCtEstimate() {
     setBsCtEstimate(null)
@@ -775,6 +847,62 @@ export default function Reports({ clientId }: { clientId: string }) {
     )
   }
 
+  function renderGeneralLedger() {
+    if (glData.length === 0) {
+      return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+          <p className="text-sm text-gray-400">No activity found for this period{glAccountId ? ' on this account' : ''}.</p>
+        </div>
+      )
+    }
+    return (
+      <div className="space-y-6">
+        {glData.map((acc) => (
+          <div key={acc.code} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="bg-gray-50 px-6 py-3 flex items-center justify-between border-b border-gray-100">
+              <p className="text-sm font-semibold text-brand-dark">{acc.code} — {acc.name}</p>
+              <p className="text-xs text-gray-500">Opening balance: £{acc.opening.toFixed(2)}</p>
+            </div>
+            {acc.transactions.length === 0 ? (
+              <p className="text-sm text-gray-400 p-6">No activity in this period.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 uppercase tracking-wider">
+                    <th className="text-left px-6 py-2">Date</th>
+                    <th className="text-left px-6 py-2">Reference</th>
+                    <th className="text-left px-6 py-2">Description</th>
+                    <th className="text-right px-6 py-2">Debit</th>
+                    <th className="text-right px-6 py-2">Credit</th>
+                    <th className="text-right px-6 py-2">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {acc.transactions.map((t: any, i: number) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="px-6 py-2 text-brand-dark">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-6 py-2 font-mono text-brand-dark">{t.reference || '—'}</td>
+                      <td className="px-6 py-2 text-gray-500">{t.description || '—'}</td>
+                      <td className="px-6 py-2 text-right text-brand-dark">{t.debit > 0 ? `£${t.debit.toFixed(2)}` : ''}</td>
+                      <td className="px-6 py-2 text-right text-brand-dark">{t.credit > 0 ? `£${t.credit.toFixed(2)}` : ''}</td>
+                      <td className="px-6 py-2 text-right font-medium text-brand-dark">£{t.balance.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                    <td colSpan={5} className="px-6 py-2 text-gray-500">Closing balance</td>
+                    <td className="px-6 py-2 text-right text-brand-dark">£{acc.runningBalance.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       active ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -789,6 +917,7 @@ export default function Reports({ clientId }: { clientId: string }) {
           className="border border-gray-200 rounded-lg px-4 py-2 text-sm font-medium text-brand-dark bg-white focus:outline-none focus:ring-2 focus:ring-brand-gold"
         >
           <option value="trial_balance">Trial Balance</option>
+          <option value="general_ledger">General Ledger</option>
           <option value="profit_loss">Profit & Loss</option>
           <option value="balance_sheet">Balance Sheet</option>
           <option value="trade_debtors">Trade Debtors</option>
@@ -817,6 +946,21 @@ export default function Reports({ clientId }: { clientId: string }) {
             <label className="text-xs text-gray-500">To</label>
             <DatePicker value={periodEnd} onChange={setPeriodEnd} />
           </div>
+        ) : reportType === 'general_ledger' ? (
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs text-gray-500">From</label>
+            <DatePicker value={periodStart} onChange={setPeriodStart} />
+            <label className="text-xs text-gray-500">To</label>
+            <DatePicker value={periodEnd} onChange={setPeriodEnd} />
+            <select
+              value={glAccountId}
+              onChange={(e) => setGlAccountId(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-gold"
+            >
+              <option value="">All accounts</option>
+              {glAccountOptions.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            </select>
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <label className="text-xs text-gray-500">As at</label>
@@ -832,10 +976,10 @@ export default function Reports({ clientId }: { clientId: string }) {
         </div>
         <div className="text-right">
           <p className="text-white/60 text-xs uppercase tracking-wider">
-            {reportType === 'profit_loss' ? 'Period' : 'As at'}
+            {['profit_loss', 'general_ledger'].includes(reportType) ? 'Period' : 'As at'}
           </p>
           <p className="text-white text-sm font-medium">
-            {reportType === 'profit_loss'
+            {['profit_loss', 'general_ledger'].includes(reportType)
               ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}`
               : new Date(asOfDate).toLocaleDateString('en-GB')}
           </p>
@@ -878,6 +1022,14 @@ export default function Reports({ clientId }: { clientId: string }) {
             {reportType === 'balance_sheet' && renderBalanceSheet()}
           </>
         )
+      )}
+
+      {reportType === 'general_ledger' && (
+        glLoading ? (
+          <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+            <p className="text-gray-500 text-sm">Loading report...</p>
+          </div>
+        ) : renderGeneralLedger()
       )}
 
       {reportType === 'trade_debtors' && <TradeDebtors clientId={clientId} />}
