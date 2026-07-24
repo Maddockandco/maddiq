@@ -1,8 +1,34 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+
 export default function DeadlineTable({ deadlines }: { deadlines: any[] }) {
+  const supabase = createClient()
+  const [localDeadlines, setLocalDeadlines] = useState(deadlines)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { setLocalDeadlines(deadlines) }, [deadlines])
+
+  function startEditingNote(deadline: any) {
+    setEditingId(deadline.id)
+    setNoteDraft(deadline.notes || '')
+  }
+
+  async function saveNote(id: string) {
+    setSaving(true)
+    const { error } = await supabase.from('statutory_deadlines').update({ notes: noteDraft.trim() || null }).eq('id', id)
+    if (!error) {
+      setLocalDeadlines((prev) => prev.map((d) => (d.id === id ? { ...d, notes: noteDraft.trim() || null } : d)))
+    }
+    setEditingId(null)
+    setSaving(false)
+  }
+
   // Group deadlines by client
-  const grouped = deadlines.reduce((acc: any, deadline: any) => {
+  const grouped = localDeadlines.reduce((acc: any, deadline: any) => {
     const clientName = deadline.clients?.name || 'Unknown'
     if (!acc[clientName]) acc[clientName] = []
     acc[clientName].push(deadline)
@@ -42,17 +68,53 @@ export default function DeadlineTable({ deadlines }: { deadlines: any[] }) {
                 const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
                 const isOverdue = daysUntilDue < 0
                 const isDueSoon = daysUntilDue <= 30 && daysUntilDue >= 0
+                const isEditing = editingId === deadline.id
 
                 return (
                   <div key={deadline.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-brand-dark">
-                        {deadline.notes || deadline.type.replace(/_/g, ' ')}
+                    <div className="flex-1 pr-6">
+                      <p className="text-sm font-medium text-brand-dark capitalize">
+                        {deadline.type.replace(/_/g, ' ')}
                       </p>
                       {deadline.period_end && (
                         <p className="text-xs text-gray-400 mt-0.5">
                           Period ending {new Date(deadline.period_end).toLocaleDateString('en-GB')}
                         </p>
+                      )}
+
+                      {isEditing ? (
+                        <div className="mt-2 flex items-start gap-2">
+                          <textarea
+                            value={noteDraft}
+                            onChange={(e) => setNoteDraft(e.target.value)}
+                            rows={2}
+                            autoFocus
+                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                          />
+                          <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => saveNote(deadline.id)}
+                              disabled={saving}
+                              className="text-xs bg-brand-dark text-white font-semibold px-2 py-1 rounded-lg hover:bg-opacity-90 transition disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="text-xs bg-gray-100 text-gray-600 font-semibold px-2 py-1 rounded-lg hover:bg-gray-200 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : deadline.notes ? (
+                        <button onClick={() => startEditingNote(deadline)} className="text-xs text-gray-500 mt-1 text-left hover:text-brand-dark transition">
+                          📝 {deadline.notes}
+                        </button>
+                      ) : (
+                        <button onClick={() => startEditingNote(deadline)} className="text-xs text-gray-300 mt-1 text-left hover:text-brand-dark transition">
+                          + Add note
+                        </button>
                       )}
                     </div>
                     <div className="flex items-center gap-6">
