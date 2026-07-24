@@ -180,8 +180,12 @@ export default function SalesInvoices({ clientId }: { clientId: string }) {
     setCreating(true)
   }
   async function suggestNextInvoiceNumber() {
-    const { data, error } = await supabase.rpc('get_next_sales_invoice_number', { p_client_id: clientId })
-    if (!error && data) setInvoiceNumberInput(data)
+    const { data, error: rpcError } = await supabase.rpc('get_next_sales_invoice_number', { p_client_id: clientId })
+    if (rpcError) {
+      setError(`Could not auto-suggest an invoice number (${rpcError.message}). You can still type one in manually.`)
+      return
+    }
+    if (data) setInvoiceNumberInput(data)
   }
   function handleContactChange(id: string) {
     setContactId(id)
