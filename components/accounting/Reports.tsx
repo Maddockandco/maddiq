@@ -47,8 +47,18 @@ function today() {
 
 type AccountLine = { code: string; name: string; amount: number; account_type?: string }
 
+const REPORT_LABELS: Record<ReportType, string> = {
+  trial_balance: 'Trial Balance',
+  profit_loss: 'Profit & Loss',
+  balance_sheet: 'Balance Sheet',
+  trade_debtors: 'Trade Debtors',
+  trade_payables: 'Trade Payables',
+  dashboard: 'Dashboard',
+}
+
 export default function Reports({ clientId }: { clientId: string }) {
   const { can } = useRole()
+  const [clientName, setClientName] = useState('')
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
   const [basis, setBasis] = useState<Basis>('accruals')
   const [asOfDate, setAsOfDate] = useState(today())
@@ -62,12 +72,19 @@ export default function Reports({ clientId }: { clientId: string }) {
   const [associatedCount, setAssociatedCount] = useState(0)
   const [matchingCapAllowances, setMatchingCapAllowances] = useState<any>(null)
   const [existingCtComputation, setExistingCtComputation] = useState<any>(null)
+  const [showCtDetail, setShowCtDetail] = useState(false)
   const [ctAccountId, setCtAccountId] = useState('')
   const [ctPayableAccountId, setCtPayableAccountId] = useState('')
   const [postingCt, setPostingCt] = useState(false)
   const [ctPostError, setCtPostError] = useState('')
 
   const supabase = createClient()
+
+  useEffect(() => {
+    supabase.from('clients').select('name').eq('id', clientId).single().then(({ data }) => {
+      if (data) setClientName(data.name)
+    })
+  }, [clientId])
 
   useEffect(() => {
     if (!['trial_balance', 'profit_loss', 'balance_sheet'].includes(reportType)) return
@@ -548,7 +565,38 @@ export default function Reports({ clientId }: { clientId: string }) {
 
         {corporationTax.length > 0 && (
           <>
-            {plSection('Corporation Tax', corporationTax, corporationTaxTotal, 'No Corporation Tax charge recorded in this period')}
+            <div>
+              <button
+                onClick={() => setShowCtDetail((s) => !s)}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <p className="text-xs font-semibold text-brand-dark uppercase tracking-wider mb-3">
+                  Corporation Tax {existingCtComputation && <span className="text-gray-400 font-normal normal-case">— click to {showCtDetail ? 'hide' : 'show'} calculation</span>}
+                </p>
+                <span className="text-gray-400 text-xs">{showCtDetail ? '▲' : '▼'}</span>
+              </button>
+              <div className="space-y-1">
+                {corporationTax.map((row) => (
+                  <div key={row.code} className="flex justify-between text-sm">
+                    <span className="text-gray-600">{row.code} — {row.name}</span>
+                    <span className="font-medium text-brand-dark">£{row.value.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between text-sm font-semibold border-t border-gray-100 mt-2 pt-2">
+                <span className="text-brand-dark">Total Corporation Tax</span>
+                <span className="text-brand-dark">£{corporationTaxTotal.toFixed(2)}</span>
+              </div>
+
+              {showCtDetail && existingCtComputation && (
+                <div className="bg-brand-light rounded-xl p-4 mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-between"><span className="text-gray-500">Depreciation add-back</span><span className="text-brand-dark">£{parseFloat(existingCtComputation.depreciation_addback).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Capital allowances deducted</span><span className="text-brand-dark">£{parseFloat(existingCtComputation.capital_allowances_total).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Profits chargeable to CT</span><span className="text-brand-dark">£{parseFloat(existingCtComputation.box_315_profits_chargeable).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Corporation Tax chargeable</span><span className="text-brand-dark">£{parseFloat(existingCtComputation.box_440_corporation_tax_chargeable).toFixed(2)}</span></div>
+                </div>
+              )}
+            </div>
 
             <div className={`rounded-xl p-4 flex justify-between items-center ${profitAfterTax >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
               <span className="text-sm font-semibold text-brand-dark">{profitAfterTax >= 0 ? 'Profit After Tax' : 'Loss After Tax'}</span>
@@ -692,6 +740,23 @@ export default function Reports({ clientId }: { clientId: string }) {
             <DatePicker value={asOfDate} onChange={setAsOfDate} />
           </div>
         )}
+      </div>
+
+      <div className="bg-brand-dark rounded-2xl px-6 py-5 flex items-center justify-between">
+        <div>
+          <p className="text-white/60 text-xs uppercase tracking-wider">{clientName || 'Client'}</p>
+          <h2 className="text-white text-xl font-semibold">{REPORT_LABELS[reportType]}</h2>
+        </div>
+        <div className="text-right">
+          <p className="text-white/60 text-xs uppercase tracking-wider">
+            {reportType === 'profit_loss' ? 'Period' : 'As at'}
+          </p>
+          <p className="text-white text-sm font-medium">
+            {reportType === 'profit_loss'
+              ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}`
+              : new Date(asOfDate).toLocaleDateString('en-GB')}
+          </p>
+        </div>
       </div>
 
       {reportType === 'profit_loss' && basis === 'cash' && (
