@@ -152,7 +152,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
     setViewTab('details')
     if (viewDetail || !viewingReturn) return
     setLoadingViewDetail(true)
-    const d = await getVatReturnDetail(clientId, viewingReturn.period_start, viewingReturn.period_end, viewingReturn.scheme_at_filing || 'standard')
+    const d = await getVatReturnDetail(clientId, viewingReturn.period_start, viewingReturn.period_end, viewingReturn.scheme_at_filing || 'standard', undefined, viewingReturn.id)
     setViewDetail(d)
     setLoadingViewDetail(false)
   }
@@ -225,6 +225,82 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
     )
   }
 
+  function renderTransactionTable(transactions: any[]) {
+    if (transactions.length === 0) return <p className="text-xs text-gray-400">No lines in this period</p>
+
+    const byRate = new Map<string, any[]>()
+    for (const t of transactions) {
+      const key = t.rateName || 'No rate set'
+      byRate.set(key, [...(byRate.get(key) || []), t])
+    }
+
+    return (
+      <div className="space-y-3">
+        {Array.from(byRate.entries()).map(([rateName, rows]) => {
+          const revised = rows.filter((r) => r.wasRevised)
+          const normal = rows.filter((r) => !r.wasRevised)
+          return (
+            <div key={rateName} className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-brand-dark">{rateName}</div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Contact</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revised.length > 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-1 bg-amber-50 text-amber-700 text-xs font-semibold uppercase tracking-wider">
+                        Revised since this return was filed
+                      </td>
+                    </tr>
+                  )}
+                  {revised.map((t, i) => (
+                    <tr key={`rev-${i}`} className="border-t border-gray-100 bg-amber-50/40">
+                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">
+                        £{t.netAmount.toFixed(2)} <span className="text-amber-600">(was £{t.originalNetAmount.toFixed(2)})</span>
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">
+                        £{t.vatAmount.toFixed(2)} <span className="text-amber-600">(was £{t.originalVatAmount.toFixed(2)})</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {revised.length > 0 && normal.length > 0 && (
+                    <tr><td colSpan={5} className="px-3 py-1 bg-gray-50 text-gray-400 text-xs font-semibold uppercase tracking-wider">Unchanged</td></tr>
+                  )}
+                  {normal.map((t, i) => (
+                    <tr key={`n-${i}`} className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
+                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                    <td colSpan={3} className="px-3 py-2 text-gray-500">Subtotal — {rateName}</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{rows.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right text-brand-dark">£{rows.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   function renderTransactionDetail(d: VatReturnDetail | null, isLoading: boolean) {
     if (isLoading) return <p className="text-xs text-gray-400">Loading underlying transactions...</p>
     if (!d) return null
@@ -242,41 +318,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
               Box 1 under Flat Rate is calculated as gross turnover × your rate — it isn't a sum of these lines' own VAT amounts, since that's not how this scheme works.
             </p>
           )}
-          {d.salesTransactions.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales lines in this period</p>
-          ) : (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Customer</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.salesTransactions.map((t, i) => (
-                    <tr key={i} className="border-t border-gray-100">
-                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
-                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
-                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
-                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
-                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
-                    <td className="px-3 py-2 text-right text-brand-dark">£{d.salesTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right text-brand-dark">£{d.salesTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          {renderTransactionTable(d.salesTransactions)}
         </div>
 
         <div>
@@ -289,41 +331,7 @@ export default function VatReturn({ clientId, onSwitchToSetup }: { clientId: str
               Only capital purchases over £2,000 (including VAT) are shown — under Flat Rate, everything else isn't reclaimable.
             </p>
           )}
-          {d.purchaseTransactions.length === 0 ? (
-            <p className="text-xs text-gray-400">No purchase lines in this period</p>
-          ) : (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Date</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Reference</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500">Supplier</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-500">Net</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-500">VAT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.purchaseTransactions.map((t, i) => (
-                    <tr key={i} className="border-t border-gray-100">
-                      <td className="px-3 py-1.5 text-gray-500">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                      <td className="px-3 py-1.5 text-brand-dark font-mono">{t.reference}</td>
-                      <td className="px-3 py-1.5 text-brand-dark">{t.contactName}</td>
-                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.netAmount.toFixed(2)}</td>
-                      <td className="px-3 py-1.5 text-right text-brand-dark">£{t.vatAmount.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
-                    <td colSpan={3} className="px-3 py-2 text-gray-500">Total</td>
-                    <td className="px-3 py-2 text-right text-brand-dark">£{d.purchaseTransactions.reduce((s, t) => s + t.netAmount, 0).toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right text-brand-dark">£{d.purchaseTransactions.reduce((s, t) => s + t.vatAmount, 0).toFixed(2)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          {renderTransactionTable(d.purchaseTransactions)}
         </div>
       </>
     )
