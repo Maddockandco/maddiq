@@ -13,6 +13,7 @@ type LineDraft = {
   description: string
   vat_rate_id: string
   amount_type: 'exclusive' | 'inclusive'
+  contact_id: string
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -36,8 +37,8 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   const [reference, setReference] = useState('')
   const [description, setDescription] = useState('')
   const [lines, setLines] = useState<LineDraft[]>([
-    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
-    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
+    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive', contact_id: '' },
+    { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive', contact_id: '' },
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -46,6 +47,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   const [expandedLines, setExpandedLines] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [vatAccountId, setVatAccountId] = useState<string | null>(null)
+  const [contacts, setContacts] = useState<any[]>([])
   const { can } = useRole()
   const supabase = createClient()
 
@@ -71,12 +73,14 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
       .eq('is_active', true)
       .order('code', { ascending: true })
 
-    const [vatRatesResult, settingsResult] = await Promise.all([
+    const [vatRatesResult, settingsResult, contactsResult] = await Promise.all([
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('accounting_settings').select('vat_account_id').eq('client_id', clientId).maybeSingle(),
+      supabase.from('contacts').select('id, name').eq('client_id', clientId).eq('is_active', true).order('name'),
     ])
     setVatRates(vatRatesResult.data || [])
     setVatAccountId(settingsResult.data?.vat_account_id || null)
+    setContacts(contactsResult.data || [])
 
     if (entriesResult.data) setEntries(entriesResult.data)
     if (accountsResult.data) {
@@ -108,7 +112,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
   }
 
   function addLine() {
-    setLines([...lines, { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' }])
+    setLines([...lines, { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive', contact_id: '' }])
   }
 
   function updateLine(index: number, field: keyof LineDraft, value: string) {
@@ -236,6 +240,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           debit: split.side === 'debit' ? split.netAmount : 0,
           credit: split.side === 'credit' ? split.netAmount : 0,
           description: l.description || null,
+          contact_id: l.contact_id || null,
           sort_order: sortOrder++,
         })
         linesToInsert.push({
@@ -244,6 +249,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           debit: split.side === 'debit' ? split.vatAmount : 0,
           credit: split.side === 'credit' ? split.vatAmount : 0,
           description: `VAT ${split.ratePercent}% on: ${l.description || 'journal line'}`,
+          contact_id: l.contact_id || null,
           sort_order: sortOrder++,
         })
       } else {
@@ -253,6 +259,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
           debit: parseFloat(l.debit) || 0,
           credit: parseFloat(l.credit) || 0,
           description: l.description || null,
+          contact_id: l.contact_id || null,
           sort_order: sortOrder++,
         })
       }
@@ -279,8 +286,8 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     setReference('')
     setDescription('')
     setLines([
-      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
-      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive' },
+      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive', contact_id: '' },
+      { account_id: '', debit: '', credit: '', description: '', vat_rate_id: '', amount_type: 'exclusive', contact_id: '' },
     ])
     fetchData()
     setSaving(false)
@@ -293,7 +300,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
     }
     const { data } = await supabase
       .from('journal_lines')
-      .select('*, chart_of_accounts(code, name)')
+      .select('*, chart_of_accounts(code, name), contacts(name)')
       .eq('journal_entry_id', entryId)
       .order('sort_order', { ascending: true })
     if (data) setExpandedLines(data)
@@ -429,6 +436,18 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
                       ✕
                     </button>
                   </div>
+                  <div className="grid grid-cols-12 gap-2 items-center pl-1">
+                    <div className="col-span-3">
+                      <select
+                        value={line.contact_id}
+                        onChange={(e) => updateLine(index, 'contact_id', e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-gold"
+                      >
+                        <option value="">No contact</option>
+                        {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
                   {line.vat_rate_id && split.side && (
                     <div className="col-span-12 flex items-center gap-3 pl-1">
                       <label className="flex items-center gap-1 text-xs text-gray-500">
@@ -524,6 +543,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
                         <tr className="text-xs text-gray-400 uppercase tracking-wider">
                         <th className="text-left pb-2">Account</th>
                         <th className="text-left pb-2">Description</th>
+                        <th className="text-left pb-2">Contact</th>
                         <th className="text-right pb-2">Debit</th>
                         <th className="text-right pb-2">Credit</th>
                       </tr>
@@ -535,6 +555,7 @@ export default function JournalEntries({ clientId }: { clientId: string }) {
                             {line.chart_of_accounts?.code} — {line.chart_of_accounts?.name}
                           </td>
                           <td className="py-2 text-gray-500">{line.description || '—'}</td>
+                          <td className="py-2 text-gray-500">{line.contacts?.name || '—'}</td>
                           <td className="py-2 text-right font-medium">{line.debit > 0 ? `£${parseFloat(line.debit).toFixed(2)}` : ''}</td>
                           <td className="py-2 text-right font-medium">{line.credit > 0 ? `£${parseFloat(line.credit).toFixed(2)}` : ''}</td>
                         </tr>
