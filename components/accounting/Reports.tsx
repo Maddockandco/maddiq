@@ -45,6 +45,20 @@ function today() {
   return new Date().toISOString().split('T')[0]
 }
 
+// Given a client's year-end (month/day) and an as-of date, finds the start of
+// the accounting period currently in progress. Falls back to the start of
+// the calendar year if no year-end is set, so a live estimate is still
+// possible for a client whose year-end hasn't been configured yet.
+function currentPeriodStart(asOfDate: string, yearEndDate: string | null): string {
+  if (!yearEndDate) return `${new Date(asOfDate).getFullYear()}-01-01`
+  const ye = new Date(yearEndDate)
+  const asOf = new Date(asOfDate)
+  let candidate = new Date(asOf.getFullYear(), ye.getMonth(), ye.getDate())
+  if (candidate >= asOf) candidate = new Date(asOf.getFullYear() - 1, ye.getMonth(), ye.getDate())
+  candidate.setDate(candidate.getDate() + 1)
+  return candidate.toISOString().split('T')[0]
+}
+
 type AccountLine = { code: string; name: string; amount: number; account_type?: string }
 
 const REPORT_LABELS: Record<ReportType, string> = {
@@ -59,6 +73,8 @@ const REPORT_LABELS: Record<ReportType, string> = {
 export default function Reports({ clientId }: { clientId: string }) {
   const { can } = useRole()
   const [clientName, setClientName] = useState('')
+  const [yearEndDate, setYearEndDate] = useState<string | null>(null)
+  const [bsCtEstimate, setBsCtEstimate] = useState<any>(null)
   const [reportType, setReportType] = useState<ReportType>('trial_balance')
   const [basis, setBasis] = useState<Basis>('accruals')
   const [asOfDate, setAsOfDate] = useState(today())
@@ -81,8 +97,11 @@ export default function Reports({ clientId }: { clientId: string }) {
   const supabase = createClient()
 
   useEffect(() => {
-    supabase.from('clients').select('name').eq('id', clientId).single().then(({ data }) => {
-      if (data) setClientName(data.name)
+    supabase.from('clients').select('name, year_end_date').eq('id', clientId).single().then(({ data }) => {
+      if (data) {
+        setClientName(data.name)
+        setYearEndDate(data.year_end_date || null)
+      }
     })
   }, [clientId])
 
@@ -98,6 +117,60 @@ export default function Reports({ clientId }: { clientId: string }) {
   useEffect(() => {
     if (reportType === 'profit_loss' && basis === 'accruals') fetchCtInputs()
   }, [clientId, reportType, basis, periodStart, periodEnd])
+
+  useEffect(() => {
+    if (reportType === 'balance_sheet') fetchBsCtEstimate()
+  }, [clientId, reportType, asOfDate, yearEndDate])
+
+  async function fetchBsCtEstimate() {
+    setBsCtEstimate(null)
+    const periodStartForCt = currentPeriodStart(asOfDate, yearEndDate)
+
+    const [alreadyPostedRes, ledgerRes, capRes, assocRes] = await Promise.all([
+      // Skip the live estimate entirely if a real CT charge already covers today's date
+      supabase.from('ct600_computations').select('id').eq('client_id', clientId).lte('period_start', asOfDate).gte('period_end', asOfDate).limit(1),
+      supabase
+        .from('journal_lines')
+        .select('debit, credit, chart_of_accounts(account_type), journal_entries!inner(entry_date, client_id)')
+        .eq('journal_entries.client_id', clientId)
+        .gte('journal_entries.entry_date', periodStartForCt)
+        .lte('journal_entries.entry_date', asOfDate),
+      supabase.from('capital_allowances_periods').select('*').eq('client_id', clientId).eq('status', 'finalized')
+        .lte('period_start', asOfDate).gte('period_end', periodStartForCt).order('period_end', { ascending: false }).limit(1),
+      supabase.from('associated_companies').select('id').eq('client_id', clientId).eq('is_active', true),
+    ])
+
+    if ((alreadyPostedRes.data || []).length > 0) return
+
+    let income = 0, expense = 0, depreciation = 0
+    for (const line of ledgerRes.data || []) {
+      const type = (line as any).chart_of_accounts?.account_type
+      const category = categoryOf(type)
+      const debit = parseFloat((line as any).debit) || 0
+      const credit = parseFloat((line as any).credit) || 0
+      if (category === 'income') income += credit - debit
+      if (category === 'expense') {
+        expense += debit - credit
+        if (type === 'depreciation') depreciation += debit - credit
+      }
+    }
+    const accountingProfit = income - expense
+    if (accountingProfit === 0) return
+
+    const matchingCap = capRes.data?.[0] || null
+    const result = calculateCorporationTax({
+      accountingProfit,
+      depreciationAddback: depreciation,
+      capitalAllowancesTotal: matchingCap ? parseFloat(matchingCap.total_allowances) : 0,
+      otherIncome: 0,
+      manualAdjustments: [],
+      qualifyingDonations: 0,
+      associatedCompaniesCount: assocRes.data?.length || 0,
+      periodStartDate: periodStartForCt,
+      periodEndDate: asOfDate,
+    })
+    setBsCtEstimate({ ...result, periodStartForCt, hasCapitalAllowances: !!matchingCap })
+  }
 
   async function handlePostCtToLedger(estimatedResult: any, depreciationOnlyTotal: number, accountingProfit: number) {
     if (!ctAccountId || !ctPayableAccountId) {
@@ -659,6 +732,16 @@ export default function Reports({ clientId }: { clientId: string }) {
             <span className="text-brand-dark">Total Liabilities</span>
             <span className="text-brand-dark">£{liabilityTotal.toFixed(2)}</span>
           </div>
+
+          {bsCtEstimate && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3 flex justify-between items-center">
+              <div>
+                <p className="text-xs font-semibold text-amber-800">Estimated Corporation Tax Payable (live snapshot, not yet posted)</p>
+                <p className="text-xs text-amber-700 mt-0.5">Based on profit since {new Date(bsCtEstimate.periodStartForCt).toLocaleDateString('en-GB')}{!bsCtEstimate.hasCapitalAllowances ? ' — no capital allowances period found for this range' : ''}</p>
+              </div>
+              <span className="text-base font-bold text-amber-800">£{bsCtEstimate.box440CorporationTaxChargeable.toFixed(2)}</span>
+            </div>
+          )}
         </div>
 
         <div>
