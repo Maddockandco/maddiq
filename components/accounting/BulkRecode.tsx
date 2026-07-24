@@ -32,6 +32,8 @@ interface LineRow {
   contactName: string
   status: string
   description: string
+  currentAccountCode: string
+  currentAccountName: string
   netAmount: number
   vatAmount: number
   vatRateName: string
@@ -58,6 +60,8 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<any[]>([])
   const [vatRates, setVatRates] = useState<any[]>([])
   const [firmUsers, setFirmUsers] = useState<any[]>([])
+  const [contacts, setContacts] = useState<any[]>([])
+  const [openContactDropdown, setOpenContactDropdown] = useState<string | null>(null)
   const [filedPeriods, setFiledPeriods] = useState<{ start: string; end: string }[]>([])
 
   const [matchAll, setMatchAll] = useState(true)
@@ -82,17 +86,19 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
   useEffect(() => { fetchStaticData() }, [clientId, direction])
 
   async function fetchStaticData() {
-    const [accountsRes, vatRes, returnsRes, usersRes] = await Promise.all([
+    const [accountsRes, vatRes, returnsRes, usersRes, contactsRes] = await Promise.all([
       supabase.from('chart_of_accounts').select('id, code, name, account_type').eq('client_id', clientId).eq('is_active', true).order('code'),
       supabase.from('vat_rates').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('vat_returns').select('period_start, period_end').eq('client_id', clientId).eq('status', 'filed'),
       supabase.from('firm_users').select('user_id, full_name').eq('is_active', true),
+      supabase.from('contacts').select('id, name').eq('client_id', clientId).eq(direction === 'sales' ? 'is_customer' : 'is_supplier', true).eq('is_active', true).order('name'),
     ])
     const category = direction === 'sales' ? 'income' : 'expense'
     setAccounts((accountsRes.data || []).filter((a: any) => TYPE_TO_CATEGORY[a.account_type] === category))
     setVatRates(vatRes.data || [])
     setFiledPeriods((returnsRes.data || []).map((r: any) => ({ start: r.period_start, end: r.period_end })))
     setFirmUsers(usersRes.data || [])
+    setContacts(contactsRes.data || [])
     setRows([])
     setSelected(new Set())
     setSearched(false)
@@ -171,15 +177,21 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
     const parentTable = direction === 'sales' ? 'sales_invoices' : 'purchase_bills'
     const dateField = direction === 'sales' ? 'invoice_date' : 'bill_date'
     const refField = direction === 'sales' ? 'invoice_number' : 'bill_number'
-    const selectCols = `id, description, quantity, unit_price, line_total, vat_amount, vat_rate_id, vat_rates(name), ${parentTable}!inner(id, ${dateField}, ${refField}, status, client_id, contact_id, contacts(name))`
+    const accountField = direction === 'sales' ? 'income_account_id' : 'expense_account_id'
+    const selectCols = `id, description, quantity, unit_price, line_total, vat_amount, vat_rate_id, vat_rates(name), chart_of_accounts!${accountField}(code, name), ${parentTable}!inner(id, ${dateField}, ${refField}, status, client_id, contact_id, contacts(name))`
 
-    // "Contact" is a doubly-nested embed (line -> parent -> contact), which
-    // isn't reliable to filter directly - resolve matching contact ids first.
-    const contactCondition = conditions.find((c) => c.field === 'contact' && c.value)
+    // "Contact" - if a specific contact was picked from the autocomplete,
+    // filter on that id directly (precise). Otherwise fall back to matching
+    // by whatever's been typed, in case someone didn't pick a suggestion.
+    const contactCondition = conditions.find((c) => c.field === 'contact' && (c.value2 || c.value))
     let contactIds: string[] | null = null
     if (contactCondition) {
-      const { data: matches } = await supabase.from('contacts').select('id').eq('client_id', clientId).ilike('name', `%${contactCondition.value}%`)
-      contactIds = (matches || []).map((c: any) => c.id)
+      if (contactCondition.value2) {
+        contactIds = [contactCondition.value2]
+      } else {
+        const { data: matches } = await supabase.from('contacts').select('id').eq('client_id', clientId).ilike('name', `%${contactCondition.value}%`)
+        contactIds = (matches || []).map((c: any) => c.id)
+      }
       if (contactIds.length === 0) {
         setRows([]); setSelected(new Set()); setSearching(false); setSearched(true)
         return
@@ -237,6 +249,8 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
         contactName: parent.contacts?.name || '—',
         status: parent.status,
         description: l.description,
+        currentAccountCode: l.chart_of_accounts?.code || '',
+        currentAccountName: l.chart_of_accounts?.name || '—',
         netAmount: parseFloat(l.line_total),
         vatAmount: parseFloat(l.vat_amount),
         vatRateName: l.vat_rates?.name || '—',
@@ -364,8 +378,41 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
             <input type="number" value={c.value2} onChange={(e) => updateCondition(c.id, { value2: e.target.value })} className={inputClass} placeholder="Max £" />
           </div>
         )
-      case 'contact':
-        return <input type="text" value={c.value} onChange={(e) => updateCondition(c.id, { value: e.target.value })} className={inputClass} placeholder="Contact name contains..." />
+      case 'contact': {
+        const matches = c.value.length > 0
+          ? contacts.filter((ct) => ct.name.toLowerCase().includes(c.value.toLowerCase())).slice(0, 8)
+          : []
+        return (
+          <div className="relative">
+            <input
+              type="text"
+              value={c.value}
+              onChange={(e) => {
+                updateCondition(c.id, { value: e.target.value, value2: '' })
+                setOpenContactDropdown(c.id)
+              }}
+              onFocus={() => setOpenContactDropdown(c.id)}
+              onBlur={() => setTimeout(() => setOpenContactDropdown((cur) => (cur === c.id ? null : cur)), 150)}
+              className={inputClass}
+              placeholder="Start typing a contact name..."
+            />
+            {openContactDropdown === c.id && matches.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                {matches.map((ct) => (
+                  <button
+                    key={ct.id}
+                    type="button"
+                    onClick={() => { updateCondition(c.id, { value: ct.name, value2: ct.id }); setOpenContactDropdown(null) }}
+                    className="block w-full text-left px-3 py-2 text-sm text-brand-dark hover:bg-gray-50 transition"
+                  >
+                    {ct.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      }
       case 'reference':
         return <input type="text" value={c.value} onChange={(e) => updateCondition(c.id, { value: e.target.value })} className={inputClass} placeholder="Reference contains..." />
     }
@@ -477,6 +524,7 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
                           <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Reference</th>
                           <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Contact</th>
                           <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Description</th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Current Account</th>
                           <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">Net</th>
                           <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">VAT</th>
                           <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Rate</th>
@@ -491,6 +539,7 @@ export default function BulkRecode({ clientId }: { clientId: string }) {
                             <td className="px-4 py-2 font-mono text-brand-dark">{r.reference}</td>
                             <td className="px-4 py-2 text-brand-dark">{r.contactName}</td>
                             <td className="px-4 py-2 text-gray-600">{r.description}</td>
+                            <td className="px-4 py-2 text-gray-600">{r.currentAccountCode} — {r.currentAccountName}</td>
                             <td className="px-4 py-2 text-right text-brand-dark">£{r.netAmount.toFixed(2)}</td>
                             <td className="px-4 py-2 text-right text-brand-dark">£{r.vatAmount.toFixed(2)}</td>
                             <td className="px-4 py-2 text-gray-500">{r.vatRateName}</td>
