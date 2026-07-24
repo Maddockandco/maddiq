@@ -10,26 +10,48 @@ import {
   Calendar,
   FileText,
   TrendingUp,
+  FileSignature,
+  FileCheck,
+  Calculator,
   Settings,
   LogOut,
   Menu,
   X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useRole } from '@/hooks/useRole'
 
 const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Clients', href: '/clients', icon: Users },
-  { label: 'Tasks', href: '/tasks', icon: CheckSquare },
-  { label: 'Deadlines', href: '/deadlines', icon: Calendar },
-  { label: 'Documents', href: '/documents', icon: FileText },
-  { label: 'Pipeline', href: '/pipeline', icon: TrendingUp },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
+  { label: 'Clients', href: '/clients', icon: Users, show: true },
+  { label: 'Tasks', href: '/tasks', icon: CheckSquare, show: true },
+  { label: 'Deadlines', href: '/deadlines', icon: Calendar, show: true },
+  { label: 'Documents', href: '/documents', icon: FileText, show: true },
 ]
 
 export default function MobileHeader() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
   const supabase = createClient()
+  const { can, role } = useRole()
+
+  // Mirrors Sidebar.tsx exactly - Accounting is available to everyone who might
+  // actually need to work in it day to day; Admin Staff is the only role excluded.
+  const canAccessAccounting = [
+    'practice_owner',
+    'practice_manager',
+    'bookkeeper',
+    'payroll_manager',
+    'client_manager',
+  ].includes(role || '')
+
+  const allNavItems = [
+    ...navItems,
+    { label: 'Accounting', href: '/accounting', icon: Calculator, show: canAccessAccounting },
+    { label: 'Pipeline', href: '/pipeline', icon: TrendingUp, show: can.managePipeline },
+    { label: 'Quotes', href: '/quotes', icon: FileSignature, show: can.managePipeline },
+    { label: 'Proposals', href: '/proposals', icon: FileCheck, show: can.managePipeline },
+  ].filter((item) => item.show)
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -80,7 +102,7 @@ export default function MobileHeader() {
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1">
-          {navItems.map((item) => {
+          {allNavItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)
             return (
