@@ -903,6 +903,80 @@ export default function Reports({ clientId }: { clientId: string }) {
     )
   }
 
+  function downloadCsv(filename: string, rows: (string | number)[][]) {
+    const csv = rows
+      .map((row) => row.map((cell) => {
+        const str = String(cell)
+        return str.includes(',') || str.includes('"') || str.includes('\n') ? `"${str.replace(/"/g, '""')}"` : str
+      }).join(','))
+      .join('\n')
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleExportCsv() {
+    const dateLabel = ['profit_loss', 'general_ledger'].includes(reportType)
+      ? `${periodStart}_to_${periodEnd}`
+      : asOfDate
+    const filename = `${(clientName || 'client').replace(/\s+/g, '_')}_${reportType}_${dateLabel}.csv`
+    const rows: (string | number)[][] = []
+
+    if (reportType === 'trial_balance') {
+      rows.push(['Code', 'Account', 'Debit', 'Credit'])
+      let totalDebit = 0, totalCredit = 0
+      allAccountBalances().forEach((a) => {
+        const net = a.debit - a.credit
+        const debit = net > 0 ? net : 0
+        const credit = net < 0 ? -net : 0
+        totalDebit += debit
+        totalCredit += credit
+        rows.push([a.code, a.name, debit.toFixed(2), credit.toFixed(2)])
+      })
+      rows.push(['', 'Total', totalDebit.toFixed(2), totalCredit.toFixed(2)])
+    } else if (reportType === 'profit_loss') {
+      rows.push(['Section', 'Code', 'Account', 'Amount'])
+      const incomeAccounts = accountBalances('income')
+      const expenseAccounts = accountBalances('expense')
+      incomeAccounts.forEach((a) => rows.push(['Income', a.code, a.name, (a.credit - a.debit).toFixed(2)]))
+      expenseAccounts.filter((a) => a.account_type !== 'corporation_tax').forEach((a) => rows.push(['Expense', a.code, a.name, (a.debit - a.credit).toFixed(2)]))
+      const netProfit = calculateNetProfit()
+      rows.push(['', '', 'Net Profit', netProfit.toFixed(2)])
+      const ctAccounts = expenseAccounts.filter((a) => a.account_type === 'corporation_tax')
+      if (ctAccounts.length > 0) {
+        const ctTotal = ctAccounts.reduce((sum, a) => sum + (a.debit - a.credit), 0)
+        ctAccounts.forEach((a) => rows.push(['Corporation Tax', a.code, a.name, (a.debit - a.credit).toFixed(2)]))
+        rows.push(['', '', 'Profit After Tax', (netProfit - ctTotal).toFixed(2)])
+      }
+    } else if (reportType === 'balance_sheet') {
+      rows.push(['Section', 'Code', 'Account', 'Amount'])
+      accountBalances('asset').forEach((a) => rows.push(['Asset', a.code, a.name, (a.debit - a.credit).toFixed(2)]))
+      accountBalances('liability').forEach((a) => rows.push(['Liability', a.code, a.name, (a.credit - a.debit).toFixed(2)]))
+      accountBalances('equity').forEach((a) => rows.push(['Equity', a.code, a.name, (a.credit - a.debit).toFixed(2)]))
+      rows.push(['', '', 'Retained Profit', calculateNetProfit().toFixed(2)])
+      if (bsCtEstimate) {
+        rows.push(['Estimated (not yet posted)', '', 'Corporation Tax Payable', bsCtEstimate.box440CorporationTaxChargeable.toFixed(2)])
+      }
+    } else if (reportType === 'general_ledger') {
+      rows.push(['Account', 'Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'])
+      glData.forEach((acc) => {
+        rows.push([`${acc.code} — ${acc.name}`, '', '', 'Opening balance', '', '', acc.opening.toFixed(2)])
+        acc.transactions.forEach((t: any) => {
+          rows.push(['', t.date, t.reference || '', t.description || '', t.debit > 0 ? t.debit.toFixed(2) : '', t.credit > 0 ? t.credit.toFixed(2) : '', t.balance.toFixed(2)])
+        })
+        rows.push(['', '', '', 'Closing balance', '', '', acc.runningBalance.toFixed(2)])
+      })
+    } else {
+      return
+    }
+
+    downloadCsv(filename, rows)
+  }
+
   const tabClass = (active: boolean) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       active ? 'bg-brand-dark text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -974,15 +1048,25 @@ export default function Reports({ clientId }: { clientId: string }) {
           <p className="text-white/60 text-xs uppercase tracking-wider">{clientName || 'Client'}</p>
           <h2 className="text-white text-xl font-semibold">{REPORT_LABELS[reportType]}</h2>
         </div>
-        <div className="text-right">
-          <p className="text-white/60 text-xs uppercase tracking-wider">
-            {['profit_loss', 'general_ledger'].includes(reportType) ? 'Period' : 'As at'}
-          </p>
-          <p className="text-white text-sm font-medium">
-            {['profit_loss', 'general_ledger'].includes(reportType)
-              ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}`
-              : new Date(asOfDate).toLocaleDateString('en-GB')}
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-white/60 text-xs uppercase tracking-wider">
+              {['profit_loss', 'general_ledger'].includes(reportType) ? 'Period' : 'As at'}
+            </p>
+            <p className="text-white text-sm font-medium">
+              {['profit_loss', 'general_ledger'].includes(reportType)
+                ? `${new Date(periodStart).toLocaleDateString('en-GB')} – ${new Date(periodEnd).toLocaleDateString('en-GB')}`
+                : new Date(asOfDate).toLocaleDateString('en-GB')}
+            </p>
+          </div>
+          {['trial_balance', 'profit_loss', 'balance_sheet', 'general_ledger'].includes(reportType) && (
+            <button
+              onClick={handleExportCsv}
+              className="text-xs bg-white/10 text-white font-semibold px-3 py-2 rounded-lg hover:bg-white/20 transition flex-shrink-0"
+            >
+              Export CSV
+            </button>
+          )}
         </div>
       </div>
 
